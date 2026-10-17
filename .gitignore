@@ -1,0 +1,56 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+secrets/
+credentials/
+**/service-account*.json
+**/credentials*.json
+**/token*.json
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# Customer data, operational exports, and browser sessions
+customer-data/
+production-data/
+exports/raw/
+*.har
+*.cookies
+
+# Original design / 3D / presentation / media assets belong in Google Drive
+assets/source/
+*.psd
+*.psb
+*.ai
+*.sketch
+*.fig
+*.blend
+*.fbx
+*.obj
+*.c4d
+*.glb
+*.gltf
+*.pptx
+*.keynote
+*.mp4
+*.mov
+*.avi
+*.wav
+*.zip
+*.7z
+*.rar
+
+# Local tools and temporary files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.bak
+~$*
+node_modules/
+.venv/
+__pycache__/
