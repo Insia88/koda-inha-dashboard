@@ -13,6 +13,7 @@
 
 | 공간 | 링크 | 역할 |
 | --- | --- | --- |
+| Notion | [통합 공동 자료실](https://app.notion.com/p/3fc3e9751aff81bcb4fbcd0f6cecc27a) | GitHub·Drive·에셋을 모아 둔 공통 시작점 |
 | Notion | [KODA 프로젝트 허브](https://app.notion.com/p/3eb3e9751aff819bb8d3eec53f76ebc8) | 회의록·업무와 자료 링크의 시작점 |
 | Notion | [10/16 오피스 방문 미팅록](https://app.notion.com/p/3fc3e9751aff816cbf02c8e07d772614) | 팀이 읽는 회의록 |
 | GitHub | [koda-inha-dashboard](https://github.com/Insia88/koda-inha-dashboard) | Markdown 요구사항·설계·결정의 버전 관리 |
