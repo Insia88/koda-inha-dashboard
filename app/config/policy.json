@@ -1,0 +1,14 @@
+{
+  "$comment": "설계 가정(변경 가능). 실제 KODA 승인 정책·한도가 아니다. docs/assumptions.md 참조.",
+  "approval": {
+    "defaultRequiredApprovals": 1,
+    "highValueThresholdKrw": "100000000",
+    "highValueRequiredApprovals": 2
+  },
+  "addressBook": {
+    "requireSecondPersonReview": true,
+    "confirmTailLength": 6
+  },
+  "priceStaleAfterMinutes": 30,
+  "mockCustodyProcessingMs": 4000
+}
