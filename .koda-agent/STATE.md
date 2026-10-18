@@ -1,12 +1,18 @@
 # KODA 대시보드 작업 상태
 
-갱신: 2026-10-19 (회차 4 완료 — 독립 검수 review-20261019-0230 처리)
+갱신: 2026-10-19 (회차 5 완료 — review-20261019-0300 사용자 문구 정리)
 
 ## 기준 사실
 - 브랜치: `feat/enterprise-dashboard-app` (main 5d7ab25에서 분기). 로컬 커밋만 있음(푸시·PR·main 병합 안 함).
 - 커밋 작성자: 저장소에 git 사용자 설정이 없어 `-c user.name="KODA build agent" -c user.email="agent@localhost.invalid"` 사용(전역 설정 변경 안 함).
 - Notion/Drive 연결 도구 없음 → 로컬 사본(context/)만 사용. 최신 Notion/Drive 변경은 확인하지 못함.
 - 원본 앱 없음 → `app/`에 새로 구축(Fastify + node:sqlite + React/Vite + TanStack Query).
+
+## 회차 5 결과 (review-20261019-0300: 사용자 화면 문구 2곳, 동작 변경 없음)
+- app/src/pages/InsightsManage.tsx 머리말 설명: '화이트리스트 기관의 자료만 게시할 수 있습니다(서버에서 검사). 운영 기준은 config/insight-policy.json 설정으로 분리되어 있습니다.' → '게시가 허용된 기관의 자료를 올리고 공개 상태를 관리합니다.' 화이트리스트·모의 데이터 안내 상자와 서버 화이트리스트 검사(server/app.ts)는 그대로 유지. 설정 파일 경로는 개발/운영 문서에만 남음.
+- app/src/pages/Org.tsx: 자기 승인 금지 문장 끝의 '(서버에서 검사)'만 제거. 의미 유지.
+- 검증(범위 한정): typecheck exit 0, build 통과. 실제 Chromium으로 /insights/manage(u-k-op), /org(u-a-yoon)를 1440·390px 렌더 → 새 문구 표시, 화면 본문에 '서버에서 검사'·'insight-policy'·'config/' 없음, 화이트리스트/모의 고지 유지, 가로 넘침 없음, 콘솔 오류 0. 스크린샷 app/artifacts/screenshots/copy-{insights-manage,org}-{desktop,mobile}.png, copy-insights-manage-mobile-top.png. 기존 테스트는 이 문자열을 참조하지 않음(grep 확인) → e2e·단위 테스트는 지시대로 재실행·변경하지 않음.
+- 참고(범위 밖, 미수정): 로컬 개발 DB에 이전 E2E로 인사이트 게시물이 누적돼 관리 화면 목록이 길다. `npm run db:reset`으로 초기화.
 
 ## 회차 4 결과 (review-20261019-0230: 인사이트 메타데이터만 변경 시 입력 유실)
 - 원인: InsightsManage의 dirty가 제목·요약·원문 주소만 검사 → 기관·발행일·언어만 바꾸면 인앱 이동·창 닫기 보호가 없었음.
@@ -44,6 +50,7 @@ npm test ; npm run build && npm run e2e ; node scripts/screens.mjs ; node script
 - CI: .github/workflows/app-check.yml (PR 시 typecheck·test·build·e2e).
 
 ## 대기(WAIT) 근거
+회차 5: review-20261019-0300의 사용자 문구 2곳을 정리하고 typecheck/build·실제 화면 렌더로 확인했다. 운영 도입 전 외부 연동 조건은 그대로 남아 있다: 운영 SSO·재인증, 커스터디 테스트 환경 연동, 실제 KODA 역할·상태·승인 정책, 주소 검증 규칙, 인사이트 운영 기준, 운영 DB·감사 보존 정책, 실사용자 검증(app/docs/operations.md).
 검수 review-20261019-0230의 인사이트 입력 유실 결함을 수정하고 신규·전체 브라우저 검사, typecheck/build/정적 audit를 통과했다(회차 4). 그 전 검수 review-20261019-0130의 로컬 결함 1~5와 검증 중 새로 발견한 결함 4건을 구현·수정했고, 6의 브라우저 검사·영향 검사·typecheck/build/정적 audit가 모두 통과했다. 이전 수용 기준(DASH-001~007, 권한·격리·자기 승인·전이·멱등·동시성·정밀도·감사 불변·CSV·오류·새로고침·E2E·반응형·접근성 자동 검사)도 재통과. 남은 항목은 외부 자료·환경이 필요하므로 범위를 임의로 넓히지 않고 대기한다.
 
 ## 남은 항목 / 다음 작업

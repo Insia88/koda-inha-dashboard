@@ -48,7 +48,7 @@ export function InsightsManagePage() {
   if (list.error) return <ErrorState error={list.error} onRetry={() => list.refetch()} />;
   return (
     <div className="page">
-      <PageHeader title="인사이트 자료 관리" description="화이트리스트 기관의 자료만 게시할 수 있습니다(서버에서 검사). 운영 기준은 config/insight-policy.json 설정으로 분리되어 있습니다." />
+      <PageHeader title="인사이트 자료 관리" description="게시가 허용된 기관의 자료를 올리고 공개 상태를 관리합니다." />
       <Notice tone="info">기관 화이트리스트와 선별 기준은 KODA 운영팀이 정합니다. 이 화면의 기관과 자료는 모두 모의 데이터입니다.</Notice>
       <form ref={formRef} className="form card" noValidate onSubmit={(e) => { e.preventDefault(); if (!create.isPending) create.mutate(f); }}>
         <fieldset className="form-lock" disabled={create.isPending}>

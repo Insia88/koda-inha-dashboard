@@ -27,7 +27,7 @@ export function OrgPage() {
       <section className="card">
         <h2>역할 설명</h2>
         <ul className="role-list">{ROLES.map((r) => <li key={r}><b>{ROLE_LABEL[r].label}</b> — {ROLE_LABEL[r].description}</li>)}</ul>
-        <p className="muted small">한 사람이 요청자와 승인자 역할을 함께 가질 수 있지만, 자기 요청과 자기가 등록한 주소는 승인할 수 없습니다(서버에서 검사).</p>
+        <p className="muted small">한 사람이 요청자와 승인자 역할을 함께 가질 수 있지만, 자기 요청과 자기가 등록한 주소는 승인할 수 없습니다.</p>
       </section>
       <div className="table-wrap">
         <table className="table">
