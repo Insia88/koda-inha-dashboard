@@ -384,6 +384,19 @@ describe('Market Insight', () => {
   });
 });
 
+describe('실험: 보유 자산 관련 자료', () => {
+  it('is off by default and filters only by own held asset codes when enabled', async () => {
+    const a = api(ctx.app, await login(ctx.app, 'u-a-han'));
+    expect((await a.get('/api/insights?related=1')).body.error.code).toBe('EXPERIMENT_DISABLED');
+    const on = await makeApp({ holdingRelated: true });
+    const b = api(on.app, await login(on.app, 'u-b-bae')); // 모의법인 B: ETH·USDC 보유
+    const r = await b.get('/api/insights?related=1&limit=50');
+    expect(r.body.total).toBeGreaterThan(0);
+    expect(r.body.items.every((i: any) => i.assetTags.some((t: string) => ['ETH', 'USDC'].includes(t)))).toBe(true);
+    await on.app.close(); on.db.close();
+  });
+});
+
 describe('새로고침·재시작 후 상태 유지', () => {
   it('persists requests and sessions in the database file across app restarts', async () => {
     const file = path.join(os.tmpdir(), `koda-test-${Date.now()}.sqlite`);

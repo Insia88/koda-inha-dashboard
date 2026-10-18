@@ -75,6 +75,11 @@ export function dashboard(db: DB, cfg: AppConfig, auth: AuthContext) {
     const pendingAddr = count("SELECT COUNT(*) c FROM address_book WHERE org_id = ? AND created_by = ? AND status = 'PENDING_REVIEW'", org, me);
     tasks.push({ kind: 'my_pending_addresses', count: pendingAddr, title: '확인을 기다리는 내 주소', description: '다른 담당자가 확인하면 출금 요청에 쓸 수 있습니다.', href: '/addresses?status=PENDING_REVIEW', tone: 'neutral' });
   }
+  if (auth.perms.has('audit.read') && !auth.perms.has('request.create') && !auth.perms.has('request.approve')) {
+    const since = new Date(Date.now() - 86400_000).toISOString();
+    const c = count("SELECT COUNT(*) c FROM audit_log WHERE org_id = ? AND created_at >= ? AND action NOT IN ('auth.login','auth.logout')", org, since);
+    tasks.push({ kind: 'audit_recent', count: c, title: '최근 24시간 업무 기록', description: '요청·승인·주소·역할 변경 기록입니다. 감사 기록에서 내용과 무결성을 확인하세요.', href: '/audit', tone: 'neutral' });
+  }
   const inProgress = db.prepare(
     `SELECT r.id, r.ref_no, r.status, r.asset_code, r.amount_units, a.precision, r.required_approvals, u.name creator_name, ab.label address_label, r.updated_at,
             (SELECT COUNT(*) FROM approvals x WHERE x.request_id = r.id AND x.decision = 'approved') approved
@@ -184,7 +189,7 @@ export function auditWhere(auth: AuthContext, q: { action?: string; actor?: stri
   return { w: where.join(' AND '), args };
 }
 
-export function insights(db: DB, cfg: AppConfig, auth: AuthContext, q: { provider?: string; q?: string; limit: number; offset: number; includeHidden?: boolean }) {
+export function insights(db: DB, cfg: AppConfig, auth: AuthContext, q: { provider?: string; q?: string; limit: number; offset: number; includeHidden?: boolean; related?: boolean }) {
   const where: string[] = [];
   const args: any[] = [];
   const manage = auth.perms.has('insight.manage') && q.includeHidden;
@@ -192,6 +197,16 @@ export function insights(db: DB, cfg: AppConfig, auth: AuthContext, q: { provide
   if (cfg.insightPolicy.requireWhitelistedProvider && !manage) where.push('p.is_whitelisted = 1');
   if (q.provider) { where.push('i.provider_id = ?'); args.push(q.provider); }
   if (q.q) { where.push("i.title LIKE ? ESCAPE '\\'"); args.push(likePattern(q.q)); }
+  // 실험(기본 꺼짐, docs/experiments.md): 자기 조직이 보유한 자산 코드와 자료의 자산 태그만 비교한다.
+  // 고객사 특성·거래 내역 등 다른 정보는 쓰지 않으며 외부로 보내지 않는다.
+  if (q.related) {
+    const held = (db.prepare("SELECT DISTINCT b.asset_code c FROM balances b JOIN wallets w ON w.id = b.wallet_id WHERE w.org_id = ? AND b.total_units <> '0'").all(auth.org.id) as { c: string }[]).map((x) => x.c);
+    if (held.length === 0) where.push('0');
+    else {
+      where.push(`(${held.map(() => "(',' || i.asset_tags || ',') LIKE ?").join(' OR ')})`);
+      args.push(...held.map((h) => `%,${h},%`));
+    }
+  }
   const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const total = (db.prepare(`SELECT COUNT(*) c FROM insights i JOIN insight_providers p ON p.id = i.provider_id ${w}`).get(...args) as { c: number }).c;
   const rows = db.prepare(`SELECT i.*, p.name provider_name, p.is_whitelisted FROM insights i JOIN insight_providers p ON p.id = i.provider_id ${w} ORDER BY i.published_at DESC, i.id LIMIT ? OFFSET ?`).all(...args, q.limit, q.offset) as any[];

@@ -35,7 +35,7 @@ export function HomePage() {
           </div>
           {open.length === 0 ? (
             <Empty title="지금 처리할 일이 없습니다">
-              {can('request.create') ? '출금이 필요하면 요청을 작성하세요. 새 받는 곳은 주소록에 먼저 등록해야 합니다.' : '새 요청이 오면 여기에 표시됩니다.'}
+              {can('request.create') ? '출금이 필요하면 요청을 작성하세요. 새 받는 곳은 주소록에 먼저 등록해야 합니다.' : can('request.approve') ? '승인이나 확인을 기다리는 항목이 생기면 여기에 표시됩니다.' : '이 역할에 배정된 처리 항목이 없습니다. 아래에서 자산과 진행 상황을 확인하세요.'}
             </Empty>
           ) : (
             <ul className="task-list">

@@ -59,7 +59,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     insightPolicy: readJson<InsightPolicy>('config/insight-policy.json'),
     serveClient: true,
     logLevel: env.LOG_LEVEL ?? 'info',
-    rateLimitMax: Number(env.RATE_LIMIT_MAX ?? 300),
+    rateLimitMax: Number(env.RATE_LIMIT_MAX ?? 600),
     ...overrides,
   };
 }

@@ -61,7 +61,7 @@ export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyIn
     global: true,
     max: cfg.rateLimitMax,
     timeWindow: '1 minute',
-    keyGenerator: (req) => req.cookies?.[SESSION_COOKIE]?.slice(0, 16) ?? req.ip,
+    keyGenerator: (req) => req.ip,
     errorResponseBuilder: (_req, ctx) => ({ statusCode: 429, error: { code: 'RATE_LIMITED', message: '요청이 너무 많아 잠시 처리를 멈췄습니다.', action: `${Math.ceil(ctx.ttl / 1000)}초 후 다시 시도하세요.` } }),
   });
 
@@ -250,8 +250,9 @@ export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyIn
   // ---------- Market Insight ----------
   app.get('/api/insights', async (req) => {
     const a = requirePerm(req, 'insight.read', 'Market Insight 조회');
-    const q = parse(z.object({ provider: str, q: str, includeHidden: z.enum(['1', '0']).optional(), offset: z.coerce.number().int().min(0).max(100000).default(0), limit: z.coerce.number().int().min(1).max(50).default(cfg.insightPolicy.listBatchSize) }), req.query);
-    return rm.insights(db, cfg, a, { ...q, includeHidden: q.includeHidden === '1' });
+    const q = parse(z.object({ provider: str, q: str, related: z.enum(['1', '0']).optional(), includeHidden: z.enum(['1', '0']).optional(), offset: z.coerce.number().int().min(0).max(100000).default(0), limit: z.coerce.number().int().min(1).max(50).default(cfg.insightPolicy.listBatchSize) }), req.query);
+    if (q.related === '1' && !cfg.insightPolicy.experiments.holdingRelatedFilter) throw new AppError(404, 'EXPERIMENT_DISABLED', '보유 자산 관련 자료 보기는 꺼져 있는 실험 기능입니다.', '전체 자료 목록을 이용하세요.');
+    return rm.insights(db, cfg, a, { ...q, includeHidden: q.includeHidden === '1', related: q.related === '1' });
   });
   app.get('/api/insights/providers', async (req) => rm.providers(db, requirePerm(req, 'insight.read', 'Market Insight 조회')));
   app.post('/api/insights', async (req, reply) => {

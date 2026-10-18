@@ -2,11 +2,14 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { IconExternalLink, IconSearch } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useUrlState } from '../hooks.ts';
+import { useMe } from '../auth.tsx';
 import { Badge, Empty, ErrorState, Loading, PageHeader } from '../components/ui.tsx';
 import { date } from '../format.ts';
 
 export function InsightsPage() {
-  const { state, set, qs } = useUrlState({ provider: '', q: '' });
+  const me = useMe();
+  const experiment = me.insight.experiments.holdingRelatedFilter;
+  const { state, set, qs } = useUrlState({ provider: '', q: '', related: '' });
   const providers = useQuery({ queryKey: ['providers'], queryFn: () => api('/api/insights/providers') });
   const q = useInfiniteQuery({
     queryKey: ['insights', qs],
@@ -16,7 +19,7 @@ export function InsightsPage() {
   });
   const items = q.data?.pages.flatMap((p: any) => p.items) ?? [];
   const first = q.data?.pages[0];
-  const filtered = !!(state.provider || state.q);
+  const filtered = !!(state.provider || state.q || state.related);
 
   return (
     <div className="page">
@@ -27,10 +30,11 @@ export function InsightsPage() {
           <button type="button" className={`chip ${!state.provider ? 'active' : ''}`} aria-pressed={!state.provider} onClick={() => set({ provider: '' })}>전체 기관</button>
           {providers.data?.map((p: any) => <button type="button" key={p.id} className={`chip ${state.provider === p.id ? 'active' : ''}`} aria-pressed={state.provider === p.id} onClick={() => set({ provider: p.id })}>{p.name}</button>)}
         </div>
+        {experiment && <button type="button" className={`chip ${state.related ? 'active' : ''}`} aria-pressed={!!state.related} onClick={() => set({ related: state.related ? '' : '1' })} title="보유 자산 코드와 자료의 자산 태그만 비교합니다">보유 자산 관련 (실험)</button>}
         <label className="search"><IconSearch size={16} aria-hidden="true" /><span className="sr-only">제목 검색</span><input type="search" placeholder="제목 검색" value={state.q} onChange={(e) => set({ q: e.target.value })} maxLength={100} /></label>
       </form>
       {q.isPending ? <Loading /> : q.error ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : items.length === 0 ? (
-        <Empty title={filtered ? '조건에 맞는 자료가 없습니다' : '게시된 자료가 없습니다'} action={filtered ? <button className="btn" onClick={() => set({ provider: '', q: '' })}>필터 초기화</button> : undefined}>{filtered ? '다른 기관이나 검색어를 선택해 보세요.' : 'KODA가 자료를 게시하면 여기에 표시됩니다.'}</Empty>
+        <Empty title={filtered ? '조건에 맞는 자료가 없습니다' : '게시된 자료가 없습니다'} action={filtered ? <button className="btn" onClick={() => set({ provider: '', q: '', related: '' })}>필터 초기화</button> : undefined}>{filtered ? '다른 기관이나 검색어를 선택해 보세요.' : 'KODA가 자료를 게시하면 여기에 표시됩니다.'}</Empty>
       ) : (
         <>
           <p className="result-count" aria-live="polite">{first.total}건 중 {items.length}건 표시 · 발행일 최신순</p>
