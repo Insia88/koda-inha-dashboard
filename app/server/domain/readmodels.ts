@@ -31,7 +31,7 @@ export function holdings(db: DB, cfg: AppConfig, orgId: string) {
   const byAsset = new Map<string, { assetCode: string; name: string; precision: number; total: bigint; reserved: bigint; rows: any[] }>();
   let lastUpdated: string | null = null;
   for (const r of rows) {
-    const e = byAsset.get(r.asset_code) ?? { assetCode: r.asset_code, name: r.name, precision: r.precision, total: 0n, reserved: 0n, rows: [] };
+    const e = byAsset.get(r.asset_code) ?? { assetCode: r.asset_code, name: r.name, precision: r.precision, total: 0n, reserved: 0n, rows: [] as any[] };
     e.total += BigInt(r.total_units);
     e.reserved += BigInt(r.reserved_units);
     e.rows.push({ walletId: r.wallet_id, walletName: r.wallet_name, networkCode: r.network_code, networkName: r.network_name, total: formatUnits(r.total_units, r.precision), reserved: formatUnits(r.reserved_units, r.precision), available: formatUnits(BigInt(r.total_units) - BigInt(r.reserved_units), r.precision) });

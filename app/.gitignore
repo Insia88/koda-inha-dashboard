@@ -4,3 +4,5 @@ test-results/
 playwright-report/
 *.sqlite
 *.sqlite-*
+artifacts/
+test-results/

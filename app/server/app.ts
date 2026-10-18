@@ -289,9 +289,10 @@ export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyIn
   // ---------- 화면 ----------
   const dist = path.join(APP_ROOT, 'dist');
   if (cfg.serveClient && existsSync(dist)) {
-    await app.register(fastifyStatic, { root: dist, prefix: '/', wildcard: false, index: false });
+    await app.register(fastifyStatic, { root: dist, prefix: '/', wildcard: true, index: false });
+    app.get('/', (_req, reply) => reply.sendFile('index.html'));
     app.setNotFoundHandler((req: FastifyRequest, reply) => {
-      if (req.method !== 'GET') return reply.status(404).send({ error: { code: 'NOT_FOUND', message: '경로를 찾을 수 없습니다.' } });
+      if (req.method !== 'GET' || /\.[a-z0-9]+$/i.test(req.url.split('?')[0]!)) return reply.status(404).send({ error: { code: 'NOT_FOUND', message: '경로를 찾을 수 없습니다.' } });
       return reply.sendFile('index.html');
     });
   }
