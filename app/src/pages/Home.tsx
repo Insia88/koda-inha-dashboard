@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { IconArrowRight, IconPlus } from '@tabler/icons-react';
@@ -55,6 +56,8 @@ export function HomePage() {
           )}
         </section>
 
+        <HoldingsCard h={h} className="only-narrow" />
+
         <section className="card card-progress" aria-labelledby="prog-h">
           <div className="card-head">
             <h2 id="prog-h">진행 중인 요청 <span className="muted">{d.inProgressCount}건</span></h2>
@@ -84,39 +87,7 @@ export function HomePage() {
 
         </div>
         <div className="home-col">
-        <section className="card card-holdings" aria-labelledby="hold-h">
-          <div className="card-head">
-            <h2 id="hold-h">보유 자산</h2>
-            <Link to="/balances" className="link-more">잔고 상세 <IconArrowRight size={14} aria-hidden="true" /></Link>
-          </div>
-          <div className="total">
-            <div className="total-label"><Term label="총 평가액">{GLOSSARY.valuation}</Term></div>
-            <div className="total-value">{krwShort(h.totalKrw)}</div>
-            <div className="total-exact muted">{krw(h.totalKrw)}</div>
-            <DataStamp asOf={h.price.asOf} state={h.price.state} source={h.price.source} label="시세 기준" />
-            {h.price.state === 'stale' && <p className="warn-text">시세가 {h.price.staleAfterMinutes}분 넘게 갱신되지 않았습니다. 평가액이 실제와 다를 수 있습니다. 수량은 영향을 받지 않습니다.</p>}
-          </div>
-          {h.assets.length === 0 ? <Empty title="보유 자산이 없습니다">입금이 확인되면 여기에 표시됩니다. 입금 주소는 지갑 관리에서 확인하세요.</Empty> : (
-            <>
-              <AllocationBar items={h.assets.map((a: any) => ({ key: a.assetCode, label: a.assetCode, value: a.krwValue ?? '0' }))} caption="자산별 평가액 비중 (모의 시세 기준)" />
-              <table className="table table-compact table-stack">
-                <caption className="sr-only">자산별 보유 수량과 평가액</caption>
-                <thead><tr><th scope="col">자산</th><th scope="col" className="num">보유 수량</th><th scope="col" className="num"><Term label="사용 가능">{GLOSSARY.available}</Term></th><th scope="col" className="num">평가액</th></tr></thead>
-                <tbody>
-                  {h.assets.map((a: any) => (
-                    <tr key={a.assetCode}>
-                      <th scope="row"><span className="asset-code">{a.assetCode}</span> <span className="muted small">{a.name}</span></th>
-                      <td className="num" data-label="보유 수량">{amount(a.total, a.assetCode)}</td>
-                      <td className="num" data-label="사용 가능">{amount(a.available, a.assetCode)}{a.reserved !== '0' && <div className="muted small">예약 {amount(a.reserved)}</div>}</td>
-                      <td className="num" data-label="평가액">{krwShort(a.krwValue)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <p className="muted small">잔고 기준 {dateTime(h.balanceAsOf)} KST · 수량은 모의 데이터입니다.</p>
-            </>
-          )}
-        </section>
+        <HoldingsCard h={h} className="only-wide" />
 
         <section className="card card-recent" aria-labelledby="recent-h">
           <div className="card-head">
@@ -140,5 +111,45 @@ export function HomePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** 보유 자산 카드. 넓은 화면은 오른쪽 열, 좁은 화면(≤1100px)은 '지금 처리할 일' 바로 아래에 한 번만 보인다(다른 쪽은 display:none). */
+function HoldingsCard({ h, className }: { h: any; className: string }) {
+  const hid = useId();
+  return (
+      <section className={`card card-holdings ${className}`} aria-labelledby={hid}>
+        <div className="card-head">
+          <h2 id={hid}>보유 자산</h2>
+          <Link to="/balances" className="link-more">잔고 상세 <IconArrowRight size={14} aria-hidden="true" /></Link>
+        </div>
+        <div className="total">
+          <div className="total-label"><Term label="총 평가액">{GLOSSARY.valuation}</Term></div>
+          <div className="total-value">{krwShort(h.totalKrw)}</div>
+          <div className="total-exact muted">{krw(h.totalKrw)}</div>
+          <DataStamp asOf={h.price.asOf} state={h.price.state} source={h.price.source} label="시세 기준" />
+          {h.price.state === 'stale' && <p className="warn-text">시세가 {h.price.staleAfterMinutes}분 넘게 갱신되지 않았습니다. 평가액이 실제와 다를 수 있습니다. 수량은 영향을 받지 않습니다.</p>}
+        </div>
+        {h.assets.length === 0 ? <Empty title="보유 자산이 없습니다">입금이 확인되면 여기에 표시됩니다. 입금 주소는 지갑 관리에서 확인하세요.</Empty> : (
+          <>
+            <AllocationBar items={h.assets.map((a: any) => ({ key: a.assetCode, label: a.assetCode, value: a.krwValue ?? '0' }))} caption="자산별 평가액 비중 (모의 시세 기준)" />
+            <table className="table table-compact table-stack">
+              <caption className="sr-only">자산별 보유 수량과 평가액</caption>
+              <thead><tr><th scope="col">자산</th><th scope="col" className="num">보유 수량</th><th scope="col" className="num"><Term label="사용 가능">{GLOSSARY.available}</Term></th><th scope="col" className="num">평가액</th></tr></thead>
+              <tbody>
+                {h.assets.map((a: any) => (
+                  <tr key={a.assetCode}>
+                    <th scope="row"><span className="asset-code">{a.assetCode}</span> <span className="muted small">{a.name}</span></th>
+                    <td className="num" data-label="보유 수량">{amount(a.total, a.assetCode)}</td>
+                    <td className="num" data-label="사용 가능">{amount(a.available, a.assetCode)}{a.reserved !== '0' && <div className="muted small">예약 {amount(a.reserved)}</div>}</td>
+                    <td className="num" data-label="평가액">{krwShort(a.krwValue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="muted small">잔고 기준 {dateTime(h.balanceAsOf)} KST · 수량은 모의 데이터입니다.</p>
+          </>
+        )}
+      </section>
   );
 }

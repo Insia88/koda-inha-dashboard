@@ -34,6 +34,8 @@ export interface AppConfig {
   serveClient: boolean;
   logLevel: string;
   rateLimitMax: number;
+  /** 개발용 로그인 1분당 허용 횟수(IP 기준) */
+  loginRateLimitMax: number;
 }
 
 export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
@@ -60,6 +62,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     serveClient: true,
     logLevel: env.LOG_LEVEL ?? 'info',
     rateLimitMax: Number(env.RATE_LIMIT_MAX ?? 600),
+    loginRateLimitMax: Number(env.LOGIN_RATE_LIMIT_MAX ?? 30),
     ...overrides,
   };
 }

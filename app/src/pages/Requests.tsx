@@ -1,10 +1,11 @@
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { IconPlus, IconSearch } from '@tabler/icons-react';
+import { IconPlus } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useMe } from '../auth.tsx';
 import { useUrlState } from '../hooks.ts';
 import { Badge, Empty, ErrorState, Loading, PageHeader, Pagination, StatusRail } from '../components/ui.tsx';
+import { SearchField } from '../components/SearchField.tsx';
 import { amount, dateTime } from '../format.ts';
 import { REQUEST_STATUS, type RequestStatus } from '../../shared/terms.ts';
 
@@ -21,7 +22,7 @@ export function RequestsPage() {
   const can = (p: string) => me.permissions.includes(p);
   const { state, set, qs } = useUrlState({ view: '', status: '', q: '', order: 'desc', page: '1', pageSize: '10' });
   const params = new URLSearchParams(Object.entries(state).filter(([, v]) => v));
-  const q = useQuery({ queryKey: ['requests', qs], queryFn: () => api(`/api/requests?${params}`), placeholderData: (p) => p, refetchInterval: 10_000 });
+  const q = useQuery({ queryKey: ['requests', qs], queryFn: ({ signal }) => api(`/api/requests?${params}`, { signal }), placeholderData: (p) => p, refetchInterval: 10_000 });
   const views = [
     { key: '', label: '조직 전체' },
     ...(can('request.approve') ? [{ key: 'to_approve', label: '내가 승인할 요청' }] : []),
@@ -41,11 +42,8 @@ export function RequestsPage() {
           <button key={v.key} role="tab" aria-selected={state.view === v.key} className={`tab ${state.view === v.key ? 'active' : ''}`} onClick={() => set({ view: v.key })}>{v.label}</button>
         ))}
       </div>
-      <form className="toolbar" role="search" onSubmit={(e) => e.preventDefault()}>
-        <label className="search">
-          <IconSearch size={16} aria-hidden="true" /><span className="sr-only">요청 검색</span>
-          <input type="search" placeholder="요청 번호·목적·받는 곳 이름" value={state.q} onChange={(e) => set({ q: e.target.value })} maxLength={100} />
-        </label>
+      <form className="toolbar" role="search" noValidate onSubmit={(e) => e.preventDefault()}>
+        <SearchField label="요청 검색" placeholder="요청 번호·목적·받는 곳 이름" value={state.q} onCommit={(v) => set({ q: v })} />
         <div className="chips" role="group" aria-label="상태 필터">
           {STATUS_GROUPS.map((g) => (
             <button type="button" key={g.key} className={`chip ${state.status === g.statuses ? 'active' : ''}`} aria-pressed={state.status === g.statuses} onClick={() => set({ status: g.statuses })}>

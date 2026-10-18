@@ -1,7 +1,7 @@
 import { createBrowserRouter, Navigate, Outlet, useRouteError } from 'react-router';
 import { AuthGate, useMe } from './auth.tsx';
 import { Layout } from './components/Layout.tsx';
-import { Loading, Forbidden } from './components/ui.tsx';
+import { Loading, Forbidden, useDocumentTitle } from './components/ui.tsx';
 import { LoginPage } from './pages/Login.tsx';
 import { HomePage } from './pages/Home.tsx';
 import { BalancesPage } from './pages/Balances.tsx';
@@ -34,6 +34,7 @@ function Home() {
 
 function RouteError() {
   const err = useRouteError() as Error;
+  useDocumentTitle('오류');
   return (
     <div className="center-screen" role="alert">
       <h1>화면을 표시하지 못했습니다</h1>
@@ -44,6 +45,7 @@ function RouteError() {
 }
 
 function NotFound() {
+  useDocumentTitle('페이지를 찾을 수 없음');
   return (
     <div className="state state-empty">
       <h1 id="page-title" tabIndex={-1}>페이지를 찾을 수 없습니다</h1>

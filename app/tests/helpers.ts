@@ -7,8 +7,8 @@ import { seed } from '../server/seed.ts';
 
 export interface TestCtx { app: FastifyInstance; db: DB; custody: MockCustodyAdapter }
 
-export async function makeApp(opts: { processingMs?: number; rateLimitMax?: number; holdingRelated?: boolean } = {}): Promise<TestCtx> {
-  const cfg = loadConfig({ dbPath: ':memory:', logLevel: 'silent', serveClient: false, rateLimitMax: opts.rateLimitMax ?? 10000 });
+export async function makeApp(opts: { processingMs?: number; rateLimitMax?: number; loginRateLimitMax?: number; holdingRelated?: boolean } = {}): Promise<TestCtx> {
+  const cfg = loadConfig({ dbPath: ':memory:', logLevel: 'silent', serveClient: false, rateLimitMax: opts.rateLimitMax ?? 10000, ...(opts.loginRateLimitMax ? { loginRateLimitMax: opts.loginRateLimitMax } : {}) });
   cfg.policy.mockCustodyProcessingMs = opts.processingMs ?? 0;
   cfg.insightPolicy.experiments.holdingRelatedFilter = opts.holdingRelated ?? false;
   const db = openDb(':memory:');

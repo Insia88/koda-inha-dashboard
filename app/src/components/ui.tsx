@@ -1,12 +1,20 @@
-import { useId, useState, type ReactNode } from 'react';
+import { cloneElement, forwardRef, isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type TextareaHTMLAttributes } from 'react';
 import { Link } from 'react-router';
 import { IconAlertTriangle, IconInfoCircle, IconLock, IconRefresh, IconCircleCheck, IconAlertOctagon, IconChevronLeft, IconChevronRight, IconChevronsLeft, IconChevronsRight } from '@tabler/icons-react';
 import { ApiError } from '../api.ts';
+import { DateInput } from './DateInput.tsx';
 import type { Tone } from '../../shared/terms.ts';
 import { chunkAddress } from '../../shared/address-rules.ts';
 import { dateTime, relative } from '../format.ts';
 
+export const APP_TITLE = 'KODA 법인 대시보드 (개발 환경)';
+/** 경로별 문서 제목(owner). 화면 제목 · 앱 이름 */
+export function useDocumentTitle(title: string) {
+  useEffect(() => { document.title = title ? `${title} · ${APP_TITLE}` : APP_TITLE; }, [title]);
+}
+
 export function PageHeader({ title, description, actions, eyebrow }: { title: string; description?: ReactNode; actions?: ReactNode; eyebrow?: ReactNode }) {
+  useDocumentTitle(title);
   return (
     <header className="page-header">
       <div>
@@ -54,6 +62,7 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
 }
 
 export function Forbidden({ message = '이 화면을 볼 권한이 없습니다.', action = '권한이 필요하면 조직 관리자에게 역할 변경을 요청하세요.' }: { message?: string; action?: string }) {
+  useDocumentTitle('권한 없음');
   return (
     <div className="state state-forbidden" role="alert">
       <IconLock size={28} aria-hidden="true" />
@@ -78,7 +87,7 @@ export function Empty({ title, children, action }: { title: string; children?: R
 export function AddressStrip({ address, memo, memoLabel, compact }: { address: string; memo?: string | null; memoLabel?: string | null; compact?: boolean }) {
   const chunks = chunkAddress(address);
   const [prefix, ...body] = chunks[0]?.startsWith('MOCK') ? chunks : ['', ...chunks];
-  const [copied, setCopied] = useState(false);
+  const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
   return (
     <span className={`addr ${compact ? 'addr-compact' : ''}`}>
       <span className="addr-code" aria-label={`주소 ${address}`}>
@@ -88,12 +97,16 @@ export function AddressStrip({ address, memo, memoLabel, compact }: { address: s
         ))}
       </span>
       {!compact && (
-        <button type="button" className="btn btn-ghost btn-xs" onClick={async () => { try { await navigator.clipboard.writeText(address); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* 클립보드 권한 없음 */ } }}>
-          {copied ? '복사됨' : '복사'}
+        <button type="button" className="btn btn-ghost btn-xs" onClick={async () => {
+          try { await navigator.clipboard.writeText(address); setCopy('copied'); setTimeout(() => setCopy('idle'), 1500); }
+          catch { setCopy('failed'); }
+        }}>
+          {copy === 'copied' ? '복사됨' : '복사'}
         </button>
       )}
       {memo ? <span className="addr-memo">{memoLabel ?? '메모'} <b>{memo}</b></span> : null}
-      <span className="sr-only" aria-live="polite">{copied ? '주소를 복사했습니다' : ''}</span>
+      {copy === 'failed' && <span className="addr-copy-failed">복사하지 못했습니다. 브라우저의 클립보드 권한을 확인하거나 주소를 직접 선택해 복사하세요.</span>}
+      <span className="sr-only" aria-live="polite">{copy === 'copied' ? '주소를 복사했습니다' : copy === 'failed' ? '주소를 복사하지 못했습니다' : ''}</span>
     </span>
   );
 }
@@ -169,16 +182,60 @@ export function Pagination({ page, pageSize, total, onPage, onPageSize, sizes = 
   );
 }
 
+const CONTROL_TAGS = new Set(['input', 'select', 'textarea']);
+
+/**
+ * 폼 필드(owner): 레이블·도움말·오류를 입력과 연결한다.
+ * 직접 자식이 input/select/textarea/Textarea면 aria-invalid·aria-describedby(도움말+오류)를 자동으로 붙인다.
+ * 그 밖의 래퍼를 쓰면 fieldA11y(htmlFor, hint, error)를 입력에 직접 전달한다.
+ */
+export function fieldA11y(htmlFor: string, hint?: ReactNode, error?: string) {
+  const ids = [hint ? `${htmlFor}-hint` : null, error ? `${htmlFor}-error` : null].filter(Boolean).join(' ');
+  return { 'aria-invalid': error ? (true as const) : undefined, 'aria-describedby': ids || undefined };
+}
+
 export function Field({ label, hint, error, children, htmlFor, required }: { label: ReactNode; hint?: ReactNode; error?: string; children: ReactNode; htmlFor: string; required?: boolean }) {
+  const a11y = fieldA11y(htmlFor, hint, error);
+  const isControl = isValidElement(children) && (typeof children.type === 'string' ? CONTROL_TAGS.has(children.type) : (children.type === TextareaAuto || children.type === DateInput));
+  const control = isControl ? cloneElement(children as ReactElement<Record<string, unknown>>, { ...a11y, 'aria-required': required || undefined }) : children;
   return (
     <div className={`field ${error ? 'field-invalid' : ''}`}>
       <label htmlFor={htmlFor} className="field-label">{label}{required && <span className="req" aria-hidden="true"> *</span>}</label>
       {hint && <div className="field-hint" id={`${htmlFor}-hint`}>{hint}</div>}
-      {children}
-      {error && <div className="field-error" id={`${htmlFor}-error`} role="alert">{error}</div>}
+      {control}
+      {error && <div className="field-error" id={`${htmlFor}-error`}>{error}</div>}
     </div>
   );
 }
+
+/**
+ * 공통 여러 줄 입력(owner): resize: none, 최소 rows 높이에서 내용에 맞춰 자동으로 늘어나며 maxRows를 넘으면 내부 스크롤.
+ */
+export const TextareaAuto = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement> & { maxRows?: number }>(function TextareaAuto({ rows = 3, maxRows = 10, className = '', onInput, ...rest }, fwd) {
+  const inner = useRef<HTMLTextAreaElement | null>(null);
+  const fit = () => {
+    const el = inner.current;
+    if (!el) return;
+    const cs = getComputedStyle(el);
+    const line = parseFloat(cs.lineHeight) || 22;
+    const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+    el.style.height = 'auto';
+    const max = line * maxRows + pad;
+    const next = Math.min(el.scrollHeight + parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth), max);
+    el.style.height = `${Math.max(next, line * rows + pad)}px`;
+    el.style.overflowY = el.scrollHeight + 2 > max ? 'auto' : 'hidden';
+  };
+  useLayoutEffect(fit, [rest.value, rows, maxRows]); // eslint-disable-line
+  return (
+    <textarea
+      {...rest}
+      rows={rows}
+      ref={(el) => { inner.current = el; if (typeof fwd === 'function') fwd(el); else if (fwd) fwd.current = el; }}
+      className={`textarea resize-none ${className}`}
+      onInput={(e) => { fit(); onInput?.(e); }}
+    />
+  );
+});
 
 export function ApiErrorNotice({ error }: { error: unknown }) {
   if (!error) return null;

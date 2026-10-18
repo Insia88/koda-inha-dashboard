@@ -1,9 +1,10 @@
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { IconSearch } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useCatalog, useUrlState } from '../hooks.ts';
 import { Badge, Empty, ErrorState, Loading, PageHeader, Pagination } from '../components/ui.tsx';
+import { DateInput } from '../components/DateInput.tsx';
+import { SearchField } from '../components/SearchField.tsx';
 import { amount, dateTime } from '../format.ts';
 import { TX_STATUS, TX_TYPE } from '../../shared/terms.ts';
 
@@ -11,22 +12,20 @@ export function ActivityPage() {
   const cat = useCatalog();
   const { state, set, qs } = useUrlState({ type: '', assetCode: '', status: '', q: '', from: '', to: '', order: 'desc', page: '1', pageSize: '25' });
   const params = new URLSearchParams(Object.entries(state).filter(([, v]) => v));
-  const q = useQuery({ queryKey: ['activity', qs], queryFn: () => api(`/api/activity?${params}`), placeholderData: (p) => p });
+  const q = useQuery({ queryKey: ['activity', qs], queryFn: ({ signal }) => api(`/api/activity?${params}`, { signal }), placeholderData: (p) => p });
   const filtered = !!(state.type || state.assetCode || state.status || state.q || state.from || state.to);
   const reset = () => set({ type: '', assetCode: '', status: '', q: '', from: '', to: '' });
 
   return (
     <div className="page">
       <PageHeader title="자산 활동 내역" description="입금·출금·스테이킹 보상 기록입니다. 많은 기록을 다루므로 기간·종류로 좁히고 페이지 단위로 넘겨 봅니다." />
-      <form className="toolbar" role="search" onSubmit={(e) => e.preventDefault()}>
-        <label className="search"><IconSearch size={16} aria-hidden="true" /><span className="sr-only">상대방·참조 검색</span>
-          <input type="search" placeholder="상대방·거래 참조로 검색" value={state.q} onChange={(e) => set({ q: e.target.value })} maxLength={100} />
-        </label>
+      <form className="toolbar" role="search" noValidate onSubmit={(e) => e.preventDefault()}>
+        <SearchField label="상대방·참조 검색" placeholder="상대방·거래 참조로 검색" value={state.q} onCommit={(v) => set({ q: v })} />
         <label><span className="sr-only">종류</span><select value={state.type} onChange={(e) => set({ type: e.target.value })}><option value="">모든 종류</option>{Object.entries(TX_TYPE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
         <label><span className="sr-only">자산</span><select value={state.assetCode} onChange={(e) => set({ assetCode: e.target.value })}><option value="">모든 자산</option>{cat.data?.assets.map((a) => <option key={a.code} value={a.code}>{a.code}</option>)}</select></label>
         <label><span className="sr-only">상태</span><select value={state.status} onChange={(e) => set({ status: e.target.value })}><option value="">모든 상태</option>{Object.entries(TX_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></label>
-        <label className="date-field"><span>시작일</span><input type="date" value={state.from} onChange={(e) => set({ from: e.target.value })} max={state.to || undefined} /></label>
-        <label className="date-field"><span>종료일</span><input type="date" value={state.to} onChange={(e) => set({ to: e.target.value })} min={state.from || undefined} /></label>
+        <label className="date-field"><span>시작일</span><DateInput commit="debounce" value={state.from} onValueChange={(v) => set({ from: v })} max={state.to || undefined} /></label>
+        <label className="date-field"><span>종료일</span><DateInput commit="debounce" value={state.to} onValueChange={(v) => set({ to: v })} min={state.from || undefined} /></label>
         <label><span className="sr-only">정렬</span><select value={state.order} onChange={(e) => set({ order: e.target.value })}><option value="desc">최신순</option><option value="asc">오래된 순</option></select></label>
         {filtered && <button type="button" className="btn btn-ghost" onClick={reset}>필터 초기화</button>}
       </form>

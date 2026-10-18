@@ -1,36 +1,45 @@
 # KODA 대시보드 작업 상태
 
-갱신: 2026-10-19 (회차 2)
+갱신: 2026-10-19 (회차 3 완료 — 독립 검수 review-20261019-0130 처리)
 
 ## 기준 사실
-- 브랜치: `feat/enterprise-dashboard-app` (main 5d7ab25에서 분기). origin/main 5d7ab25 — fetch로 확인, 원격에 새 커밋·앱 코드 없음. 로컬 커밋만 있음(푸시·PR 안 함, main 병합 안 함).
-- 커밋 작성자: 저장소에 git 사용자 설정이 없어 커밋마다 `-c user.name="KODA build agent" -c user.email="agent@localhost.invalid"`를 사용(전역 설정 변경 안 함). 푸시 전 작성자 정책은 저장소 소유자가 결정.
+- 브랜치: `feat/enterprise-dashboard-app` (main 5d7ab25에서 분기). 로컬 커밋만 있음(푸시·PR·main 병합 안 함).
+- 커밋 작성자: 저장소에 git 사용자 설정이 없어 `-c user.name="KODA build agent" -c user.email="agent@localhost.invalid"` 사용(전역 설정 변경 안 함).
 - Notion/Drive 연결 도구 없음 → 로컬 사본(context/)만 사용. 최신 Notion/Drive 변경은 확인하지 못함.
-- 원본 앱 없음 → `app/`에 새로 구축. 이전 회차의 package.json/lock/node_modules 보존(스크립트·의존성 3개 추가: @fastify/rate-limit, @fastify/helmet, @axe-core/playwright(dev)).
+- 원본 앱 없음 → `app/`에 새로 구축(Fastify + node:sqlite + React/Vite + TanStack Query).
 
-## 완료
-- 서버: Fastify + node:sqlite, 마이그레이션·시드, 개발용 로그인(운영 모드 기동 거부), 역할·조직 권한(서버), CSRF, 요청 한도, 보안 헤더, 감사 로그(해시 체인 + UPDATE/DELETE 금지 트리거), 주소록(형식·중복·유사 주소·끝자리 재입력·2인 확인), 출금 요청 상태기계(작성→검토→승인 대기→처리 중→완료/실패, 반려, 취소), 자기 승인 금지(API+DB 트리거), 2인 승인 정책, 멱등성, 낙관적 잠금, 수량 예약, 모의 커스터디, CSV 내보내기(수식 무력화), Market Insight 화이트리스트·운영자 게시, 실험 플래그(기본 꺼짐).
-- 화면: 로그인·홈·잔고·활동·요청(목록/작성/상세)·주소록(목록/등록/상세)·지갑·스테이킹·토큰·조직·감사·인사이트·인사이트 관리. URL 상태 유지, 로딩/오류/권한 없음/빈 상태.
-- 문서: app/README.md, app/DESIGN.md, app/THIRD_PARTY_NOTICES.md, app/docs/{api,assumptions,traceability,tab-design,operations,experiments}.md. 루트 README에 앱 링크 1줄.
+## 회차 3 결과 (검수 1~6 항목)
+1. 브라우저 confirm() 제거 → 공통 `ConfirmDialog`(src/components/Dialog.tsx, 네이티브 dialog.showModal): 주소 사용 중지·요청 취소. 대상·되돌릴 수 없음·실행 동사, 안전한 선택 초기 포커스, Tab 순환, 배경 inert, Escape, 처리 중 중복 확정·닫힘 차단, 실패 시 대화상자 안 오류, 닫힌 뒤 트리거(없으면 h1) 포커스.
+2. `useUnsavedGuard`(src/lib/unsaved.tsx): 출금 요청 작성·수정, 주소 등록, 인사이트 게시, 반려 사유. 인앱 이동은 앱 대화상자, 창 닫기는 작성 중일 때만 beforeunload, 저장 성공 이동은 경고 없음. 세션 만료 시 작성 중이면 같은 계정 재로그인 대화상자(입력은 메모리에만, 브라우저 저장소 보관 없음). `Field`가 aria-invalid/aria-describedby 자동 연결, `useFocusFirstError`로 첫 오류 포커스.
+3. `SearchField`(300ms debounce, IME 조합 중 조회 없음, Enter·지우기·Escape 즉시, 지우기 후 포커스) 5개 목록 적용 + 목록 조회에 AbortSignal 전달.
+4. 정적 audit 20건 → 0건(strict exit 0): 검색 form noValidate, 공통 `TextareaAuto`(resize none + 자동 높이·상한 내부 스크롤), premium-ui.json + app/UX-CONTRACT.md(native select/date 소유권 근거·검증), 경로별 document.title, 전역 scrollbar 기준, 복사 실패 안내. 참고: 공통 컴포넌트 이름이 'Textarea'이면 감사기가 대소문자를 무시해 사용처를 literal textarea로 보므로 이름을 TextareaAuto로 정함(규칙 약화 아님, 실제 resize none은 E2E로 확인).
+5. 홈: 1100px 이하에서 '지금 처리할 일 → 보유 자산 → 진행 중인 요청 → 최근 활동' 순서(보유 자산 카드는 폭별로 하나만 표시).
+- 검증 중 새로 발견해 수정: (a) 제어형 날짜 입력의 React value 동기화가 Chrome 칸 입력을 초기화해 두 자리 일(15)을 입력할 수 없음 → `DateInput` owner; (b) 데스크톱 Chrome 390px에서 셸 그리드 1fr로 11px 가로 넘침(기존 결함) → minmax(0,1fr); (c) 모바일 수량 단위 'USDC' 줄바꿈; (d) 늘어난 E2E가 개발용 로그인 한도(30/분)에 걸림 → LOGIN_RATE_LIMIT_MAX 설정화(기본 30 유지, E2E 서버만 300) + API 테스트 추가.
+- flow.spec 검색 단계는 확정된 검색어(URL 반영)를 기다리게 보완. blur 시 즉시 확정은 클릭 직전에 결과 목록이 바뀌어 다른 주소를 누를 위험이 있어 의도적으로 하지 않음(UX-CONTRACT.md).
 
-## 검증 결과 (마지막 실행 2026-10-19)
-- `npm run typecheck` 통과, `npm run build` 통과, `npm audit` 0건.
-- `npm test` 38/38 통과 (단위 + API: 조직 격리, 자기 승인, 역할, 전이, 멱등, 동시 승인, 2인 승인, 정밀도, 주소/네트워크 불일치, 감사 불변, CSV, 500 롤백, 재시작 유지, 요청 한도, 실험 플래그).
-- `npm run e2e` 22/22 통과 (실제 Chromium: 수직 흐름, 반려, 목록, 권한, 키보드·세션 만료 복귀, 인사이트, 모바일, axe 15화면 위반 0).
-- 스크린샷 45장(15화면×데스크톱/태블릿/모바일) 콘솔 오류 0: app/artifacts/screenshots/ (git 제외, 저장소 규칙상 이미지는 Drive).
-- 미실시: 실제 사용자 테스트·3초 이해도 측정(측정 없음), 스크린리더 실사용, 운영 SSO·커스터디 연동.
+## 완료 (누적)
+- 서버: 개발용 로그인(운영 모드 기동 거부), 역할·조직 권한(서버), CSRF, 요청 한도, 보안 헤더, 감사 로그(해시 체인 + UPDATE/DELETE 금지 트리거), 주소록(형식·중복·유사 주소·끝자리 재입력·2인 확인), 출금 요청 상태기계, 자기 승인 금지(API+DB), 2인 승인 정책, 멱등성, 낙관적 잠금, 수량 예약, 모의 커스터디, CSV 수식 무력화, Market Insight 화이트리스트, 실험 플래그(기본 꺼짐).
+- 화면: 로그인·홈·잔고·활동·요청·주소록·지갑·스테이킹·토큰·조직·감사·인사이트·인사이트 관리. URL 상태 유지, 로딩/오류/권한 없음/빈 상태, 위 회차 3 상호작용 계약.
+- 문서: app/README.md, DESIGN.md, UX-CONTRACT.md, THIRD_PARTY_NOTICES.md, docs/{api,assumptions,traceability,tab-design,operations,experiments}.md.
+
+## 검증 결과 (마지막 실행 2026-10-19 회차 3)
+- `npm run check`(typecheck·test·build) 통과. `npm test` 39/39.
+- `npm run e2e` 31/31 통과(기존 22 + e2e/interaction.spec.ts 9). 마지막 CSS 수정 뒤 a11y+responsive 16/16 재통과(axe 15화면 위반 0).
+- 정적 audit: frontend-design-premium audit_project.py app --mode strict → 0건(app/artifacts/premium-audit.json).
+- 스크린샷: scripts/screens.mjs 45장 콘솔 오류 0, scripts/screens-states.mjs(state-*.png; 의도된 422 외 오류 0). 모바일 홈·대화상자·폼 오류·검색 직접 확인.
+- 미실시: 실제 사용자 테스트·3초 이해도 측정, 스크린리더 실사용, 운영 SSO·커스터디 연동. 네이티브 select/date 팝업 모양은 브라우저 소유(UX-CONTRACT.md에 수용 근거).
 
 ## 실행
 ```
 cd app && npm ci && npm run db:reset && npm run build && npm start   # http://127.0.0.1:4300
-npm test ; npm run build && npm run e2e ; node scripts/screens.mjs ; bash scripts/stop-server.sh
+npm test ; npm run build && npm run e2e ; node scripts/screens.mjs ; node scripts/screens-states.mjs ; bash scripts/stop-server.sh
+<bundled python> <frontend-design-premium>/scripts/audit_project.py . --mode strict --output artifacts/premium-audit.json
 ```
-
-- CI: .github/workflows/app-check.yml (PR 시 typecheck·test·build·e2e). `npm run check` 로컬 통과.
+- CI: .github/workflows/app-check.yml (PR 시 typecheck·test·build·e2e).
 
 ## 대기(WAIT) 근거
-명시된 수용 기준(DASH-001~007, 서버 권한·격리·자기 승인·전이·멱등·동시성·정밀도·감사 불변·CSV·오류·새로고침·E2E·반응형·접근성 자동 검사)이 위 검사로 충족됨. 남은 항목은 KODA 측 자료·테스트 환경이 있어야 진행 가능하므로 범위를 임의로 넓히지 않고 대기한다. 새 지시나 자료가 오면 이 파일부터 읽고 재개.
+검수 review-20261019-0130의 로컬 결함 1~5와 검증 중 새로 발견한 결함 4건을 구현·수정했고, 6의 브라우저 검사·영향 검사·typecheck/build/정적 audit가 모두 통과했다. 이전 수용 기준(DASH-001~007, 권한·격리·자기 승인·전이·멱등·동시성·정밀도·감사 불변·CSV·오류·새로고침·E2E·반응형·접근성 자동 검사)도 재통과. 남은 항목은 외부 자료·환경이 필요하므로 범위를 임의로 넓히지 않고 대기한다.
 
 ## 남은 항목 / 다음 작업
-- 외부 자료 필요(차단): 실제 역할·상태·승인 정책, 주소 검증 규칙, 인사이트 운영 기준, 익명화 인터뷰, SSO·커스터디 테스트 환경 (app/docs/operations.md).
-- 선택 개선 후보: 요청 목록 금액 정렬, 감사 CSV 대량 스트리밍, 주소 변경(수정) 흐름 — 요구사항에 명시되지 않음.
+- 외부 자료 필요(차단): 실제 역할·상태·승인 정책, 주소 검증 규칙, 인사이트 운영 기준, 익명화 인터뷰, SSO 재인증·커스터디 테스트 환경, 운영 DB/감사 보존 정책, 실사용자 검증 (app/docs/operations.md).
+- 선택 개선 후보(요구사항 미명시): 요청 목록 금액 정렬, 감사 CSV 스트리밍, 주소 수정 흐름, 주소록 대량화 시 검색형 Combobox 재판단.

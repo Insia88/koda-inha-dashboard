@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.ts';
-import { ApiErrorNotice, Loading, Notice, ErrorState } from '../components/ui.tsx';
+import { ApiErrorNotice, Loading, Notice, ErrorState, useDocumentTitle } from '../components/ui.tsx';
 import { ROLE_LABEL, type Role } from '../../shared/terms.ts';
 
 interface DevUser { id: string; name: string; title: string; org_name: string; org_id: string; roles: Role[] }
 
 export function LoginPage() {
   const [sp] = useSearchParams();
+  useDocumentTitle('로그인');
   const nav = useNavigate();
   const qc = useQueryClient();
   const users = useQuery({ queryKey: ['dev-users'], queryFn: () => api<DevUser[]>('/api/auth/dev-users') });

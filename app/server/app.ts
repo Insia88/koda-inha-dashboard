@@ -104,7 +104,7 @@ export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyIn
     return users.map((u) => ({ ...u, roles: (db.prepare('SELECT role FROM user_roles WHERE user_id = ?').all(u.id) as any[]).map((r) => r.role) }));
   });
 
-  app.post('/api/auth/dev-login', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+  app.post('/api/auth/dev-login', { config: { rateLimit: { max: cfg.loginRateLimitMax, timeWindow: '1 minute' } } }, async (req, reply) => {
     const { userId } = parse(z.object({ userId: z.string().min(1).max(64) }), req.body);
     const u = db.prepare('SELECT u.id, u.name, u.org_id FROM users u WHERE u.id = ? AND u.is_active = 1').get(userId) as any;
     if (!u) throw new AppError(401, 'LOGIN_FAILED', '선택한 개발용 계정으로 로그인할 수 없습니다.', '목록에서 다른 계정을 고르세요.');

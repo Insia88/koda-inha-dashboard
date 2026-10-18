@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { IconDownload, IconSearch } from '@tabler/icons-react';
+import { IconDownload } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useMe } from '../auth.tsx';
 import { useUrlState } from '../hooks.ts';
 import { Badge, Empty, ErrorState, Loading, PageHeader, Pagination } from '../components/ui.tsx';
+import { DateInput } from '../components/DateInput.tsx';
+import { SearchField } from '../components/SearchField.tsx';
 import { dateTime } from '../format.ts';
 
 const ACTION_LABEL: Record<string, string> = {
@@ -19,7 +21,7 @@ export function AuditPage() {
   const me = useMe();
   const { state, set, qs } = useUrlState({ action: '', actor: '', q: '', from: '', to: '', page: '1', pageSize: '50' });
   const params = new URLSearchParams(Object.entries(state).filter(([, v]) => v));
-  const q = useQuery({ queryKey: ['audit', qs], queryFn: () => api(`/api/audit?${params}`), placeholderData: (p) => p });
+  const q = useQuery({ queryKey: ['audit', qs], queryFn: ({ signal }) => api(`/api/audit?${params}`, { signal }), placeholderData: (p) => p });
   const verify = useQuery({ queryKey: ['audit-verify'], queryFn: () => api('/api/audit/verify') });
   const exportParams = new URLSearchParams(Object.entries({ action: state.action, actor: state.actor, q: state.q, from: state.from, to: state.to }).filter(([, v]) => v));
   const filtered = !!(state.action || state.actor || state.q || state.from || state.to);
@@ -36,12 +38,12 @@ export function AuditPage() {
         {verify.data ? (verify.data.ok ? <Badge tone="success">무결성 확인됨</Badge> : <Badge tone="danger">무결성 오류</Badge>) : <Badge tone="neutral">무결성 확인 중</Badge>}
         <span className="small muted">{verify.data ? (verify.data.ok ? `기록 ${verify.data.count}건의 해시 연결이 끊김 없이 이어집니다.` : `${verify.data.brokenAtSeq}번 기록에서 해시가 맞지 않습니다. 보안 담당자에게 알리세요.`) : ''}</span>
       </div>
-      <form className="toolbar" role="search" onSubmit={(e) => e.preventDefault()}>
-        <label className="search"><IconSearch size={16} aria-hidden="true" /><span className="sr-only">내용 검색</span><input type="search" placeholder="내용·요청 번호 검색" value={state.q} onChange={(e) => set({ q: e.target.value })} maxLength={100} /></label>
-        <label><span className="sr-only">수행자</span><input placeholder="수행자 이름" value={state.actor} onChange={(e) => set({ actor: e.target.value })} maxLength={50} /></label>
+      <form className="toolbar" role="search" noValidate onSubmit={(e) => e.preventDefault()}>
+        <SearchField label="내용 검색" placeholder="내용·요청 번호 검색" value={state.q} onCommit={(v) => set({ q: v })} />
+        <SearchField label="수행자 이름" placeholder="수행자 이름" value={state.actor} onCommit={(v) => set({ actor: v })} maxLength={50} icon={false} className="search-narrow" clearLabel="수행자 이름 지우기" />
         <label><span className="sr-only">행동</span><select value={state.action} onChange={(e) => set({ action: e.target.value })}><option value="">모든 행동</option>{(q.data?.actions ?? []).map((a: string) => <option key={a} value={a}>{ACTION_LABEL[a] ?? a}</option>)}</select></label>
-        <label className="date-field"><span>시작일</span><input type="date" value={state.from} onChange={(e) => set({ from: e.target.value })} /></label>
-        <label className="date-field"><span>종료일</span><input type="date" value={state.to} onChange={(e) => set({ to: e.target.value })} /></label>
+        <label className="date-field"><span>시작일</span><DateInput commit="debounce" value={state.from} onValueChange={(v) => set({ from: v })} max={state.to || undefined} /></label>
+        <label className="date-field"><span>종료일</span><DateInput commit="debounce" value={state.to} onValueChange={(v) => set({ to: v })} min={state.from || undefined} /></label>
         {filtered && <button type="button" className="btn btn-ghost" onClick={reset}>필터 초기화</button>}
       </form>
       {q.isPending ? <Loading /> : q.error ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : q.data.items.length === 0 ? (

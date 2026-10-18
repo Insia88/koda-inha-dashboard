@@ -128,6 +128,7 @@ test('목록: 필터·빈 결과·마지막 페이지·상세 복귀 시 상태 
   await page.goto('/addresses');
   await page.getByLabel('상태').selectOption('ACTIVE');
   await page.getByPlaceholder('이름·받는 곳·주소 일부로 검색').fill('거래소');
+  await expect(page).toHaveURL(/q=%EA%B1%B0%EB%9E%98%EC%86%8C/); // 검색어는 300ms 뒤 확정되어 URL에 저장된다
   await expect(page.getByText(/조건에 맞는 주소 \d+개/)).toBeVisible();
   await page.getByRole('link', { name: /모의 거래소 A 입금 \(USDC\)/ }).click();
   await page.getByRole('link', { name: '← 주소록' }).click();

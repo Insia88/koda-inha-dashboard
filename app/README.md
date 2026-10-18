@@ -26,6 +26,7 @@ npm run typecheck      # TypeScript
 npm test               # 단위 + API 통합 테스트 (vitest, 메모리 DB)
 npm run build && npm run e2e   # 실제 Chromium E2E + 접근성 자동 검사 (전용 DB, 포트 4400)
 node scripts/screens.mjs       # 실행 중인 서버의 주요 화면 캡처 → artifacts/screenshots/
+node scripts/screens-states.mjs  # 대화상자·이탈 확인·폼 오류·검색 상태 캡처
 ```
 
 ## 스택 선택 이유
@@ -49,4 +50,4 @@ config/   policy.json(승인·주소 정책 가정) insight-policy.json(인사�
 docs/     api.md assumptions.md traceability.md tab-design.md operations.md experiments.md
 ```
 
-설계 규칙은 [DESIGN.md](DESIGN.md), 오픈소스 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+설계 규칙은 [DESIGN.md](DESIGN.md), 상호작용 소유권·검증은 [UX-CONTRACT.md](UX-CONTRACT.md)(정적 검사 설정 `premium-ui.json`), 오픈소스 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

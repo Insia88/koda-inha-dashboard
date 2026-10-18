@@ -429,4 +429,15 @@ describe('요청 한도', () => {
     expect(last.json().error.code).toBe('RATE_LIMITED');
     await small.app.close(); small.db.close();
   });
+  it('limits dev-login attempts separately (default 30/min, configurable)', async () => {
+    const def = await makeApp();
+    const before = await def.app.inject({ method: 'POST', url: '/api/auth/dev-login', payload: { userId: 'u-a-han' } });
+    expect(before.headers['x-ratelimit-limit']).toBe('30');
+    await def.app.close(); def.db.close();
+    const small = await makeApp({ loginRateLimitMax: 3 });
+    const codes: number[] = [];
+    for (let i = 0; i < 4; i++) codes.push((await small.app.inject({ method: 'POST', url: '/api/auth/dev-login', payload: { userId: 'u-a-han' } })).statusCode);
+    expect(codes).toEqual([200, 200, 200, 429]);
+    await small.app.close(); small.db.close();
+  });
 });

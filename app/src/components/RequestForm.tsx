@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { api, ApiError } from '../api.ts';
 import { useCatalog } from '../hooks.ts';
-import { AddressStrip, Field, Notice, Term } from './ui.tsx';
+import { AddressStrip, Field, fieldA11y, Notice, Term } from './ui.tsx';
 import { amount as fmtAmount } from '../format.ts';
 import { GLOSSARY } from '../../shared/terms.ts';
 
@@ -65,12 +65,12 @@ export function RequestForm({ value, onChange, error }: { value: RequestFormValu
         <Field label={`수량 (${value.assetCode || '단위'})`} htmlFor="amount" required error={err?.fieldError('amount')}
           hint={<>사용 가능 {walletRow ? fmtAmount(walletRow.available, value.assetCode) : '—'}{asset ? ` · 소수점 아래 최대 ${asset.precision}자리` : ''}</>}>
           <div className="input-unit">
-            <input id="amount" inputMode="decimal" className="num" value={value.amount} onChange={(e) => set({ amount: e.target.value.replace(/[^0-9.,]/g, '') })} autoComplete="off" aria-describedby="amount-hint" maxLength={40} />
+            <input id="amount" inputMode="decimal" className="num" value={value.amount} onChange={(e) => set({ amount: e.target.value.replace(/[^0-9.,]/g, '') })} autoComplete="off" maxLength={40} aria-required="true" {...fieldA11y('amount', true, err?.fieldError('amount'))} />
             <span>{value.assetCode}</span>
           </div>
         </Field>
         <Field label="요청 목적" htmlFor="purpose" required error={err?.fieldError('purpose')} hint="승인자가 판단할 수 있게 근거 문서나 정산 건을 적으세요.">
-          <input id="purpose" value={value.purpose} onChange={(e) => set({ purpose: e.target.value })} maxLength={200} aria-describedby="purpose-hint" />
+          <input id="purpose" value={value.purpose} onChange={(e) => set({ purpose: e.target.value })} maxLength={200} />
         </Field>
       </fieldset>
     </>

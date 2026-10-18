@@ -1,10 +1,11 @@
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { IconPlus, IconSearch } from '@tabler/icons-react';
+import { IconPlus } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useMe } from '../auth.tsx';
 import { useCatalog, useUrlState } from '../hooks.ts';
 import { AddressStrip, Badge, Empty, ErrorState, Loading, Notice, PageHeader } from '../components/ui.tsx';
+import { SearchField } from '../components/SearchField.tsx';
 import { date } from '../format.ts';
 import { ADDRESS_STATUS, type AddressStatus } from '../../shared/terms.ts';
 
@@ -12,7 +13,7 @@ export function AddressesPage() {
   const me = useMe();
   const cat = useCatalog();
   const { state, set, qs } = useUrlState({ q: '', status: '', assetCode: '', networkCode: '', sort: 'status' });
-  const q = useQuery({ queryKey: ['addresses', qs], queryFn: () => api(`/api/addresses?${new URLSearchParams(Object.entries(state).filter(([, v]) => v)).toString()}`), placeholderData: (p) => p });
+  const q = useQuery({ queryKey: ['addresses', qs], queryFn: ({ signal }) => api(`/api/addresses?${new URLSearchParams(Object.entries(state).filter(([, v]) => v)).toString()}`, { signal }), placeholderData: (p) => p });
   const filtered = !!(state.q || state.status || state.assetCode || state.networkCode);
 
   return (
@@ -26,12 +27,8 @@ export function AddressesPage() {
         두 사람이 입력 내용을 확인했다는 기록입니다. 블록체인 전송은 되돌릴 수 없으니 받는 곳과 별도 연락 수단으로 주소를 대조하세요.
       </Notice>
 
-      <form className="toolbar" role="search" onSubmit={(e) => e.preventDefault()}>
-        <label className="search">
-          <IconSearch size={16} aria-hidden="true" />
-          <span className="sr-only">주소 검색</span>
-          <input type="search" placeholder="이름·받는 곳·주소 일부로 검색" value={state.q} onChange={(e) => set({ q: e.target.value })} maxLength={100} />
-        </label>
+      <form className="toolbar" role="search" noValidate onSubmit={(e) => e.preventDefault()}>
+        <SearchField label="주소 검색" placeholder="이름·받는 곳·주소 일부로 검색" value={state.q} onCommit={(v) => set({ q: v })} />
         <label><span className="sr-only">상태</span>
           <select value={state.status} onChange={(e) => set({ status: e.target.value })}>
             <option value="">모든 상태</option>

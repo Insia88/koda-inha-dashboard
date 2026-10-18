@@ -1,8 +1,10 @@
-import { createContext, useContext, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router';
 import { api, setCsrf, ApiError } from './api.ts';
 import type { Role } from '../shared/terms.ts';
+import { hasDirtyForms, releaseAllGuards } from './lib/unsaved.tsx';
+import { ConfirmDialog } from './components/Dialog.tsx';
 
 export interface Me {
   user: { id: string; name: string; email: string; title: string };
@@ -43,14 +45,17 @@ export function AuthGate({ children, fallback }: { children: ReactNode; fallback
     retry: (n, e) => !(e instanceof ApiError && e.status === 401) && n < 2,
     staleTime: 60_000,
   });
+  const [reauth, setReauth] = useState<{ busy: boolean; error: unknown } | null>(null);
   useEffect(() => {
     const onUnauth = () => {
+      // 작성 중인 화면이 있으면 화면을 떠나지 않고 같은 계정으로 다시 로그인하게 한다(입력은 메모리에만 유지).
+      if (hasDirtyForms() && q.data) { setReauth((p) => p ?? { busy: false, error: null }); return; }
       qc.clear();
       nav(`/login?next=${encodeURIComponent(loc.pathname + loc.search)}&reason=expired`, { replace: true });
     };
     window.addEventListener('koda:unauthenticated', onUnauth);
     return () => window.removeEventListener('koda:unauthenticated', onUnauth);
-  }, [nav, loc, qc]);
+  }, [nav, loc, qc, q.data]);
   useEffect(() => {
     if (q.error instanceof ApiError && q.error.status === 401) {
       nav(`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`, { replace: true });
@@ -67,5 +72,37 @@ export function AuthGate({ children, fallback }: { children: ReactNode; fallback
       </div>
     );
   }
-  return <Ctx.Provider value={q.data}>{children}</Ctx.Provider>;
+  const relogin = async () => {
+    setReauth({ busy: true, error: null });
+    try {
+      // 개발용 인증 어댑터: 같은 사용자로만 재로그인한다. 운영에서는 SSO 재인증 창으로 교체한다.
+      await api('/api/auth/dev-login', { method: 'POST', body: { userId: q.data.user.id } });
+      await q.refetch();
+      setReauth(null);
+    } catch (e) { setReauth({ busy: false, error: e }); }
+  };
+  return (
+    <Ctx.Provider value={q.data}>
+      {children}
+      <ConfirmDialog
+        open={reauth !== null}
+        title="로그인 세션이 만료되었습니다"
+        safeAction="confirm"
+        confirmLabel={`${q.data.user.name}(으)로 다시 로그인`}
+        cancelLabel="작성 내용 버리고 로그인 화면으로"
+        busy={reauth?.busy}
+        error={reauth?.error}
+        onConfirm={relogin}
+        onCancel={() => {
+          setReauth(null);
+          releaseAllGuards();
+          qc.clear();
+          nav(`/login?next=${encodeURIComponent(loc.pathname + loc.search)}&reason=expired`, { replace: true });
+        }}
+      >
+        <p>작성 중인 내용은 이 화면에 그대로 남아 있습니다. 같은 계정으로 다시 로그인한 뒤 저장이나 제출을 다시 누르세요.</p>
+        <p className="muted small">개발용 로그인입니다. 운영에서는 KODA 인증(SSO) 재확인으로 바뀝니다.</p>
+      </ConfirmDialog>
+    </Ctx.Provider>
+  );
 }
