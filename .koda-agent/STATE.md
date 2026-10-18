@@ -26,6 +26,11 @@ cd app && npm ci && npm run db:reset && npm run build && npm start   # http://12
 npm test ; npm run build && npm run e2e ; node scripts/screens.mjs ; bash scripts/stop-server.sh
 ```
 
+- CI: .github/workflows/app-check.yml (PR 시 typecheck·test·build·e2e). `npm run check` 로컬 통과.
+
+## 대기(WAIT) 근거
+명시된 수용 기준(DASH-001~007, 서버 권한·격리·자기 승인·전이·멱등·동시성·정밀도·감사 불변·CSV·오류·새로고침·E2E·반응형·접근성 자동 검사)이 위 검사로 충족됨. 남은 항목은 KODA 측 자료·테스트 환경이 있어야 진행 가능하므로 범위를 임의로 넓히지 않고 대기한다. 새 지시나 자료가 오면 이 파일부터 읽고 재개.
+
 ## 남은 항목 / 다음 작업
 - 외부 자료 필요(차단): 실제 역할·상태·승인 정책, 주소 검증 규칙, 인사이트 운영 기준, 익명화 인터뷰, SSO·커스터디 테스트 환경 (app/docs/operations.md).
 - 선택 개선 후보: 요청 목록 금액 정렬, 감사 CSV 대량 스트리밍, 주소 변경(수정) 흐름 — 요구사항에 명시되지 않음.
