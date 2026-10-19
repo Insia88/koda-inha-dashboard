@@ -108,7 +108,8 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     if (Buffer.byteLength(raw, 'utf8') < MIN_SESSION_SECRET_BYTES) {
       throw new Error(
         `공개 데모를 시작하지 않았습니다: 세션 서명 값 DEMO_SESSION_SECRET이 ${raw ? `${MIN_SESSION_SECRET_BYTES}바이트보다 짧습니다` : '설정되지 않았습니다'}. ` +
-          `${MIN_SESSION_SECRET_BYTES}바이트 이상의 무작위 값을 만들어 Vercel 프로젝트 환경변수(Production·Preview)에만 설정하고 저장소에는 넣지 마세요 (docs/deploy-vercel.md).`,
+          `${MIN_SESSION_SECRET_BYTES}바이트 이상의 무작위 값을 만들어 Vercel 프로젝트 환경변수(Production·Preview)에만 설정하고 저장소에는 넣지 마세요. ` +
+          `로컬에서 빌드된 함수를 점검할 때는 그 실행에만 쓰는 임시 값을 셸 환경변수로 넘기면 됩니다 (docs/deploy-vercel.md 5절 3번).`,
       );
     }
     demoSessionSecret = new SessionSecret(raw);

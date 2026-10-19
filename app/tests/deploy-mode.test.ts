@@ -107,6 +107,8 @@ describe('설정 잠금(loadConfig)', () => {
     try { loadConfig(); } catch (e) { msg = (e as Error).message; }
     expect(msg).toMatch(/32바이트보다 짧습니다/);
     expect(msg).toMatch(/Vercel 프로젝트 환경변수/);
+    // CI·로컬 함수 점검(check:vercel 등)에서 이 오류를 만난 사람이 배포 값을 가져다 쓰지 않도록 임시 값을 안내한다.
+    expect(msg).toMatch(/그 실행에만 쓰는 임시 값/);
     expect(msg).not.toContain(short);
     // 바이트 기준: 한글 11자(33바이트)는 받아들인다.
     setEnv({ DEMO_SESSION_SECRET: '가나다라마바사아자차카' });

@@ -26,6 +26,7 @@
 - 개발용 로그인 한도(1분 30회)와 로그인·로그아웃 감사 기록은 바뀌지 않는다. 감사 기록은 요청을 받은 인스턴스의 DB에 남는다.
 - 서명 값은 `loadConfig`가 읽어 비공개 필드에만 둔다. JSON·로그·오류 문구에는 값이 나오지 않는다(`tests/deploy-mode.test.ts`).
 - 두 인스턴스(메모리 DB 각각, 같은 서명 값)로 A가 발급한 쿠키가 B에서 `/api/me`와 CSRF 보호 변경 요청을 통과하는지, 변조·만료·다른 키·다른 조직 쿠키가 401인지는 `tests/demo-session.test.ts`가 확인한다.
+- [설계 가정] 공개 데모만 무상태 서명 쿠키를 쓰는 것, 서명 값 최소 32바이트, 기본 만료 120분, 발급 시각을 60초까지만 미래로 허용하는 것, 만료 전 서버에서 세션을 폐기하지 않는 것(4절)은 이 프로토타입이 정한 값이다. KODA 정책이 아니며, 운영 인증(SSO)의 세션 규칙은 따로 정해야 한다.
 
 ## 2. 안전 잠금 [사실]
 
@@ -92,7 +93,7 @@
 
 1. 패키지 브랜치마다 `npm run check`, `npm run e2e`, 새 테스트 통과.
 2. 통합 브랜치에서 전체 `npm run check` + `npm run e2e` 통과(로컬).
-3. 함수 빌드 확인: `npm run build:vercel` 후 `node scripts/smoke-deploy.mjs --local 4418`. 빌드된 함수를 `VERCEL=1 DEMO_PUBLIC=1`로 127.0.0.1:4418에 띄워 API 검사를 돌리고 닫는다(CDN·보호 검사는 건너뜀). `DEMO_SESSION_SECRET`이 없으면 스크립트가 이번 실행에만 쓰는 무작위 값을 만든다. `npm run check:vercel`의 핸들러 점검(`scripts/probe-handler.mjs`)도 공개 데모로 기동하므로 셸에 임시 `DEMO_SESSION_SECRET`(32바이트 이상)을 넣고 실행한다.
+3. 함수 빌드 확인: `npm run build:vercel` 후 `node scripts/smoke-deploy.mjs --local 4418`. 빌드된 함수를 `VERCEL=1 DEMO_PUBLIC=1`로 127.0.0.1:4418에 띄워 API 검사를 돌리고 닫는다(CDN·보호 검사는 건너뜀). `DEMO_SESSION_SECRET`이 없으면 스크립트가 이번 실행에만 쓰는 무작위 값을 만든다. `npm run check:vercel`의 핸들러 점검(`scripts/probe-handler.mjs`)도 공개 데모로 기동하므로 서명 값이 있어야 한다. 셸에 이번 실행에만 쓰는 임시 값(32바이트 이상, 배포에 쓰는 값이 아닌 새 값)을 넣고 실행한다. 예: `DEMO_SESSION_SECRET="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))")" npm run check:vercel`.
 4. `npx vercel@62.2.0 build`로 `.vercel/output/functions/api/index.func`에 `config/`, `server/migrations/`, `node_modules/fastify`가 있고 `data/*.sqlite`·`.research`가 없는지 확인.
 5. 앱 폴더에서 CLI로 보호된 Preview 배포(git 푸시 불필요).
 6. 원격 화면 검사(읽기 전용 a11y·responsive만):
