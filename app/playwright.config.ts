@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 4400;
+// 여러 작업을 동시에 검증할 때는 E2E_PORT로 포트를 나눈다(기본 4400).
+const PORT = Number(process.env.E2E_PORT ?? 4400);
 // E2E 전용 DB를 매번 초기화하고 빌드된 화면을 서빙하는 서버를 띄운다. 먼저 `npm run build`가 필요하다.
 export default defineConfig({
   testDir: 'e2e',
@@ -18,6 +19,6 @@ export default defineConfig({
     url: `http://127.0.0.1:${PORT}/api/healthz`,
     reuseExistingServer: false,
     timeout: 60_000,
-    env: { PORT: String(PORT), DB_PATH: './data/e2e.sqlite', MOCK_CUSTODY_PROCESSING_MS: '1500', LOG_LEVEL: 'warn', RATE_LIMIT_MAX: '5000', LOGIN_RATE_LIMIT_MAX: '300' },
+    env: { PORT: String(PORT), DB_PATH: process.env.E2E_DB ?? './data/e2e.sqlite', MOCK_CUSTODY_PROCESSING_MS: '1500', LOG_LEVEL: 'warn', RATE_LIMIT_MAX: '5000', LOGIN_RATE_LIMIT_MAX: '300' },
   },
 });
