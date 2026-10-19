@@ -2,6 +2,7 @@
 //
 // 사용:
 //   VERCEL_AUTOMATION_BYPASS_SECRET=<자동화 우회 값> node scripts/smoke-deploy.mjs https://<보호된 미리보기 주소>
+//   node scripts/smoke-deploy.mjs https://<공개 운영 주소> --public   # 보호할 수 없는 운영 별칭을 공개로 두기로 한 경우
 //   node scripts/smoke-deploy.mjs --local [포트]   # 먼저 `npm run build:vercel`. 빌드된 함수(api/index.mjs)를
 //                                                  # VERCEL=1 DEMO_PUBLIC=1로 127.0.0.1:<포트>(기본 4418)에 띄워 검사한 뒤 닫는다.
 //
@@ -118,8 +119,15 @@ const CDN_ONLY = LOCAL ? 'CDN(vercel.json) 동작이라 로컬 함수 검사에�
 console.log(`배포 확인 대상: ${BASE}${LOCAL ? ' (로컬 함수)' : ''}\n`);
 
 // 1. 보호가 켜져 있어야 한다. 꺼져 있으면 더 진행하지 않는다.
+//    --public: 보호할 수 없는 운영 별칭(Hobby 요금제의 production 도메인)을 공개 상태로 둔다는 결정을 한 경우에만 쓴다.
+//    이때 보호 여부는 실패 대신 경고로 기록하고 나머지 안전 검사를 계속한다.
+const PUBLIC_OK = args.includes('--public');
 await check('배포 보호 켜짐(우회 헤더 없이 401 또는 로그인 이동)', async () => {
   const r = await call('GET', '/', { bypass: false, headers: { accept: 'text/html' } });
+  if (r.status === 200 && PUBLIC_OK) {
+    console.log('WARN  배포 보호 없음 — --public으로 공개 배포임을 확인하고 검사를 계속합니다.');
+    return '공개 배포(보호 없음, --public)';
+  }
   if (r.status === 200) {
     results.push({ name: '중단', status: 'FAIL', detail: '보호 없이 200 응답' });
     console.log('FAIL  배포 보호 켜짐 — 우회 헤더 없이 200을 받았습니다. 보호(Deployment Protection)를 켠 뒤 다시 실행하세요. 검사를 중단합니다.');
