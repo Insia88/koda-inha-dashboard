@@ -8,6 +8,7 @@ import { migrate, openDb, type DB } from '../server/db.ts';
 import { seed } from '../server/seed.ts';
 import { AUDIT_GENESIS_HASH, hashRowV1, hashRowV2, verifyChain, writeAudit, type AuditInput } from '../server/audit.ts';
 import { api, login, makeApp } from './helpers.ts';
+import { middleSegment } from '../shared/address-rules.ts';
 
 // 감사 기록 해시 체인 v2 검증. 저장소 수준 변조는 추가 전용 트리거를 지운 테스트 DB에서만 재현한다.
 
@@ -313,7 +314,7 @@ describe('GET /api/audit/verify', () => {
     try {
       const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
       const address = 'MOCK-EVM-' + '1234567890ABCDEF1234567890ABCDEF12345678';
-      const cr = await han.post('/api/addresses', { label: '거래처\ud800', counterparty: '테스트 상대방', assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '', confirmTail: address.slice(-6), ackNotVerified: true, ackOutOfBandConfirmed: true });
+      const cr = await han.post('/api/addresses', { label: '거래처\ud800', counterparty: '테스트 상대방', assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '', confirmTail: address.slice(-6), confirmMiddle: middleSegment(address).text, ackNotVerified: true, ackOutOfBandConfirmed: true });
       expect(cr.status).toBe(201);
       const created = head(ctx.db, 'org-a');
       expect(created.action).toBe('address.created');

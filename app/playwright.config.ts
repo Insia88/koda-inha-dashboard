@@ -21,7 +21,8 @@ export default defineConfig({
     baseURL: REMOTE ?? `http://127.0.0.1:${PORT}`,
     locale: 'ko-KR',
     timezoneId: 'Asia/Seoul',
-    trace: 'retain-on-failure',
+    // 원격 모드는 우회 헤더가 trace에 평문으로 남지 않도록 trace를 끈다.
+    trace: REMOTE ? 'off' : 'retain-on-failure',
     ...(REMOTE && BYPASS ? { extraHTTPHeaders: { 'x-vercel-protection-bypass': BYPASS } } : {}),
   },
   projects: [
