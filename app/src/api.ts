@@ -15,23 +15,30 @@ export function setCsrf(t: string) { csrfToken = t; }
 export interface DeploymentInfo { mode?: 'local' | 'public-demo'; instanceId?: string; seededAt?: string | null }
 export interface HealthInfo extends DeploymentInfo { ok: boolean; env: string; authMode: string; custody: string }
 
-/** 공개 데모 서버 인스턴스가 바뀌면(재시작·다른 인스턴스) 발생한다. detail: { previous, current } */
+/**
+ * 공개 데모에서 이 탭이 처음 보는 서버 인스턴스가 응답하면(다른 함수 인스턴스·재시작) 발생한다. detail: { previous, current }
+ * 로그인은 서명된 쿠키라 그대로 유지되므로 로그아웃하지 않는다. 데이터(요청·주소 등)는 인스턴스마다 따로라 안내만 한다.
+ * 이미 본 인스턴스로 돌아가는 것은 다시 알리지 않는다(여러 인스턴스가 번갈아 응답해도 안내가 계속 뜨지 않게).
+ */
 export const DEMO_INSTANCE_CHANGED = 'koda:demo-instance-changed';
 let demoInstance: string | null = null;
-let demoResetPending = false;
+const seenDemoInstances = new Set<string>();
+let demoSwitchPending = false;
 function trackDemoInstance(res: Response) {
   const id = res.headers.get('X-Demo-Instance');
   if (!id) return;
   const previous = demoInstance;
+  const isNew = !seenDemoInstances.has(id);
   demoInstance = id;
-  if (previous && previous !== id) {
-    demoResetPending = true;
+  seenDemoInstances.add(id);
+  if (previous && previous !== id && isNew) {
+    demoSwitchPending = true;
     window.dispatchEvent(new CustomEvent(DEMO_INSTANCE_CHANGED, { detail: { previous, current: id } }));
   }
 }
-/** 마지막으로 확인하지 않은 데모 데이터 초기화가 있는지(로그인 화면 안내용). */
-export function isDemoResetPending() { return demoResetPending; }
-export function acknowledgeDemoReset() { demoResetPending = false; }
+/** 아직 닫지 않은 '다른 데모 서버로 연결됨' 안내가 있는지. */
+export function isDemoSwitchPending() { return demoSwitchPending; }
+export function acknowledgeDemoSwitch() { demoSwitchPending = false; }
 
 export function newIdemKey() {
   return (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/[^A-Za-z0-9_-]/g, '');

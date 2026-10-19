@@ -5,10 +5,11 @@ import {
   IconHome, IconWallet, IconListDetails, IconChecklist, IconStack2, IconBuildingBank, IconAddressBook, IconCoins,
   IconUsers, IconShieldCheck, IconNews, IconLogout, IconMenu2, IconX, IconFlask,
 } from '@tabler/icons-react';
-import { acknowledgeDemoReset, api, DEMO_INSTANCE_CHANGED, isDemoResetPending } from '../api.ts';
+import { acknowledgeDemoSwitch, api, DEMO_INSTANCE_CHANGED, isDemoSwitchPending } from '../api.ts';
 import { useMe, type Me } from '../auth.tsx';
 import { dateTime } from '../format.ts';
 import { Notice } from './ui.tsx';
+import './layout-demo.css';
 
 interface Item { to: string; label: string; icon: typeof IconHome; perm: string; badge?: number; end?: boolean }
 
@@ -34,18 +35,24 @@ export function DemoNoticeText({ seededAt }: { seededAt?: string | null }) {
   return <>모든 사람·법인·자산·주소는 모의 데이터입니다. KODA 공식 서비스가 아니며 실제 계정·자산과 연결되지 않습니다. 서버가 다시 시작되면 데이터가 초기화됩니다{t ? ` (데이터 생성 ${t})` : ''}.</>;
 }
 
-/** 공개 데모 서버가 바뀌어(재시작·다른 인스턴스) 모의 데이터가 처음 상태로 돌아갔는지. */
-export function useDemoReset(): [boolean, () => void] {
-  const [pending, setPending] = useState(isDemoResetPending);
+/**
+ * 공개 데모에서 다른 서버 인스턴스가 응답하기 시작했는지(아직 닫지 않은 안내가 있는지).
+ * 로그인은 그대로 유지된다. 데이터는 인스턴스마다 따로라 방금 만든 항목이 보이지 않을 수 있다는 것만 알린다.
+ */
+export function useDemoSwitch(): [boolean, () => void] {
+  const [pending, setPending] = useState(isDemoSwitchPending);
   useEffect(() => {
     const on = () => setPending(true);
     window.addEventListener(DEMO_INSTANCE_CHANGED, on);
-    if (isDemoResetPending()) setPending(true);
+    if (isDemoSwitchPending()) setPending(true);
     return () => window.removeEventListener(DEMO_INSTANCE_CHANGED, on);
   }, []);
-  const acknowledge = useCallback(() => { acknowledgeDemoReset(); setPending(false); }, []);
+  const acknowledge = useCallback(() => { acknowledgeDemoSwitch(); setPending(false); }, []);
   return [pending, acknowledge];
 }
+
+/** 안내를 닫아 버튼이 사라진 뒤 포커스가 문서 맨 앞으로 떨어지지 않도록 화면 제목으로 옮긴다. */
+const focusPageTitle = () => requestAnimationFrame(() => document.getElementById('page-title')?.focus({ preventScroll: true }));
 
 function EnvRibbon({ env }: { env: Me['environment'] }) {
   const narrow = useNarrow();
@@ -66,9 +73,10 @@ export function Layout() {
   const loc = useLocation();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [demoReset, acknowledgeReset] = useDemoReset();
+  const [demoSwitch, acknowledgeSwitch] = useDemoSwitch();
   const env = me.environment;
   const firstRender = useRef(true);
+  const startOver = useRef(false);
   const can = (p: string) => me.permissions.includes(p);
   const dash = useQuery({ queryKey: ['dashboard'], queryFn: () => api('/api/dashboard'), enabled: can('dashboard.read'), refetchInterval: 15_000 });
   const taskCount = (k: string) => dash.data?.tasks.find((t: any) => t.kind === k)?.count ?? 0;
@@ -82,6 +90,16 @@ export function Layout() {
     const h = document.getElementById('page-title');
     if (h) h.focus({ preventScroll: false });
   }, [loc.pathname]);
+
+  // 「처음 화면으로」는 홈에 실제로 도착한 뒤에만 조회 결과를 비운다. 작성 중인 화면에서 이동 확인을 받고
+  // 「계속 작성」을 고르면 아무것도 비우지 않아 입력이 그대로 남는다. 로그인 정보(me)는 비우지 않고 다시 확인만 한다.
+  useEffect(() => {
+    if (!startOver.current) return;
+    startOver.current = false;
+    if (loc.pathname !== '/') return;
+    void qc.resetQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
+    void qc.invalidateQueries({ queryKey: ['me'] });
+  }, [loc, qc]);
 
   const groups: { title?: string; items: Item[] }[] = [
     { items: [{ to: '/', label: '홈', icon: IconHome, perm: 'dashboard.read', end: true }] },
@@ -113,10 +131,17 @@ export function Layout() {
     }
   };
 
-  const restartDemo = () => {
-    acknowledgeReset();
-    qc.clear();
-    nav('/login', { replace: true });
+  const dismissDemoSwitch = () => {
+    acknowledgeSwitch();
+    focusPageTitle();
+  };
+
+  // 로그아웃하지 않는다. 이전 서버에서 받아 둔 화면 데이터만 버리고 홈에서 지금 서버의 데이터를 다시 불러온다.
+  const goStartScreen = () => {
+    acknowledgeSwitch();
+    startOver.current = true;
+    nav('/', { replace: loc.pathname === '/' });
+    focusPageTitle();
   };
 
   return (
@@ -168,11 +193,14 @@ export function Layout() {
         {/* 공개 데모에서만: 미리 있는 알림 영역에 내용을 넣어야 화면 낭독기가 변경을 읽어 준다. 로컬 화면 구조는 그대로 둔다. */}
         {env.mode === 'public-demo' && (
           <div role="status" aria-live="polite">
-            {demoReset && (
-              <div style={{ marginBottom: 'var(--s4)' }}>
-                <Notice tone="info" title="데모 서버가 새로 시작되었습니다">
-                  모의 데이터가 처음 상태로 돌아갔습니다. 방금 만든 항목이나 로그인 상태가 남아 있지 않을 수 있습니다.
-                  <div style={{ marginTop: 'var(--s2)' }}><button type="button" className="btn btn-sm" onClick={restartDemo}>처음 화면으로</button></div>
+            {demoSwitch && (
+              <div className="demo-switch">
+                <Notice tone="info">
+                  <strong>다른 데모 서버로 연결되었습니다.</strong> 로그인은 유지되지만, 방금 만든 요청·주소가 이 서버에는 없을 수 있습니다. 모든 데이터는 모의 데이터입니다.
+                  <div className="demo-switch-actions">
+                    <button type="button" className="btn btn-sm" onClick={dismissDemoSwitch}>닫기</button>
+                    <button type="button" className="btn btn-sm" onClick={goStartScreen}>처음 화면으로</button>
+                  </div>
                 </Notice>
               </div>
             )}

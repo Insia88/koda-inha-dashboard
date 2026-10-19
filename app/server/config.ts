@@ -1,6 +1,8 @@
+import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inspect } from 'node:util';
 
 export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -21,6 +23,23 @@ export interface InsightPolicy {
   newBadgeDays: number;
   requireWhitelistedProvider: boolean;
   experiments: { holdingRelatedFilter: boolean };
+}
+
+/** 공개 데모 세션 서명 값의 최소 길이(바이트). HMAC-SHA256 출력 길이와 같게 정한 설계 가정이다. */
+export const MIN_SESSION_SECRET_BYTES = 32;
+
+/**
+ * 공개 데모 세션 쿠키 서명 키(DEMO_SESSION_SECRET). 키는 비공개 필드에만 두어
+ * JSON 직렬화·로그·inspect 출력에는 '[가림]'만 나온다. 이 객체로는 서명(HMAC-SHA256)만 할 수 있다.
+ */
+export class SessionSecret {
+  readonly #key: Buffer;
+  constructor(value: string) { this.#key = Buffer.from(value, 'utf8'); }
+  get byteLength() { return this.#key.length; }
+  hmac(data: string): Buffer { return createHmac('sha256', this.#key).update(data, 'utf8').digest(); }
+  toJSON() { return '[가림]'; }
+  toString() { return '[가림]'; }
+  [inspect.custom]() { return 'SessionSecret [가림]'; }
 }
 
 /**
@@ -54,6 +73,11 @@ export interface AppConfig {
   mockPriceFeed: boolean;
   /** 공개 데모에서 인스턴스당 사용자가 새로 만들 수 있는 주소·출금 요청·인사이트 건수(종류별). 로컬에서는 적용하지 않는다. */
   demoCreateLimit: number;
+  /**
+   * 공개 데모 무상태 세션의 서명 키(DEMO_SESSION_SECRET). 어느 인스턴스든 같은 키로 쿠키를 확인하므로
+   * 요청이 다른 함수 인스턴스로 가도 로그인이 유지된다. 로컬은 저장소 세션을 쓰므로 항상 null이다.
+   */
+  demoSessionSecret: SessionSecret | null;
 }
 
 const LOOPBACK = /^(localhost|127(?:\.\d{1,3}){3}|::1|\[::1\]|::ffff:127(?:\.\d{1,3}){3})$/i;
@@ -77,6 +101,18 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     );
   }
   const deployment: Deployment = demo ? 'public-demo' : 'local';
+  // 공개 데모 세션은 서명된 쿠키(무상태)라 서명 값이 없거나 짧으면 기동하지 않는다. 값 자체는 오류·로그에 넣지 않는다.
+  let demoSessionSecret: SessionSecret | null = null;
+  if (demo) {
+    const raw = env.DEMO_SESSION_SECRET ?? '';
+    if (Buffer.byteLength(raw, 'utf8') < MIN_SESSION_SECRET_BYTES) {
+      throw new Error(
+        `공개 데모를 시작하지 않았습니다: 세션 서명 값 DEMO_SESSION_SECRET이 ${raw ? `${MIN_SESSION_SECRET_BYTES}바이트보다 짧습니다` : '설정되지 않았습니다'}. ` +
+          `${MIN_SESSION_SECRET_BYTES}바이트 이상의 무작위 값을 만들어 Vercel 프로젝트 환경변수(Production·Preview)에만 설정하고 저장소에는 넣지 마세요 (docs/deploy-vercel.md).`,
+      );
+    }
+    demoSessionSecret = new SessionSecret(raw);
+  }
   const host = env.HOST ?? '127.0.0.1';
   // 로컬 실행에서 127.0.0.1 이외 주소로 열면 같은 네트워크의 누구나 비밀번호 없이 로그인할 수 있다.
   if (!hosted && !isLoopbackHost(host) && env.DEV_ALLOW_LAN !== '1') {
@@ -89,6 +125,11 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const policy = readJson<Policy>('config/policy.json');
   if (env.MOCK_CUSTODY_PROCESSING_MS) policy.mockCustodyProcessingMs = Number(env.MOCK_CUSTODY_PROCESSING_MS);
   if (env.ADDRESS_COOLDOWN_HOURS !== undefined && env.ADDRESS_COOLDOWN_HOURS !== '') policy.addressBook.cooldownHours = Number(env.ADDRESS_COOLDOWN_HOURS);
+  const sessionTtlMinutes = Number(env.SESSION_TTL_MINUTES ?? (demo ? 120 : 480));
+  // 무상태 세션은 서버에서 폐기할 수 없어 만료 시각이 유일한 끝이다. 만료를 계산할 수 없는 값으로는 공개 데모를 열지 않는다.
+  if (demo && !(Number.isFinite(sessionTtlMinutes) && sessionTtlMinutes > 0)) {
+    throw new Error(`공개 데모를 시작하지 않았습니다: SESSION_TTL_MINUTES=${env.SESSION_TTL_MINUTES} 은(는) 0보다 큰 숫자(분)여야 합니다.`);
+  }
   return {
     nodeEnv,
     host,
@@ -96,7 +137,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     // 공개 데모는 읽기 전용 파일 시스템에서 돌기 때문에 항상 인스턴스 메모리 DB를 쓴다.
     dbPath: demo || rawDbPath === ':memory:' ? ':memory:' : path.resolve(APP_ROOT, rawDbPath),
     authMode: 'dev',
-    sessionTtlMinutes: Number(env.SESSION_TTL_MINUTES ?? (demo ? 120 : 480)),
+    sessionTtlMinutes,
     policy,
     insightPolicy: readJson<InsightPolicy>('config/insight-policy.json'),
     serveClient: !demo,
@@ -109,6 +150,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     lazyTicks: demo,
     mockPriceFeed: env.MOCK_PRICE_FEED !== 'off',
     demoCreateLimit: 200,
+    demoSessionSecret,
     ...overrides,
   };
 }

@@ -1,0 +1,3 @@
+/* 공개 데모: 다른 서버 인스턴스로 연결되었다는 안내(Layout). 토큰은 styles.css :root와 DESIGN.md를 따른다. */
+.demo-switch { margin-bottom: var(--s4); }
+.demo-switch-actions { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s2); }

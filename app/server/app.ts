@@ -6,10 +6,10 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z, ZodError } from 'zod';
-import { APP_ROOT, type AppConfig } from './config.ts';
+import { APP_ROOT, MIN_SESSION_SECRET_BYTES, type AppConfig } from './config.ts';
 import { type DB, tx } from './db.ts';
 import { AppError, Errors } from './errors.ts';
-import { checkCsrf, createSession, loadAuth, requireAuth, requirePerm, revokeSession, SESSION_COOKIE, setSessionCookie } from './auth.ts';
+import { checkCsrf, clearSessionCookie, dbSessionStore, requireAuth, requirePerm, SESSION_COOKIE, setSessionCookie, statelessSessionStore } from './auth.ts';
 import { writeAudit, verifyChain } from './audit.ts';
 import { toCsv } from './csv.ts';
 import type { CustodyAdapter } from './adapters/custody.ts';
@@ -57,6 +57,12 @@ const DEMO_CAP_LABEL: Record<keyof typeof DEMO_CAP_TABLE, string> = { addresses:
 
 export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<FastifyInstance> {
   const demo = cfg.deployment === 'public-demo';
+  // 공개 데모는 요청마다 다른 함수 인스턴스가 받을 수 있어, 인스턴스 메모리 DB에 의존하지 않는 서명된 쿠키 세션을 쓴다.
+  // 로컬은 기존 저장소 세션(서버에서 폐기 가능) 그대로다. 서명 값이 없으면 공개 데모 앱을 만들지 않는다.
+  if (demo && !(cfg.demoSessionSecret && cfg.demoSessionSecret.byteLength >= MIN_SESSION_SECRET_BYTES)) {
+    throw new Error('공개 데모를 시작하지 않았습니다: 세션 서명 값(DEMO_SESSION_SECRET)이 없거나 짧습니다 (docs/deploy-vercel.md).');
+  }
+  const sessions = demo ? statelessSessionStore(db, cfg.demoSessionSecret!, cfg.sessionTtlMinutes) : dbSessionStore(db, cfg.sessionTtlMinutes);
   const instance = { instanceId: runtime?.instanceId ?? randomUUID(), seededAt: runtime?.seededAt ?? null };
   const app = Fastify({
     logger: cfg.logLevel === 'silent' ? false : {
@@ -115,7 +121,7 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
   app.decorateRequest('auth', null);
   app.addHook('onRequest', async (req) => {
     if (!req.url.startsWith('/api/')) return;
-    req.auth = loadAuth(db, req.cookies[SESSION_COOKIE]);
+    req.auth = sessions.load(req.cookies[SESSION_COOKIE]);
     const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
     if (mutating && req.auth && req.url !== '/api/auth/dev-login') checkCsrf(req);
   });
@@ -158,8 +164,8 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
     const { userId } = parse(z.object({ userId: z.string().min(1).max(64) }), req.body);
     const u = db.prepare('SELECT u.id, u.name, u.org_id FROM users u WHERE u.id = ? AND u.is_active = 1').get(userId) as any;
     if (!u) throw new AppError(401, 'LOGIN_FAILED', '선택한 개발용 계정으로 로그인할 수 없습니다.', '목록에서 다른 계정을 고르세요.');
-    if (req.auth) revokeSession(db, req.auth.sessionHash);
-    const s = createSession(db, u.id, cfg.sessionTtlMinutes);
+    if (req.auth) sessions.end(req.auth);
+    const s = sessions.issue({ id: u.id, orgId: u.org_id });
     tx(db, () => writeAudit(db, { orgId: u.org_id, actorId: u.id, actorName: u.name, action: 'auth.login', targetType: 'user', targetId: u.id, summary: `${u.name} 로그인 (개발용 로그인)` }));
     setSessionCookie(reply, s.token, s.expires, cfg.cookieSecure);
     return { ok: true };
@@ -168,10 +174,11 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
   app.post('/api/auth/logout', async (req, reply) => {
     if (req.auth) {
       const a = req.auth;
-      revokeSession(db, a.sessionHash);
+      // 로컬: 저장소 세션을 폐기한다. 공개 데모: 서버에서 폐기할 수 없어 아래 쿠키 삭제가 전부다(만료까지 유효, docs/deploy-vercel.md).
+      sessions.end(a);
       tx(db, () => writeAudit(db, { orgId: a.org.id, actorId: a.user.id, actorName: a.user.name, action: 'auth.logout', targetType: 'user', targetId: a.user.id, summary: `${a.user.name} 로그아웃` }));
     }
-    reply.clearCookie(SESSION_COOKIE, { path: '/', secure: cfg.cookieSecure });
+    clearSessionCookie(reply, cfg.cookieSecure);
     return { ok: true };
   });
 

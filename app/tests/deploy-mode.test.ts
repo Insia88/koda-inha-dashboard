@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { randomBytes } from 'node:crypto';
 import { readFileSync, rmSync } from 'node:fs';
+import { inspect } from 'node:util';
 import os from 'node:os';
 import path from 'node:path';
 import { api, key, login, makeApp } from './helpers.ts';
@@ -13,7 +15,7 @@ import { MockCustodyAdapter, type CustodyAdapter } from '../server/adapters/cust
 // 공개 데모(DEMO_PUBLIC=1) 실행 형태와 그 안전 잠금. 환경변수는 매 사례마다 비우고 끝나면 되돌린다.
 const ENV_KEYS = [
   'NODE_ENV', 'VERCEL', 'DEMO_PUBLIC', 'HOST', 'DEV_ALLOW_LAN', 'DB_PATH', 'SESSION_TTL_MINUTES', 'AUTH_MODE', 'MOCK_PRICE_FEED',
-  'LOG_LEVEL', 'PORT', 'RATE_LIMIT_MAX', 'LOGIN_RATE_LIMIT_MAX', 'MOCK_CUSTODY_PROCESSING_MS',
+  'LOG_LEVEL', 'PORT', 'RATE_LIMIT_MAX', 'LOGIN_RATE_LIMIT_MAX', 'MOCK_CUSTODY_PROCESSING_MS', 'DEMO_SESSION_SECRET',
 ] as const;
 let savedEnv: Record<string, string | undefined> = {};
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -31,9 +33,12 @@ afterEach(async () => {
 const setEnv = (vars: Record<string, string>) => Object.assign(process.env, vars);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const tail = (addr: string) => addr.slice(-6);
+// 공개 데모 세션 서명 값은 실행마다 새로 만든다(저장소에 값을 두지 않는다).
+const SECRET = randomBytes(32).toString('base64url');
+const DEMO_ENV = { VERCEL: '1', DEMO_PUBLIC: '1', DEMO_SESSION_SECRET: SECRET };
 
 async function demoRuntime(over: Partial<AppConfig> = {}): Promise<Runtime> {
-  setEnv({ VERCEL: '1', DEMO_PUBLIC: '1' });
+  setEnv(DEMO_ENV);
   const cfg = loadConfig({ logLevel: 'silent', rateLimitMax: 10000, ...over });
   cfg.policy.mockCustodyProcessingMs = 0;
   const rt = await createRuntime(cfg);
@@ -90,8 +95,56 @@ describe('설정 잠금(loadConfig)', () => {
     expect(() => loadConfig()).toThrow(/AUTH_MODE=oidc/);
   });
 
+  it('refuses the public demo without a DEMO_SESSION_SECRET of at least 32 bytes and never echoes the value', () => {
+    setEnv({ VERCEL: '1', DEMO_PUBLIC: '1' });
+    expect(() => loadConfig()).toThrow(/DEMO_SESSION_SECRET이 설정되지 않았습니다/);
+    setEnv({ DEMO_SESSION_SECRET: '' });
+    expect(() => loadConfig()).toThrow(/DEMO_SESSION_SECRET이 설정되지 않았습니다/);
+    const short = 'short-secret-31-bytes-long-xxxx';
+    expect(Buffer.byteLength(short)).toBe(31);
+    setEnv({ DEMO_SESSION_SECRET: short });
+    let msg = '';
+    try { loadConfig(); } catch (e) { msg = (e as Error).message; }
+    expect(msg).toMatch(/32바이트보다 짧습니다/);
+    expect(msg).toMatch(/Vercel 프로젝트 환경변수/);
+    expect(msg).not.toContain(short);
+    // 바이트 기준: 한글 11자(33바이트)는 받아들인다.
+    setEnv({ DEMO_SESSION_SECRET: '가나다라마바사아자차카' });
+    expect(loadConfig().demoSessionSecret?.byteLength).toBe(33);
+    setEnv({ DEMO_SESSION_SECRET: SECRET });
+    expect(loadConfig().demoSessionSecret?.byteLength).toBe(Buffer.byteLength(SECRET));
+  });
+
+  it('keeps the session secret out of JSON, inspect output and error text', () => {
+    setEnv(DEMO_ENV);
+    const cfg = loadConfig();
+    expect(JSON.stringify(cfg)).not.toContain(SECRET);
+    expect(JSON.stringify(cfg)).toContain('"demoSessionSecret":"[가림]"');
+    expect(inspect(cfg, { depth: 5, showHidden: true })).not.toContain(SECRET);
+    expect(String(cfg.demoSessionSecret)).toBe('[가림]');
+  });
+
+  it('refuses a public demo session lifetime that cannot be computed', () => {
+    setEnv({ ...DEMO_ENV, SESSION_TTL_MINUTES: 'abc' });
+    expect(() => loadConfig()).toThrow(/SESSION_TTL_MINUTES=abc/);
+    setEnv({ SESSION_TTL_MINUTES: '0' });
+    expect(() => loadConfig()).toThrow(/0보다 큰 숫자/);
+    setEnv({ SESSION_TTL_MINUTES: '30' });
+    expect(loadConfig().sessionTtlMinutes).toBe(30);
+  });
+
+  it('refuses to build a public demo app whose config carries no session secret', async () => {
+    setEnv(DEMO_ENV);
+    const cfg = { ...loadConfig({ logLevel: 'silent' }), demoSessionSecret: null };
+    const db = openDb(':memory:');
+    cleanups.push(() => db.close());
+    migrate(db);
+    seed(db);
+    await expect(buildApp({ cfg, db, custody: new MockCustodyAdapter(0) })).rejects.toThrow(/세션 서명 값/);
+  });
+
   it('VERCEL=1 + DEMO_PUBLIC=1 starts the public demo with in-memory data, Secure cookies and proxy-aware IPs', () => {
-    setEnv({ VERCEL: '1', DEMO_PUBLIC: '1', DB_PATH: './data/should-not-be-used.sqlite' });
+    setEnv({ ...DEMO_ENV, DB_PATH: './data/should-not-be-used.sqlite' });
     const cfg = loadConfig();
     expect(cfg.deployment).toBe('public-demo');
     expect(cfg.dbPath).toBe(':memory:');
@@ -112,7 +165,11 @@ describe('설정 잠금(loadConfig)', () => {
       deployment: 'local', nodeEnv: 'development', host: '127.0.0.1', port: 4300, authMode: 'dev',
       dbPath: path.resolve(APP_ROOT, './data/koda-dev.sqlite'), sessionTtlMinutes: 480, serveClient: true, logLevel: 'info',
       rateLimitMax: 600, loginRateLimitMax: 30, trustProxy: false, cookieSecure: false, lazyTicks: false, mockPriceFeed: true,
+      demoSessionSecret: null,
     });
+    // 로컬은 저장소 세션을 쓰므로 서명 값이 있어도 읽지 않는다.
+    setEnv({ DEMO_SESSION_SECRET: SECRET });
+    expect(loadConfig().demoSessionSecret).toBeNull();
   });
 
   it("keeps DB_PATH=':memory:' as an in-memory database instead of resolving it to a file", () => {
@@ -144,7 +201,7 @@ describe('설정 잠금(loadConfig)', () => {
 
 describe('런타임(createRuntime)', () => {
   it('refuses to start the public demo with a non-mock custody adapter', async () => {
-    setEnv({ VERCEL: '1', DEMO_PUBLIC: '1' });
+    setEnv(DEMO_ENV);
     const real: CustodyAdapter = { name: '실제 커스터디(가정)', isMock: false, submitWithdrawal: () => ({ ref: 'X' }), getStatus: () => 'processing' };
     await expect(createRuntime(loadConfig({ logLevel: 'silent' }), real)).rejects.toThrow(/모의 커스터디로만/);
   });
@@ -157,7 +214,7 @@ describe('런타임(createRuntime)', () => {
     seed(db);
     db.prepare("UPDATE organizations SET is_mock = 0 WHERE id = 'org-a'").run();
     db.close();
-    setEnv({ VERCEL: '1', DEMO_PUBLIC: '1' });
+    setEnv(DEMO_ENV);
     await expect(createRuntime(loadConfig({ logLevel: 'silent', dbPath: file }))).rejects.toThrow(/모의 데이터가 아닌 조직 1곳/);
   });
 
@@ -196,6 +253,7 @@ describe('공개 데모 앱', () => {
     expect(c).toMatch(/;\s*Secure/);
     expect(c).toMatch(/HttpOnly/);
     expect(c).toMatch(/SameSite=Strict/);
+    expect(c).toMatch(/Path=\/(;|$)/);
     const local = await localApp();
     const lc = String((await local.app.inject({ method: 'POST', url: '/api/auth/dev-login', payload: { userId: 'u-a-han' } })).headers['set-cookie']);
     expect(lc).not.toMatch(/;\s*Secure/);

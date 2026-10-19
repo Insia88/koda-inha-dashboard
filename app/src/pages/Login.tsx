@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type HealthInfo } from '../api.ts';
+import { acknowledgeDemoSwitch, api, type HealthInfo } from '../api.ts';
 import { ApiErrorNotice, Loading, Notice, ErrorState, useDocumentTitle } from '../components/ui.tsx';
-import { DemoNoticeText, useDemoReset } from '../components/Layout.tsx';
+import { DemoNoticeText } from '../components/Layout.tsx';
 import { ROLE_LABEL, type Role } from '../../shared/terms.ts';
 
 interface DevUser { id: string; name: string; title: string; org_name: string; org_id: string; roles: Role[] }
@@ -15,7 +15,6 @@ export function LoginPage() {
   const qc = useQueryClient();
   const users = useQuery({ queryKey: ['dev-users'], queryFn: () => api<DevUser[]>('/api/auth/dev-users') });
   const health = useQuery({ queryKey: ['healthz'], queryFn: () => api<HealthInfo>('/api/healthz'), staleTime: 60_000 });
-  const [demoReset, acknowledgeReset] = useDemoReset();
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<unknown>(null);
   const next = sp.get('next');
@@ -26,7 +25,8 @@ export function LoginPage() {
     setBusy(id); setErr(null);
     try {
       await api('/api/auth/dev-login', { method: 'POST', body: { userId: id } });
-      acknowledgeReset();
+      // 로그인 화면을 불러오는 동안 다른 데모 서버가 응답했더라도, 아직 만든 항목이 없으니 들어간 뒤 안내하지 않는다.
+      acknowledgeDemoSwitch();
       qc.clear();
       nav(safeNext, { replace: true });
     } catch (e) { setErr(e); } finally { setBusy(null); }
@@ -50,9 +50,8 @@ export function LoginPage() {
             비밀번호 없이 모의 사용자를 골라 들어갑니다. 실제 KODA 계정·SSO 인증이 아니며, 모든 사람·법인·자산·주소는 모의 데이터입니다.
           </Notice>
         ))}
-        {demoReset
-          ? <Notice tone="info" role="status">데모 서버가 새로 시작되어 모의 데이터가 처음 상태로 돌아갔습니다. 다시 로그인하세요.</Notice>
-          : sp.get('reason') === 'expired' && <Notice tone="info" role="status">세션이 만료되어 로그아웃되었습니다. 다시 로그인하면 보던 화면으로 돌아갑니다.</Notice>}
+        {/* 공개 데모에서도 다른 서버로 연결되는 것만으로는 로그아웃되지 않으므로, 여기서는 세션 만료만 알린다. */}
+        {sp.get('reason') === 'expired' && <Notice tone="info" role="status">세션이 만료되어 로그아웃되었습니다. 다시 로그인하면 보던 화면으로 돌아갑니다.</Notice>}
         <ApiErrorNotice error={err} />
         {users.isPending && <Loading />}
         {users.error && <ErrorState error={users.error} onRetry={() => users.refetch()} />}

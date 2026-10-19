@@ -5,12 +5,13 @@
 //   node scripts/smoke-deploy.mjs https://<공개 운영 주소> --public   # 보호할 수 없는 운영 별칭을 공개로 두기로 한 경우
 //   node scripts/smoke-deploy.mjs --local [포트]   # 먼저 `npm run build:vercel`. 빌드된 함수(api/index.mjs)를
 //                                                  # VERCEL=1 DEMO_PUBLIC=1로 127.0.0.1:<포트>(기본 4418)에 띄워 검사한 뒤 닫는다.
+//                                                  # DEMO_SESSION_SECRET이 없으면 이번 실행에만 쓰는 무작위 값을 만든다.
 //
 // 원격 검사는 먼저 보호(Vercel Authentication)가 켜져 있는지 확인하고, 꺼져 있으면(200) 바로 중단한다.
 // 마지막 검사는 개발용 로그인 한도(1분 30회)를 소진하므로 끝난 뒤 1분 동안 같은 IP에서 로그인이 막힌다.
-// 검사 중 만든 출금 요청은 끝에서 취소한다. 우회 값은 출력하거나 저장하지 않는다.
+// 검사 중 만든 출금 요청은 끝에서 취소한다. 우회 값과 세션 서명 값은 출력하거나 저장하지 않는다.
 import http from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 const args = process.argv.slice(2);
 const LOCAL = args.includes('--local');
@@ -24,6 +25,8 @@ if (LOCAL) {
   process.env.DEMO_PUBLIC = '1';
   process.env.NODEJS_HELPERS = '0';
   process.env.LOG_LEVEL ??= 'warn';
+  // 공개 데모는 세션 서명 값 없이 기동하지 않는다. 로컬 함수 검사에는 이번 실행에만 쓰는 값을 쓴다(배포 값과 무관).
+  process.env.DEMO_SESSION_SECRET ||= randomBytes(32).toString('base64url');
   let handler;
   try {
     ({ default: handler } = await import('../api/index.mjs'));
@@ -76,16 +79,21 @@ async function login(userId) {
 }
 
 const idem = () => `smoke-${randomUUID()}`;
+const instanceOf = (r) => String(r.headers.get('x-demo-instance') ?? '').slice(0, 8);
+// 로그인은 인스턴스와 관계없이 유지되지만 데이터는 인스턴스마다 따로다. 다음 단계가 다른 인스턴스로 가서 404가 나면 그 사실을 함께 적는다.
+const otherInstanceHint = (first, r) => (r.status === 404 && instanceOf(first) && instanceOf(first) !== instanceOf(r)
+  ? ` — 작성(${instanceOf(first)})과 다른 인스턴스(${instanceOf(r)})가 응답함: 데이터는 인스턴스마다 따로라 다시 실행하면 통과할 수 있습니다`
+  : '');
 
 async function toPending(s, amount, purpose) {
   const c = await call('POST', '/api/requests', { ...s, headers: { 'idempotency-key': idem() }, body: { assetCode: 'USDC', networkCode: 'ETHEREUM', addressId: 'ab-01', amount, purpose } });
   expect(c.status === 201, `출금 요청 작성 ${c.status} ${c.json?.error?.code ?? ''}`);
   created.push({ s, id: c.json.id });
   const rv = await call('POST', `/api/requests/${c.json.id}/review`, { ...s, body: { version: c.json.version } });
-  expect(rv.status === 200, `검토 단계 이동 ${rv.status} ${rv.json?.error?.code ?? ''}`);
+  expect(rv.status === 200, `검토 단계 이동 ${rv.status} ${rv.json?.error?.code ?? ''}${otherInstanceHint(c, rv)}`);
   const n = s.me.policy?.confirmTailLength ?? 6;
   const sub = await call('POST', `/api/requests/${c.json.id}/submit`, { ...s, body: { version: rv.json.version, confirmTail: String(c.json.address.address).slice(-n), ackIrreversible: true } });
-  expect(sub.status === 200, `승인 요청 ${sub.status} ${sub.json?.error?.code ?? ''}`);
+  expect(sub.status === 200, `승인 요청 ${sub.status} ${sub.json?.error?.code ?? ''}${otherInstanceHint(c, sub)}`);
   return sub.json;
 }
 
@@ -185,6 +193,40 @@ await check('개발용 로그인 쿠키 Secure·HttpOnly·SameSite=Strict', asyn
   expect(/;\s*Secure/i.test(c), 'Secure 없음');
   expect(/;\s*HttpOnly/i.test(c), 'HttpOnly 없음');
   expect(/;\s*SameSite=Strict/i.test(c), 'SameSite=Strict 없음');
+  expect(/;\s*Path=\/(;|$)/i.test(c), 'Path=/ 없음');
+});
+
+// 공개 데모 세션은 서명된 쿠키라, 요청을 어느 함수 인스턴스가 받아도 로그인이 유지되어야 한다.
+// 응답한 인스턴스가 1곳이든 여러 곳이든 20회 모두 200이면 통과다(인스턴스 수는 기록만 한다).
+await check('같은 쿠키로 /api/me 20회 반복: 모두 200(응답한 인스턴스 수와 무관)', async () => {
+  han ??= await login('u-a-han');
+  const instances = new Set();
+  const bad = [];
+  for (let i = 1; i <= 20; i++) {
+    const r = await call('GET', '/api/me', { cookie: han.cookie });
+    const inst = r.headers.get('x-demo-instance');
+    if (inst) instances.add(inst);
+    if (r.status !== 200) bad.push(`${i}번째 ${r.status} ${r.json?.error?.code ?? ''}`.trim());
+    else if (r.json?.user?.id !== 'u-a-han') bad.push(`${i}번째 사용자 ${r.json?.user?.id}`);
+    else if (r.json?.csrfToken !== han.csrf) bad.push(`${i}번째 CSRF 값이 처음과 다름`);
+  }
+  const seen = `응답한 인스턴스 ${instances.size}곳${instances.size ? ` (${[...instances].map((x) => String(x).slice(0, 8)).join(', ')})` : ''}`;
+  expect(bad.length === 0, `${bad.length}회 실패: ${bad.slice(0, 5).join('; ')} — ${seen}`);
+  return `20회 모두 200, ${seen}`;
+});
+
+await check('변조한 세션 쿠키 401(내용·서명)', async () => {
+  han ??= await login('u-a-han');
+  const value = han.cookie.slice('koda_sid='.length);
+  const [body, sig] = value.split('.');
+  expect(body && sig, '세션 쿠키가 서명된 형식(내용.서명)이 아닙니다');
+  const p = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+  const changedBody = Buffer.from(JSON.stringify({ ...p, uid: 'u-a-oh' })).toString('base64url');
+  const changedSig = `${sig[0] === 'A' ? 'B' : 'A'}${sig.slice(1)}`;
+  for (const [name, v] of [['내용 변경', `${changedBody}.${sig}`], ['서명 변경', `${body}.${changedSig}`]]) {
+    const r = await call('GET', '/api/me', { cookie: `koda_sid=${v}` });
+    expect(r.status === 401, `${name}: 상태 ${r.status}`);
+  }
 });
 
 await check('CSRF 값 없는 변경 요청 403', async () => {
@@ -234,6 +276,18 @@ for (const { s, id } of created) {
   const cur = await call('GET', `/api/requests/${id}`, s);
   if (cur.status === 200 && cur.json?.status === 'PENDING_APPROVAL') await call('POST', `/api/requests/${id}/cancel`, { ...s, body: { version: cur.json.version } });
 }
+
+// 무상태 세션은 서버에서 폐기할 수 없어 로그아웃은 브라우저 쿠키를 지우는 것이 전부다(docs/deploy-vercel.md 4절).
+await check('로그아웃이 세션 쿠키를 같은 속성으로 지움', async () => {
+  han ??= await login('u-a-han');
+  const r = await call('POST', '/api/auth/logout', { cookie: han.cookie, csrf: han.csrf, body: {} });
+  expect(r.status === 200, `상태 ${r.status} ${r.json?.error?.code ?? ''}`);
+  const c = r.headers.getSetCookie().find((x) => x.startsWith('koda_sid=')) ?? '';
+  expect(/^koda_sid=;/.test(c), '세션 쿠키를 비우지 않았습니다');
+  expect(/Expires=Thu, 01 Jan 1970/i.test(c) || /Max-Age=0/i.test(c), '만료 시각이 과거가 아닙니다');
+  const missing = [['Secure', /;\s*Secure/i], ['HttpOnly', /;\s*HttpOnly/i], ['SameSite=Strict', /;\s*SameSite=Strict/i], ['Path=/', /;\s*Path=\/(;|$)/i]].filter(([, re]) => !re.test(c)).map(([k]) => k);
+  expect(missing.length === 0, `속성 누락: ${missing.join(', ')}`);
+});
 
 await check('같은 IP의 31번째 로그인은 429(1분 30회)', async () => {
   let prev = null;
