@@ -10,7 +10,8 @@ function readJson<T>(rel: string): T {
 
 export interface Policy {
   approval: { defaultRequiredApprovals: number; highValueThresholdKrw: string; highValueRequiredApprovals: number };
-  addressBook: { requireSecondPersonReview: boolean; confirmTailLength: number };
+  /** cooldownHours: 두 번째 사람이 확인한 주소를 출금에 쓰기까지 기다리는 시간(설계 가정, 0이면 바로 사용) */
+  addressBook: { requireSecondPersonReview: boolean; confirmTailLength: number; cooldownHours: number };
   priceStaleAfterMinutes: number;
   mockCustodyProcessingMs: number;
 }
@@ -87,6 +88,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const rawDbPath = env.DB_PATH ?? './data/koda-dev.sqlite';
   const policy = readJson<Policy>('config/policy.json');
   if (env.MOCK_CUSTODY_PROCESSING_MS) policy.mockCustodyProcessingMs = Number(env.MOCK_CUSTODY_PROCESSING_MS);
+  if (env.ADDRESS_COOLDOWN_HOURS !== undefined && env.ADDRESS_COOLDOWN_HOURS !== '') policy.addressBook.cooldownHours = Number(env.ADDRESS_COOLDOWN_HOURS);
   return {
     nodeEnv,
     host,

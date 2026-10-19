@@ -7,7 +7,8 @@
   },
   "addressBook": {
     "requireSecondPersonReview": true,
-    "confirmTailLength": 6
+    "confirmTailLength": 6,
+    "cooldownHours": 24
   },
   "priceStaleAfterMinutes": 30,
   "mockCustodyProcessingMs": 4000
