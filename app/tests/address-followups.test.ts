@@ -307,8 +307,10 @@ describe('깨진 문자(짝 없는 서로게이트) 입력 거절', () => {
     const row = ctx.db.prepare('SELECT label, counterparty FROM address_book WHERE id = ?').get(cr.body.address.id) as any;
     expect(row.label).toBe(label);
     expect(row.counterparty).toBe(counterparty);
-    const audit = ctx.db.prepare("SELECT summary FROM audit_log WHERE action = 'address.created' AND target_id = ?").get(cr.body.address.id) as any;
-    expect(audit.summary).toBe(`주소 등록 요청: ${label} (USDC/ETHEREUM)`);
+    const audit = ctx.db.prepare("SELECT summary, detail FROM audit_log WHERE action = 'address.created' AND target_id = ?").get(cr.body.address.id) as any;
+    // 요약은 화면과 같은 네트워크 이름(Ethereum)으로 쓰고, 네트워크 코드(ETHEREUM)는 detail에 남는다.
+    expect(audit.summary).toBe(`주소 등록 요청: ${label} (USDC/Ethereum)`);
+    expect(JSON.parse(audit.detail)).toMatchObject({ assetCode: 'USDC', networkCode: 'ETHEREUM' });
     expect(audit.summary).not.toContain('�');
 
     const op = api(ctx.app, await login(ctx.app, 'u-k-op'));
@@ -386,5 +388,48 @@ describe('깨진 문자(짝 없는 서로게이트) 입력 거절', () => {
     expect((ctx.db.prepare('SELECT COUNT(*) c FROM insights WHERE title LIKE ? OR summary LIKE ? OR url LIKE ? OR asset_tags LIKE ?').get(fffd, fffd, fffd, fffd) as any).c).toBe(0);
     const orgs = ctx.db.prepare('SELECT DISTINCT org_id FROM audit_log').all() as { org_id: string }[];
     for (const { org_id } of orgs) expect(verifyChain(ctx.db, org_id).ok, org_id).toBe(true);
+  });
+});
+
+describe('감사 기록 요약에는 화면과 같은 이름을 쓴다(네트워크·역할 코드는 detail에만)', () => {
+  const NETWORK_CODE_IN_SUMMARY = /\/(?:BITCOIN|ETHEREUM|KAIA|XRPL)\)/;
+  const ROLE_CODE = /\b(?:requester|approver|auditor|admin|operator)\b/;
+
+  it('seeded address registrations name the network as the screens do (Ethereum, Kaia, Bitcoin, XRP Ledger), keeping the code in detail', () => {
+    const rows = ctx.db.prepare("SELECT target_id, summary, detail FROM audit_log WHERE action = 'address.created' ORDER BY seq").all() as any[];
+    expect(rows.length).toBeGreaterThanOrEqual(15);
+    for (const r of rows) {
+      expect(r.summary, r.target_id).not.toMatch(NETWORK_CODE_IN_SUMMARY);
+      expect(r.summary, r.target_id).toMatch(/\((?:BTC|ETH|USDC|KAIA|XRP)\/(?:Bitcoin|Ethereum|Kaia|XRP Ledger)\)$/);
+      expect(Object.keys(JSON.parse(r.detail)), r.target_id).toContain('networkCode');
+    }
+    const byId = (id: string) => rows.find((r) => r.target_id === id)!;
+    expect(byId('ab-01').summary).toBe('주소 등록 요청: 모의 거래소 A 입금 (USDC) (USDC/Ethereum)');
+    expect(JSON.parse(byId('ab-01').detail)).toMatchObject({ assetCode: 'USDC', networkCode: 'ETHEREUM' });
+    expect(byId('ab-04').summary).toMatch(/\(XRP\/XRP Ledger\)$/);
+    expect(byId('ab-13').summary).toMatch(/\(USDC\/Kaia\)$/);
+    expect(byId('ab-14').summary).toMatch(/\(USDC\/Ethereum\)$/);
+  });
+
+  it('seeded role grants use the role names (자산 담당자, 승인자 …) and keep the role codes in detail', () => {
+    const rows = ctx.db.prepare("SELECT target_id, summary, detail FROM audit_log WHERE action = 'member.roles_changed' ORDER BY seq").all() as any[];
+    expect(rows.length).toBe(10);
+    for (const r of rows) expect(r.summary, r.target_id).not.toMatch(ROLE_CODE);
+    const han = rows.find((r) => r.target_id === 'u-a-han')!;
+    expect(han.summary).toBe('한지수 초기 역할 부여: 자산 담당자');
+    expect(JSON.parse(han.detail)).toEqual({ before: [], after: ['requester'] });
+    expect(rows.find((r) => r.target_id === 'u-a-kang')!.summary).toBe('강도윤 초기 역할 부여: 자산 담당자, 승인자');
+    expect(rows.find((r) => r.target_id === 'u-b-jo')!.summary).toBe('조은비 초기 역할 부여: 조직 관리자, 감사 담당자');
+    for (const { org_id } of ctx.db.prepare('SELECT DISTINCT org_id FROM audit_log').all() as { org_id: string }[]) expect(verifyChain(ctx.db, org_id).ok, org_id).toBe(true);
+  });
+
+  it('the audit CSV content column carries the display names, not the codes', async () => {
+    const moon = await login(ctx.app, 'u-a-moon');
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/audit/export.csv', headers: { cookie: moon.cookie } });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('(USDC/Ethereum)');
+    expect(res.body).toContain('한지수 초기 역할 부여: 자산 담당자');
+    expect(res.body).not.toMatch(NETWORK_CODE_IN_SUMMARY);
+    expect(res.body).not.toMatch(/초기 역할 부여: [a-z]/);
   });
 });

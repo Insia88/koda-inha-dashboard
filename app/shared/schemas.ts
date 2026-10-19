@@ -33,6 +33,26 @@ export function letterDigitCount(s: string): number {
   return (s.match(/[\p{L}\p{N}]/gu) ?? []).length;
 }
 
+/** 사람이 읽고 판단하는 글(사유·메모·이름): 보이지 않는 서식 문자를 지우고 앞뒤 공백을 없앤 값. 저장·감사 기록에도 이 값을 쓴다. */
+export function cleanText(s: string): string {
+  return stripFormatChars(s).trim();
+}
+
+/** 필수 사유·메모의 최소 글자 수(설계 가정). 글자·숫자만 센다. */
+export const REASON_MIN_LETTERS = 5;
+
+/**
+ * 필수 사유·메모 점검(cleanText를 거친 값 기준). 맞으면 null, 모자라면 보일 문구.
+ * - 지운 뒤 길이가 min자보다 짧다(빈 값, 폭 없는 공백만 넣은 값 등): short 문구
+ * - 길이는 되지만 글자·숫자가 min자보다 적다(문장부호·공백만 넣은 값 등): '<label>에 글자·숫자를 N자 이상 넣어 주세요.'
+ */
+export function reasonError(cleaned: string, opts: { label: string; short: string; min?: number }): string | null {
+  const min = opts.min ?? REASON_MIN_LETTERS;
+  if (cleaned.length < min) return opts.short;
+  if (letterDigitCount(cleaned) < min) return `${opts.label}에 글자·숫자를 ${min}자 이상 넣어 주세요.`;
+  return null;
+}
+
 /** 깨진 문자(짝 없는 서로게이트)가 든 입력에 붙이는 항목 오류 문구 */
 export const brokenTextMessage = (label: string) => `${label}에 깨진 문자(잘린 이모지 등)가 들어 있습니다. 그 부분을 지우고 다시 입력하세요.`;
 
@@ -42,6 +62,31 @@ const text = (schema: z.ZodString, label: string) => schema.refine(isWellFormedT
 const trimmed = (max: number, label: string) =>
   text(z.string().trim().min(1, `${label}을(를) 입력하세요.`).max(max, `${label}은(는) ${max}자 이내로 입력하세요.`), label);
 
+/**
+ * 깨진 문자를 먼저 거절하고, 보이지 않는 서식 문자를 지운 값(cleanText)으로 길이 규칙을 본다. 결과 값도 지운 값이다.
+ * 깨진 문자가 있으면 그 오류 하나만 낸다(뒤 규칙은 보지 않는다).
+ */
+const cleaned = (label: string, rest: z.ZodType<string, string>) =>
+  z.string().refine(isWellFormedText, brokenTextMessage(label)).transform(cleanText).pipe(rest);
+
+/** 필수 이름·연락처 등: 서식 문자를 지운 뒤 비어 있으면 거절한다. */
+const cleanedRequired = (max: number, label: string) =>
+  cleaned(label, z.string().min(1, `${label}을(를) 입력하세요.`).max(max, `${label}은(는) ${max}자 이내로 입력하세요.`));
+
+/** 선택 사유·메모: 서식 문자를 지운 값만 남긴다. 필요한 경우(유사 주소·거절)의 최소 글자 수는 처리 단계가 reasonError로 본다. */
+const cleanedOptional = (max: number, label: string, maxMessage: string) =>
+  cleaned(label, z.string().max(max, maxMessage)).optional().default('');
+
+/**
+ * 필수 사유(정지·반려): 서식 문자를 지운 값이 min자 이상이고 글자·숫자도 min자 이상이어야 한다.
+ * 출금 전 점검의 진행 사유(server/domain/checks.ts attachCheckReasons)와 같은 기준이다.
+ */
+const reasonText = (o: { label: string; short: string; max: number; maxMessage: string }) =>
+  cleaned(o.label, z.string().max(o.max, o.maxMessage).superRefine((s, ctx) => {
+    const message = reasonError(s, { label: o.label, short: o.short });
+    if (message) ctx.addIssue({ code: 'custom', message });
+  }));
+
 export const addressCheckSchema = z.object({
   assetCode: z.string().min(1, '자산을 선택하세요.').max(16),
   networkCode: z.string().min(1, '네트워크를 선택하세요.').max(32),
@@ -50,29 +95,31 @@ export const addressCheckSchema = z.object({
 });
 
 export const addressCreateSchema = addressCheckSchema.extend({
-  label: trimmed(60, '주소 이름'),
-  counterparty: trimmed(80, '받는 곳'),
+  label: cleanedRequired(60, '주소 이름'),
+  counterparty: cleanedRequired(80, '받는 곳'),
   confirmTail: z.string().trim().min(1, '주소 끝자리를 다시 입력하세요.').max(20),
   confirmMiddle: z.string().trim().min(1, '주소 가운데 8자리를 다시 입력하세요.').max(20),
-  lookalikeReason: text(z.string().trim().max(300, '등록 사유는 300자 이내로 입력하세요.'), '등록 사유').optional().default(''),
+  // 비슷한 주소가 있을 때만 필요하다(글자·숫자 5자 이상). 그 판단은 등록 처리(createAddress)가 한다.
+  lookalikeReason: cleanedOptional(300, '등록 사유', '등록 사유는 300자 이내로 입력하세요.'),
   ackNotVerified: z.literal(true, { message: '형식 점검이 주소의 안전성을 보증하지 않는다는 점을 확인하세요.' }),
   ackOutOfBandConfirmed: z.literal(true, { message: '받는 곳과 별도 연락 수단으로 주소를 대조했는지 확인하세요.' }),
   // 다른 경로 확인 기록: 어느 경로로 주소를 받았고, 그와 다른 어느 경로로 누구와 다시 확인했는지 남긴다.
   // 두 경로가 같은지는 등록 처리(createAddress)가 OUT_OF_BAND_SAME_CHANNEL로 거절한다.
   receivedVia: z.enum(RECEIVED_VIA_VALUES, { message: '주소를 받은 경로를 고르세요.' }),
   verifiedVia: z.enum(VERIFIED_VIA_VALUES, { message: '주소를 다시 확인한 경로를 고르세요.' }),
-  verifiedWith: trimmed(100, '확인한 상대·연락처'),
+  verifiedWith: cleanedRequired(100, '확인한 상대·연락처'),
 });
 
-/** 사용 대기 중 정지: 위험을 줄이는 행동이라 바로 적용하되, 왜 멈췄는지 남긴다. */
+/** 사용 대기 중 정지: 위험을 줄이는 행동이라 바로 적용하되, 왜 멈췄는지 남긴다(글자·숫자 5자 이상). */
 export const addressStopSchema = z.object({
   version: z.number().int().positive(),
-  reason: text(z.string().trim().min(5, '정지 사유를 5자 이상 입력하세요.').max(300, '정지 사유는 300자 이내로 입력하세요.'), '정지 사유'),
+  reason: reasonText({ label: '정지 사유', short: '정지 사유를 5자 이상 입력하세요.', max: 300, maxMessage: '정지 사유는 300자 이내로 입력하세요.' }),
 });
 
 export const addressReviewSchema = z.object({
   decision: z.enum(['approve', 'reject']),
-  note: text(z.string().trim().max(500), '메모').optional().default(''),
+  // 거절할 때와 비슷한 기존 주소가 있을 때만 필요하다(글자·숫자 5자 이상). 그 판단은 확인 처리(reviewAddress)가 한다.
+  note: cleanedOptional(500, '메모', '메모는 500자 이내로 입력하세요.'),
   version: z.number().int().positive(),
   confirmTail: z.string().trim().max(20).optional().default(''),
   confirmMiddle: z.string().trim().max(20).optional().default(''),
@@ -85,7 +132,7 @@ export const requestDraftSchema = z.object({
   networkCode: z.string().min(1, '네트워크를 선택하세요.').max(32),
   addressId: z.string().min(1, '받는 주소를 선택하세요.').max(64),
   amount: z.string().trim().min(1, '수량을 입력하세요.').max(60),
-  purpose: trimmed(200, '요청 목적'),
+  purpose: cleanedRequired(200, '요청 목적'),
 });
 
 export const requestUpdateSchema = requestDraftSchema.extend({ version: z.number().int().positive() });
@@ -116,7 +163,8 @@ export const requestApproveSchema = z.object({
 
 export const requestRejectSchema = z.object({
   version: z.number().int().positive(),
-  reason: text(z.string().trim().min(5, '반려 사유를 5자 이상 입력하세요.').max(500, '반려 사유는 500자 이내로 입력하세요.'), '반려 사유'),
+  // 서식 문자를 지운 값으로 넘긴다(rejectRequest가 이 값을 저장한다). 글자·숫자 5자 이상.
+  reason: reasonText({ label: '반려 사유', short: '반려 사유를 5자 이상 입력하세요.', max: 500, maxMessage: '반려 사유는 500자 이내로 입력하세요.' }),
   intentHash: intentHashField,
 });
 

@@ -16,6 +16,17 @@ import '../components/address-lifecycle.css';
 /** 원본을 보고 직접 입력해야 하는 값: 붙여넣기·끌어 놓기를 막는다. */
 const blockPaste = (e: ClipboardEvent | DragEvent) => e.preventDefault();
 
+/**
+ * 정지 사유를 보내기 전 화면 점검. 서버(shared/schemas.ts reasonError)와 같은 기준이다:
+ * 보이지 않는 서식 문자를 지운 뒤 5자 이상이고, 그중 글자·숫자가 5자 이상이어야 한다. 맞으면 undefined.
+ */
+export function stopReasonError(raw: string): string | undefined {
+  const cleaned = raw.replace(/\p{Cf}/gu, '').trim();
+  if (cleaned.length < 5) return '정지 사유를 5자 이상 입력하세요.';
+  if ((cleaned.match(/[\p{L}\p{N}]/gu) ?? []).length < 5) return '정지 사유에 글자·숫자를 5자 이상 넣어 주세요.';
+  return undefined;
+}
+
 /** 조직 정책(설계 가정): 주소 확인 뒤 사용 대기 시간. 주소 등록·상세 화면이 같이 쓴다. */
 export function useAddressPolicy() {
   return useQuery({ queryKey: ['org-policy'], queryFn: () => api('/api/org/policy'), staleTime: 5 * 60_000 });
@@ -84,12 +95,15 @@ export function AddressDetailPage() {
   const [confirmStop, setConfirmStop] = useState(false);
   const reviewRef = useRef<HTMLElement>(null);
   const stopRef = useRef<HTMLElement>(null);
+  const reviewDoneRef = useRef<HTMLDivElement>(null);
   const refreshAll = () => { qc.invalidateQueries({ queryKey: ['addresses'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); };
   const review = useMutation({
     mutationFn: (decision: 'approve' | 'reject') => api(`/api/addresses/${id}/review`, { method: 'POST', body: { decision, note, version: q.data.version, confirmTail: tail, confirmMiddle: middle } }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['address', id] }); refreshAll(); },
+    // 응답의 새 상태를 바로 반영해(확인 카드가 사라지고 결과 안내가 보이게) 결과 안내로 포커스를 옮긴다. 변경 이력은 다시 불러온다.
+    onSuccess: (data) => { qc.setQueryData(['address', id], (old: any) => (old ? { ...old, ...data } : old)); qc.invalidateQueries({ queryKey: ['address', id] }); refreshAll(); },
     // 409: 다른 사람이 바꿨거나 확인 중 유사 주소가 새로 발견됨 → 최신 점검 결과를 다시 불러온다(입력값은 유지).
-    onError: (e) => { if (e instanceof ApiError && e.status === 409) qc.invalidateQueries({ queryKey: ['address', id] }); },
+    // 422 ADDRESS_POISON_SUSPECTED: 서버가 주소 오염 의심 결과를 점검 결과에 저장하고 버전을 올렸다 → 다시 불러와 경고와 새 버전을 보인다.
+    onError: (e) => { if (e instanceof ApiError && (e.status === 409 || e.code === 'ADDRESS_POISON_SUSPECTED')) qc.invalidateQueries({ queryKey: ['address', id] }); },
   });
   const disable = useMutation({
     mutationFn: () => api(`/api/addresses/${id}/disable`, { method: 'POST', body: { version: q.data.version } }),
@@ -107,6 +121,18 @@ export function AddressDetailPage() {
   // 사용 대기가 끝날 시각이 지나면 상세를 다시 불러와 '사용 가능'으로 바뀐 상태를 보인다(조회할 때 상태가 맞춰진다).
   const expired = q.data?.status === 'COOLING_DOWN' && !!q.data.activeFrom && Date.parse(q.data.activeFrom) <= now;
   useEffect(() => { if (expired) void q.refetch(); }, [expired]); // eslint-disable-line
+
+  // 확인·거절을 마친 결과 안내: 누른 버튼이 있던 확인 카드가 사라지므로, 안내로 포커스를 옮기고 화면 안으로 가져온다.
+  // 응답의 상태와 지금 상태가 같을 때만 보인다(나중에 사용 대기가 끝나 상태가 바뀌면 안내를 내린다).
+  const reviewDone: string | null = review.isSuccess && q.data && review.data?.status === q.data.status ? q.data.status : null;
+  useEffect(() => {
+    if (!reviewDone) return;
+    const raf = requestAnimationFrame(() => {
+      const el = reviewDoneRef.current;
+      if (el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: 'center' }); }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [review.data]); // eslint-disable-line
 
   if (q.isPending) return <Loading />;
   if (q.error) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
@@ -134,8 +160,9 @@ export function AddressDetailPage() {
 
   const openStop = () => {
     stop.reset();
-    if (stopReason.trim().length < 5) {
-      setStopLocalError('정지 사유를 5자 이상 입력하세요.');
+    const local = stopReasonError(stopReason);
+    if (local) {
+      setStopLocalError(local);
       requestAnimationFrame(() => stopRef.current?.querySelector<HTMLElement>('#stop-reason')?.focus());
       return;
     }
@@ -161,7 +188,13 @@ export function AddressDetailPage() {
           </div>
         </Notice>
       )}
-      {review.isSuccess && a.status === 'COOLING_DOWN' && <Notice tone="success" role="status" title="확인을 마쳤습니다">대기 시간이 지나면 출금 요청에 쓸 수 있습니다. 그 전에는 요청 작성 화면의 받는 주소 목록에 나오지 않습니다.</Notice>}
+      {reviewDone && (
+        <div ref={reviewDoneRef} tabIndex={-1} className="rc-focus-target">
+          {reviewDone === 'COOLING_DOWN' && <Notice tone="success" role="status" title="확인을 마쳤습니다">대기 시간이 지나면 출금 요청에 쓸 수 있습니다. 그 전에는 요청 작성 화면의 받는 주소 목록에 나오지 않습니다.</Notice>}
+          {reviewDone === 'ACTIVE' && <Notice tone="success" role="status" title="확인을 마쳤습니다">이제 출금 요청의 받는 주소로 고를 수 있습니다.</Notice>}
+          {reviewDone === 'REJECTED' && <Notice tone="info" role="status" title="등록을 거절했습니다">이 주소는 출금 요청에 쓸 수 없습니다. 등록자에게 거절 사유가 보입니다.</Notice>}
+        </div>
+      )}
       {isMineAndPending && <Notice tone="info">본인이 등록한 주소는 직접 확인할 수 없습니다. 다른 승인자에게 확인을 요청하세요.</Notice>}
 
       {a.status === 'COOLING_DOWN' && a.activeFrom && (
@@ -202,7 +235,7 @@ export function AddressDetailPage() {
         <section ref={stopRef} className="card lc-stop" aria-labelledby="stop-h">
           <h2 id="stop-h">사용 대기 중 정지</h2>
           <p>이 주소의 등록을 요청한 적이 없거나, 받는 곳에서 확인되지 않은 주소라면 지금 정지하세요. 정지는 바로 적용되며 되돌릴 수 없습니다.</p>
-          <Field label="정지 사유" htmlFor="stop-reason" required error={stopFieldError} hint="왜 정지하는지 5자 이상 적어 주세요. 변경 이력과 감사 기록에 남습니다.">
+          <Field label="정지 사유" htmlFor="stop-reason" required error={stopFieldError} hint="왜 정지하는지 글자·숫자 5자 이상 적어 주세요. 변경 이력과 감사 기록에 남습니다.">
             <TextareaAuto id="stop-reason" rows={2} maxRows={6} value={stopReason} onChange={(e) => { setStopReason(e.target.value); setStopLocalError(undefined); }} maxLength={300} />
           </Field>
           <div className="form-actions">
@@ -259,7 +292,7 @@ export function AddressDetailPage() {
             <input id="middle" className="mono" value={middle} onChange={(e) => setMiddle(e.target.value)} maxLength={20} autoComplete="off" spellCheck={false} onPaste={blockPaste} onDrop={blockPaste} />
           </Field>
           <Field label={hasLookalike ? '확인 메모 (확인한 방법)' : '메모 (거절 시 필수)'} htmlFor="note" required={hasLookalike} error={err?.fieldError('note')}
-            hint={hasLookalike ? '비슷한 기존 주소가 있어 확인할 때도 메모가 필요합니다. 받는 곳에 어떤 연락 수단으로 전체 주소를 확인했는지 5자 이상 적어 주세요. 거절하면 등록자에게 사유가 보입니다.' : '거절하면 등록자에게 사유가 보입니다.'}>
+            hint={hasLookalike ? '비슷한 기존 주소가 있어 확인할 때도 메모가 필요합니다. 받는 곳에 어떤 연락 수단으로 전체 주소를 확인했는지 글자·숫자 5자 이상 적어 주세요. 거절하면 등록자에게 사유가 보입니다.' : '거절할 때는 사유를 글자·숫자 5자 이상 적어 주세요. 거절하면 등록자에게 사유가 보입니다.'}>
             <TextareaAuto id="note" rows={2} maxRows={6} value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
           </Field>
           {lookalikeUpdated ? (

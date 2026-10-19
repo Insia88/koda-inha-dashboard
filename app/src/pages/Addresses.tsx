@@ -1,6 +1,6 @@
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { IconPlus } from '@tabler/icons-react';
+import { IconAlertTriangle, IconPlus } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useMe } from '../auth.tsx';
 import { useCatalog, useUrlState } from '../hooks.ts';
@@ -8,11 +8,25 @@ import { AddressStrip, Badge, Empty, ErrorState, Loading, Notice, PageHeader } f
 import { SearchField } from '../components/SearchField.tsx';
 import { date, dateTime } from '../format.ts';
 import { ADDRESS_STATUS, type AddressStatus } from '../../shared/terms.ts';
+import type { Finding } from '../../shared/address-rules.ts';
 import { timeLeft, useNow } from './AddressDetail.tsx';
 import '../components/address-lifecycle.css';
 
 /** 목록 조회가 한 번에 돌려주는 최대 건수(서버와 같은 값). 넘으면 잘린 사실을 알린다. */
 const ADDRESS_LIST_LIMIT = 500;
+
+/**
+ * 목록의 '비슷한 주소 있음' 표시 설명. 등록·확인 때 서버가 저장한 점검 결과에 유사 주소(주소록) 또는
+ * 최근 0원·소액 입금을 보낸 주소와 비슷하다는 결과가 있으면, 무엇과 비슷한지 한 문장씩 돌려준다. 없으면 null.
+ * 목록의 주소는 앞·뒤 묶음만 보이므로(가운데 생략) 흉내 낸 주소와 원래 주소가 똑같아 보인다. 이 표시로 구별하게 한다.
+ */
+export function lookalikeNote(findings: Finding[] | undefined): string | null {
+  const parts: string[] = [];
+  const top = (findings ?? []).find((f) => f.code === 'ADDRESS_LOOKALIKE')?.data?.matches?.[0];
+  if (top) parts.push(`기존 주소 '${top.label}'와 앞 ${top.prefix}자·뒤 ${top.suffix}자가 같고 가운데가 다릅니다.`);
+  if ((findings ?? []).some((f) => f.code === 'ADDRESS_POISON_LOOKALIKE')) parts.push('최근 0원·소액 입금을 보낸 주소와 앞·뒤가 같고 가운데가 다릅니다.');
+  return parts.length ? `${parts.join(' ')} 주소를 열어 가운데를 포함한 전체 글자를 비교하세요.` : null;
+}
 
 export function AddressesPage() {
   const me = useMe();
@@ -88,6 +102,7 @@ export function AddressesPage() {
                 <tbody>
                   {q.data.items.map((a: any) => {
                     const st = ADDRESS_STATUS[a.status as AddressStatus];
+                    const look = lookalikeNote(a.findings);
                     return (
                       <tr key={a.id}>
                         <th scope="row" className="cell-wrap adr-name">
@@ -98,6 +113,12 @@ export function AddressesPage() {
                         <td className="adr-addr" data-label="주소"><AddressStrip address={a.address} memo={a.memo} compact /></td>
                         <td className="adr-status">
                           <Badge tone={st.tone} title={st.description}>{st.label}</Badge>
+                          {/* 상태 배지는 행마다 하나로 둔다. 유사 주소 표시는 '내 확인 필요'처럼 배지 아래 한 줄(위험 색)로 보인다. */}
+                          {look && (
+                            <div className="small action-hint adr-lookalike" style={{ color: 'var(--danger)' }} title={look}>
+                              <IconAlertTriangle size={14} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 2 }} />비슷한 주소 있음<span className="sr-only">: {look}</span>
+                            </div>
+                          )}
                           {a.allowedActions.includes('review') && <div className="small action-hint">내 확인 필요</div>}
                           {a.status === 'COOLING_DOWN' && a.activeFrom && (
                             <div className="small lc-list-when">

@@ -155,7 +155,7 @@ export function AddressNewPage() {
           </Field>
           {lookalike && (
             <Field label="비슷한 주소가 있는데도 등록하는 사유" htmlFor="lookalikeReason" required error={fe('lookalikeReason')}
-              hint="받는 곳에 어떤 연락 수단으로 전체 주소를 확인했는지, 기존 주소와 어떻게 다른지 5자 이상 적어 주세요. 확인 담당자와 감사 기록에 남습니다.">
+              hint="받는 곳에 어떤 연락 수단으로 전체 주소를 확인했는지, 기존 주소와 어떻게 다른지 글자·숫자 5자 이상 적어 주세요. 확인 담당자와 감사 기록에 남습니다.">
               <TextareaAuto id="lookalikeReason" rows={2} maxRows={6} value={f.lookalikeReason} onChange={(e) => set({ lookalikeReason: e.target.value })} maxLength={300} />
             </Field>
           )}

@@ -14,6 +14,7 @@ import { assertAssetOnNetwork, getAsset, getNetworkRule, getNetworkRules } from 
 import type { Policy } from '../config.ts';
 import type { Permission } from '../authz.ts';
 import { ADDRESS_STATUS, RECEIVED_VIA, VERIFIED_VIA, type AddressStatus, type ReceivedVia, type VerifiedVia } from '../../shared/terms.ts';
+import { cleanText, reasonError } from '../../shared/schemas.ts';
 
 /** 사용 대기가 끝난 주소를 사용 가능으로 바꾼 감사 기록의 수행자 이름(사람이 아닌 시간 경과). */
 export const ACTIVATION_ACTOR = '시스템(사용 대기 종료)';
@@ -363,22 +364,28 @@ export function createAddress(db: DB, auth: AuthContext, policy: Policy, input: 
     }
     assertMiddle(normalized, input.confirmMiddle, '붙여 넣은 값이 아니라 받는 곳이 알려 준 원본 주소의 가운데 글자를 직접 보고 다시 입력하세요.');
     const matches = lookalikeMatchesOf(findings);
-    const reason = (input.lookalikeReason ?? '').trim();
-    if (matches.length && reason.length < 5) {
-      throw new AppError(422, 'REASON_REQUIRED', '비슷한 기존 주소가 있어 등록 사유가 필요합니다.', '받는 곳에 어떤 연락 수단으로 전체 주소를 확인했는지, 기존 주소와 어떻게 다른지 5자 이상 적어 주세요.', [{ field: 'lookalikeReason', message: '등록 사유를 5자 이상 입력하세요.' }], { findings });
+    // 보이지 않는 서식 문자(폭 없는 공백·방향 제어 문자 등)를 지운 값으로 세고 저장한다. 문장부호·공백만으로는 채울 수 없다(글자·숫자 5자 이상).
+    const reason = cleanText(input.lookalikeReason ?? '');
+    const reasonProblem = matches.length ? reasonError(reason, { label: '등록 사유', short: '등록 사유를 5자 이상 입력하세요.' }) : null;
+    if (reasonProblem) {
+      throw new AppError(422, 'REASON_REQUIRED', '비슷한 기존 주소가 있어 등록 사유가 필요합니다.', '받는 곳에 어떤 연락 수단으로 전체 주소를 확인했는지, 기존 주소와 어떻게 다른지 글자·숫자 5자 이상 적어 주세요.', [{ field: 'lookalikeReason', message: reasonProblem }], { findings });
     }
     const lookalikeReason = matches.length ? reason : null;
     assertDifferentChannel(input);
-    const verifiedWith = input.verifiedWith.trim();
+    const label = cleanText(input.label);
+    const counterparty = cleanText(input.counterparty);
+    const verifiedWith = cleanText(input.verifiedWith);
     const id = randomUUID();
     const status: AddressStatus = policy.addressBook.requireSecondPersonReview ? 'PENDING_REVIEW' : 'ACTIVE';
     db.prepare(
       `INSERT INTO address_book (id, org_id, label, counterparty, asset_code, network_code, address, memo, status, created_by, created_at, check_findings, lookalike_reason, received_via, verified_via, verified_with)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, auth.org.id, input.label.trim(), input.counterparty.trim(), input.assetCode, input.networkCode, normalized, (input.memo ?? '').trim(), status, auth.user.id, now(), JSON.stringify(findings), lookalikeReason, input.receivedVia, input.verifiedVia, verifiedWith);
+    ).run(id, auth.org.id, label, counterparty, input.assetCode, input.networkCode, normalized, (input.memo ?? '').trim(), status, auth.user.id, now(), JSON.stringify(findings), lookalikeReason, input.receivedVia, input.verifiedVia, verifiedWith);
+    // 요약은 화면과 같은 네트워크 이름(예: Ethereum)으로 쓴다. 코드(ETHEREUM)는 detail에 남긴다.
+    const networkName = getNetworkRule(db, input.networkCode).name;
     writeAudit(db, {
       orgId: auth.org.id, actorId: auth.user.id, actorName: auth.user.name, action: 'address.created', targetType: 'address', targetId: id,
-      summary: `주소 등록 요청: ${input.label.trim()} (${input.assetCode}/${input.networkCode})`,
+      summary: `주소 등록 요청: ${label} (${input.assetCode}/${networkName})`,
       detail: {
         assetCode: input.assetCode, networkCode: input.networkCode, addressTail: normalized.slice(-6), memoSet: !!(input.memo ?? '').trim(),
         warnings: findings.filter((f) => f.level === 'warning').map((f) => f.code),
@@ -391,7 +398,10 @@ export function createAddress(db: DB, auth: AuthContext, policy: Policy, input: 
 }
 
 export function reviewAddress(db: DB, auth: AuthContext, policy: Policy, id: string, input: { decision: 'approve' | 'reject'; note: string; version: number; confirmTail: string; confirmMiddle?: string }) {
-  type Outcome = { kind: 'refreshed'; added: LookalikeFindingMatch[] } | { kind: 'done'; dto: ReturnType<typeof toAddressDto> };
+  type Outcome =
+    | { kind: 'refreshed'; added: LookalikeFindingMatch[] }
+    | { kind: 'poisoned'; findings: Finding[] }
+    | { kind: 'done'; dto: ReturnType<typeof toAddressDto> };
   const out = tx<Outcome>(db, () => {
     const r = getAddressRow(db, auth.org.id, id);
     if (r.created_by === auth.user.id) {
@@ -399,16 +409,41 @@ export function reviewAddress(db: DB, auth: AuthContext, policy: Policy, id: str
     }
     if (r.status !== 'PENDING_REVIEW') throw Errors.conflict(`이미 '${ADDRESS_STATUS[r.status as AddressStatus].label}' 상태인 주소입니다.`);
     if (r.version !== input.version) throw Errors.conflict('다른 사용자가 먼저 이 주소를 변경했습니다.');
-    const note = input.note.trim();
-    if (input.decision === 'reject' && note.length < 5) {
-      throw new AppError(422, 'VALIDATION', '거절 사유를 5자 이상 입력하세요.', '등록자가 무엇을 고쳐야 하는지 알 수 있게 적어 주세요.', [{ field: 'note', message: '거절 사유를 5자 이상 입력하세요.' }]);
+    // 보이지 않는 서식 문자를 지운 값으로 세고 저장한다(글자·숫자 5자 이상).
+    const note = cleanText(input.note);
+    const rejectProblem = input.decision === 'reject' ? reasonError(note, { label: '거절 사유', short: '거절 사유를 5자 이상 입력하세요.' }) : null;
+    if (rejectProblem) {
+      throw new AppError(422, 'VALIDATION', rejectProblem, '등록자가 무엇을 고쳐야 하는지 알 수 있게 글자·숫자 5자 이상 적어 주세요.', [{ field: 'note', message: rejectProblem }]);
     }
     const seen = parseFindings(r.check_findings);
     const seenMatches = lookalikeMatchesOf(seen);
     if (input.decision === 'approve') {
       // 등록 뒤에 같은 주소에서 소액 입금이 들어왔을 수 있다. 확인(승인) 때 다시 보고, 같으면 확인하지 않는다.
-      if (poisonFindings(db, auth.org.id, String(r.address)).some((f) => f.code === 'ADDRESS_POISON_SUSPECTED')) {
-        throw new AppError(422, 'ADDRESS_POISON_SUSPECTED', POISON_SUSPECTED_MESSAGE, '이 등록은 확인하지 말고 사유와 함께 거절하세요. 받는 곳에는 받은 경로와 다른 연락 수단으로 주소를 다시 확인하세요.');
+      // 확인은 막되, 찾은 결과는 버리지 않는다: 점검 결과 맨 앞에 넣고 감사 기록을 같은 트랜잭션에서 남긴 뒤(커밋), 422로 알린다.
+      // 다음 확인 담당자도 상세 화면에서 이 경고를 보고, 해시 연결 감사 기록에도 탐지 사실이 남는다(유사 주소 갱신과 같은 방식).
+      const poison = poisonFindings(db, auth.org.id, String(r.address)).find((f) => f.code === 'ADDRESS_POISON_SUSPECTED');
+      if (poison) {
+        const dustRefs = (f: Finding | undefined) => (f?.data?.dust ?? []).map((d) => d.txRef).sort().join('\n');
+        const stored = seen.find((f) => f.code === 'ADDRESS_POISON_SUSPECTED');
+        // 이미 같은 입금으로 저장해 둔 결과면 다시 쓰지 않는다(버전·감사 기록을 반복해 늘리지 않음).
+        if (stored && dustRefs(stored) === dustRefs(poison)) return { kind: 'poisoned', findings: seen };
+        const next = [poison, ...seen.filter((f) => f.code !== 'ADDRESS_POISON_SUSPECTED')];
+        const res = db.prepare('UPDATE address_book SET check_findings = ?, version = version + 1 WHERE id = ? AND org_id = ? AND version = ?').run(JSON.stringify(next), id, auth.org.id, input.version);
+        if (res.changes !== 1) throw Errors.conflict('다른 사용자가 먼저 이 주소를 변경했습니다.');
+        writeAudit(db, {
+          orgId: auth.org.id, actorId: auth.user.id, actorName: auth.user.name, action: 'address.findings_updated', targetType: 'address', targetId: id,
+          summary: `주소 점검 결과 갱신: ${r.label} (최근 0원·소액 입금을 보낸 주소와 같음, 확인 보류)`,
+          detail: {
+            ruleVersion: LOOKALIKE_RULE_VERSION,
+            attempted: 'approve',
+            added: ['ADDRESS_POISON_SUSPECTED'],
+            // 거래 참조·시각·수량만 남긴다(보낸 주소 전체는 남기지 않음).
+            dust: poison.data?.dust ?? [],
+            findings: next.map((f) => f.code),
+            version: input.version + 1,
+          },
+        });
+        return { kind: 'poisoned', findings: next };
       }
       const n = policy.addressBook.confirmTailLength;
       if (input.confirmTail.trim().toUpperCase() !== String(r.address).slice(-n).toUpperCase()) {
@@ -444,8 +479,9 @@ export function reviewAddress(db: DB, auth: AuthContext, policy: Policy, id: str
         });
         return { kind: 'refreshed', added };
       }
-      if (seenMatches.length && note.length < 5) {
-        throw new AppError(422, 'NOTE_REQUIRED', '비슷한 기존 주소가 있어 확인 메모가 필요합니다.', '받는 곳에 어떤 연락 수단으로 전체 주소를 확인했는지 5자 이상 적어 주세요.', [{ field: 'note', message: '확인한 방법을 5자 이상 입력하세요.' }]);
+      const noteProblem = seenMatches.length ? reasonError(note, { label: '확인 메모', short: '확인한 방법을 5자 이상 입력하세요.' }) : null;
+      if (noteProblem) {
+        throw new AppError(422, 'NOTE_REQUIRED', '비슷한 기존 주소가 있어 확인 메모가 필요합니다.', '받는 곳에 어떤 연락 수단으로 전체 주소를 확인했는지 글자·숫자 5자 이상 적어 주세요.', [{ field: 'note', message: noteProblem }]);
       }
     }
     // 확인을 마쳐도 대기 시간(cooldownHours, 설계 가정)이 있으면 바로 쓰지 않고 '사용 대기'로 둔다. 0이면 예전처럼 바로 사용 가능.
@@ -474,6 +510,10 @@ export function reviewAddress(db: DB, auth: AuthContext, policy: Policy, id: str
   });
   // 점검 결과 갱신과 그 감사 기록은 위 트랜잭션에서 함께 저장(커밋)한 뒤 알린다. 이 함수를 바깥 트랜잭션으로 감싸면 둘 다 취소되므로 감싸지 않는다.
   // 화면은 409를 받으면 주소를 다시 불러와 갱신된 비교 내용을 보여 준다(입력값은 유지).
+  if (out.kind === 'poisoned') {
+    // 화면은 이 오류를 받으면 주소를 다시 불러와 맨 앞에 저장된 주소 오염 의심 결과와 바뀐 버전을 보여 준다.
+    throw new AppError(422, 'ADDRESS_POISON_SUSPECTED', POISON_SUSPECTED_MESSAGE, '이 등록은 확인하지 말고 사유와 함께 거절하세요. 받는 곳에는 받은 경로와 다른 연락 수단으로 주소를 다시 확인하세요.', undefined, { findings: out.findings });
+  }
   if (out.kind === 'refreshed') {
     const labels = out.added.map((m) => `'${m.label}'`).join(', ');
     throw new AppError(409, 'LOOKALIKE_UPDATED', `등록 뒤에 비슷한 주소(${labels})가 새로 확인되어 점검 결과를 갱신했습니다.`, '갱신된 점검 결과와 글자 비교가 화면에 다시 표시됩니다. 새로 표시된 주소와 가운데를 포함한 전체 글자를 대조하고, 어떻게 확인했는지 메모를 남긴 뒤 다시 확인하세요.');
@@ -511,9 +551,11 @@ export function stopCoolingAddress(db: DB, auth: AuthContext, id: string, input:
         undefined, { status: r.status });
     }
     if (r.version !== input.version) throw Errors.conflict('다른 사용자가 먼저 이 주소를 변경했습니다.');
-    const reason = input.reason.trim();
-    if (reason.length < 5) {
-      throw new AppError(422, 'VALIDATION', '정지 사유를 5자 이상 입력하세요.', '요청하지 않은 등록인지, 받는 곳에서 확인되지 않았는지 등 정지한 이유를 적어 주세요.', [{ field: 'reason', message: '정지 사유를 5자 이상 입력하세요.' }]);
+    // 보이지 않는 서식 문자를 지운 값으로 세고 저장한다(글자·숫자 5자 이상).
+    const reason = cleanText(input.reason);
+    const reasonProblem = reasonError(reason, { label: '정지 사유', short: '정지 사유를 5자 이상 입력하세요.' });
+    if (reasonProblem) {
+      throw new AppError(422, 'VALIDATION', reasonProblem, '요청하지 않은 등록인지, 받는 곳에서 확인되지 않았는지 등 정지한 이유를 글자·숫자 5자 이상 적어 주세요.', [{ field: 'reason', message: reasonProblem }]);
     }
     const t = now();
     const res = db.prepare("UPDATE address_book SET status = 'DISABLED', disabled_by = ?, disabled_at = ?, disabled_reason = ?, version = version + 1 WHERE id = ? AND org_id = ? AND version = ? AND status = 'COOLING_DOWN'")

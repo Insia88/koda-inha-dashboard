@@ -9,6 +9,7 @@ import { LOOKALIKE_RULE_VERSION } from '../shared/address-rules.ts';
 import { checkAddress, lookalikeMatchesOf } from './domain/addresses.ts';
 import { attachCheckReasons, computeChecks, DEFAULT_WITHDRAWAL_CHECKS, INTENT_VERSION, intentFieldsOf, intentHashOf, serializeChecks, type IntentRow } from './domain/checks.ts';
 import type { Policy } from './config.ts';
+import { ROLE_LABEL, type Role } from '../shared/terms.ts';
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -114,6 +115,8 @@ export function seed(db: DB) {
     ins("INSERT INTO networks VALUES ('ETHEREUM', 'Ethereum', 'MOCK_EVM', 0, NULL)");
     ins("INSERT INTO networks VALUES ('KAIA', 'Kaia', 'MOCK_EVM', 0, NULL)");
     ins("INSERT INTO networks VALUES ('XRPL', 'XRP Ledger', 'MOCK_XRP', 1, '데스티네이션 태그')");
+    // 감사 기록 요약은 화면과 같은 네트워크 이름(예: Ethereum)으로 쓴다. 네트워크 코드(ETHEREUM)는 detail에만 남긴다.
+    const networkName = (code: string) => (db.prepare('SELECT name FROM networks WHERE code = ?').get(code) as { name: string }).name;
     for (const [a, n] of [['BTC', 'BITCOIN'], ['ETH', 'ETHEREUM'], ['USDC', 'ETHEREUM'], ['USDC', 'KAIA'], ['KAIA', 'KAIA'], ['XRP', 'XRPL']]) ins('INSERT INTO asset_networks VALUES (?, ?)', a, n);
     const precision: Record<string, number> = { BTC: 8, ETH: 18, USDC: 6, KAIA: 18, XRP: 6 };
     const u = (amount: string, asset: string) => parseUnits(amount, precision[asset]!).toString();
@@ -172,7 +175,7 @@ export function seed(db: DB) {
       const oob = outOfBand[id] ?? null;
       ins('INSERT INTO address_book (id, org_id, label, counterparty, asset_code, network_code, address, memo, status, created_by, created_at, reviewed_by, reviewed_at, review_note, version, received_via, verified_via, verified_with) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         id, org, label, cp, asset, net, mockAddress(fam, `book:${id}`), memo, status, by, at, rev, revAt, note, rev ? 2 : 1, oob?.receivedVia ?? null, oob?.verifiedVia ?? null, oob?.verifiedWith ?? null);
-      events.push({ at, orgId: org, actorId: by, actorName: name(by), action: 'address.created', targetType: 'address', targetId: id, summary: `주소 등록 요청: ${label} (${asset}/${net})`, ...(oob ? { detail: { outOfBand: oob } } : {}) });
+      events.push({ at, orgId: org, actorId: by, actorName: name(by), action: 'address.created', targetType: 'address', targetId: id, summary: `주소 등록 요청: ${label} (${asset}/${networkName(net)})`, detail: { assetCode: asset, networkCode: net, ...(oob ? { outOfBand: oob } : {}) } });
       if (rev && revAt) {
         const approved = status !== 'REJECTED';
         events.push({ at: revAt, orgId: org, actorId: rev, actorName: name(rev), action: approved ? 'address.approved' : 'address.rejected', targetType: 'address', targetId: id, summary: `${approved ? '주소 확인 완료' : '주소 등록 거절'}: ${label}`, detail: note ? { reason: note } : {} });
@@ -197,7 +200,7 @@ export function seed(db: DB) {
         id, 'org-a', label, '모의 정산 파트너 B', 'USDC', 'KAIA', normalized, '', 'PENDING_REVIEW', 'u-a-kang', at, JSON.stringify(findings), matches.length ? reason : null, 1, oob.receivedVia, oob.verifiedVia, oob.verifiedWith);
       events.push({
         at, orgId: 'org-a', actorId: 'u-a-kang', actorName: name('u-a-kang'), action: 'address.created', targetType: 'address', targetId: id,
-        summary: `주소 등록 요청: ${label} (USDC/KAIA)`,
+        summary: `주소 등록 요청: ${label} (USDC/${networkName('KAIA')})`,
         detail: {
           assetCode: 'USDC', networkCode: 'KAIA', addressTail: normalized.slice(-6), memoSet: false,
           warnings: findings.filter((f) => f.level === 'warning').map((f) => f.code),
@@ -224,7 +227,7 @@ export function seed(db: DB) {
         id, 'org-a', label, '모의 거래처 L', 'USDC', 'ETHEREUM', normalized, '', 'COOLING_DOWN', 'u-a-han', at, 'u-a-seo', revAt, null, 2, JSON.stringify(findings), null, activeFrom, oob.receivedVia, oob.verifiedVia, oob.verifiedWith);
       events.push({
         at, orgId: 'org-a', actorId: 'u-a-han', actorName: name('u-a-han'), action: 'address.created', targetType: 'address', targetId: id,
-        summary: `주소 등록 요청: ${label} (USDC/ETHEREUM)`,
+        summary: `주소 등록 요청: ${label} (USDC/${networkName('ETHEREUM')})`,
         detail: {
           assetCode: 'USDC', networkCode: 'ETHEREUM', addressTail: normalized.slice(-6), memoSet: false,
           warnings: findings.filter((f) => f.level === 'warning').map((f) => f.code),
@@ -409,8 +412,9 @@ export function seed(db: DB) {
     ins("INSERT INTO insights VALUES ('ins-h1', 'prov-a', '운영자가 숨긴 자료', '운영자가 게시를 멈춘 가상의 자료로, 고객 화면에는 보이지 않습니다. (모의 요약)', 'ko', ?, 'https://example.com/mock-research/ins-h1', '', 'hidden', 'u-k-op', ?)", ago(3).slice(0, 10), ago(3));
     ins("INSERT INTO insights VALUES ('ins-x1', 'prov-x', '화이트리스트 외 기관 자료', '화이트리스트에 없는 가상 기관의 자료로, 고객 화면에는 보이지 않습니다. (모의 요약)', 'ko', ?, 'https://example.com/mock-research/ins-x1', '', 'published', 'u-k-op', ?)", ago(2).slice(0, 10), ago(2));
 
+    // 요약은 화면과 같은 역할 이름(예: 자산 담당자)으로 쓰고, 역할 코드는 detail에 남긴다(역할 변경 기록과 같은 방식).
     for (const [id, org, nm, , , roles] of users) {
-      events.push({ at: created, orgId: org, actorId: null, actorName: '시스템(초기 설정)', action: 'member.roles_changed', targetType: 'user', targetId: id, summary: `${nm} 초기 역할 부여: ${roles.join(', ')}` });
+      events.push({ at: created, orgId: org, actorId: null, actorName: '시스템(초기 설정)', action: 'member.roles_changed', targetType: 'user', targetId: id, summary: `${nm} 초기 역할 부여: ${roles.map((r) => ROLE_LABEL[r as Role].label).join(', ')}`, detail: { before: [], after: roles } });
     }
     events.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
     for (const e of events) writeAudit(db, e);

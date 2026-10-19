@@ -10,7 +10,7 @@ import { useUnsavedGuard } from '../lib/unsaved.tsx';
 import { CheckList, IntentFingerprint, krwThreshold, RequestForm, type RequestFormValue } from '../components/RequestForm.tsx';
 import { amount, dateTime, krw, krwShort } from '../format.ts';
 import { krwValue } from '../../shared/decimal.ts';
-import { REQUEST_STATUS, type RequestCheck, type RequestStatus } from '../../shared/terms.ts';
+import { ADDRESS_STATUS, REQUEST_STATUS, type AddressStatus, type RequestCheck, type RequestStatus } from '../../shared/terms.ts';
 
 /** 요청 응답의 출금 전 점검: 작성·검토 중이면 지금 기준(stored=false), 승인 요청 뒤에는 제출 때 저장한 결과(stored=true). 기록이 없는 이전 요청은 null. */
 type ChecksView = { evaluatedAt: string; stored: boolean; items: RequestCheck[] } | null;
@@ -38,7 +38,36 @@ const NEXT_FOR_ROLE: Record<string, Record<RoleKey, string>> = {
   FAILED: { requester: '실패 사유를 확인하세요. 예약 수량은 해제되었습니다.', approver: '처리에 실패한 요청입니다.', other: '처리에 실패한 요청입니다.' },
 };
 
-function nextAction(r: any, role: RoleKey, tailLength: number, canReject: boolean, reasonPrefilled: boolean): string {
+/**
+ * 작성·검토 중 요청의 받는 주소를 지금 쓸 수 없는지(받는 주소 상태 기준). 승인 요청 뒤의 승인 불가 사유(blockedReason)와 따로 본다.
+ * - stopped: 사용 중지·등록 거절. 기다려도 쓸 수 없으므로 다른 주소로 바꾸거나 요청을 취소해야 한다.
+ * - waiting: 사용 대기·확인 대기. 사용 가능해지면 진행할 수 있다.
+ */
+export function addressHold(r: { status: string; address: { status: string } }): 'stopped' | 'waiting' | null {
+  if (!['DRAFT', 'REVIEW'].includes(r.status) || r.address.status === 'ACTIVE') return null;
+  return r.address.status === 'COOLING_DOWN' || r.address.status === 'PENDING_REVIEW' ? 'waiting' : 'stopped';
+}
+
+/**
+ * 받는 주소를 쓸 수 없을 때 요청자에게 보이는 안내(제목: 이유, 본문: 무엇이 막히는지). 할 일은 「다음 할 일」(nextAction)에 쓴다.
+ * 아직 승인 요청 전이라 예약된 수량은 없다(예약은 승인 요청 때 잡는다).
+ */
+function holdNotice(r: any, hold: 'stopped' | 'waiting'): { title: string; body: string } {
+  const unreserved = '아직 승인 요청 전이라 예약된 수량은 없습니다.';
+  if (hold === 'stopped') {
+    const rejected = r.address.status === 'REJECTED';
+    return {
+      title: rejected ? '받는 주소의 등록이 거절되어 이 요청을 진행할 수 없습니다' : '받는 주소가 사용 중지되어 이 요청을 진행할 수 없습니다',
+      body: `${rejected ? '등록이 거절된' : '사용 중지된'} 주소로는 검토로 이동하거나 승인 요청을 보낼 수 없습니다. ${unreserved}`,
+    };
+  }
+  return {
+    title: r.address.status === 'COOLING_DOWN' ? '받는 주소가 사용 대기 중이라 아직 진행할 수 없습니다' : '받는 주소가 확인 대기 중이라 아직 진행할 수 없습니다',
+    body: `받는 주소가 사용 가능해지기 전에는 검토로 이동하거나 승인 요청을 보낼 수 없습니다. ${unreserved}`,
+  };
+}
+
+function nextAction(r: any, role: RoleKey, tailLength: number, canReject: boolean, reasonPrefilled: boolean, decided = false): string {
   // 승인할 수 없는 이유는 아래 안내에 쓰고, 여기에는 할 일만 쓴다(안내 제목과 같은 문장을 되풀이하지 않는다).
   if (r.blockedReason === 'INTENT_TAMPERED') {
     if (role === 'requester') return '이 요청을 취소하고 보안 담당자에게 알리세요. 같은 출금이 필요하면 내용을 확인해 새 요청을 작성하세요.';
@@ -51,6 +80,14 @@ function nextAction(r: any, role: RoleKey, tailLength: number, canReject: boolea
     // 감사 담당자나 이미 결정한 승인자: 할 일이 없다. 무엇을 기다리는지만 쓴다.
     return '요청자의 취소나 승인자의 반려를 기다리는 중입니다.';
   }
+  // 작성·검토 중인데 받는 주소를 쓸 수 없다: 「검토로 이동」·승인 요청이 거부되므로 주소를 바꾸거나 취소하라고 안내한다.
+  const hold = addressHold(r);
+  if (hold && role === 'requester') {
+    if (hold === 'stopped') return r.status === 'DRAFT' ? '「내용 수정」에서 사용 가능한 다른 받는 주소를 고르거나 요청을 취소하세요.' : '「작성 단계로 되돌리기」를 누른 뒤 사용 가능한 다른 받는 주소를 고르거나 요청을 취소하세요.';
+    return '받는 주소가 사용 가능해질 때까지 기다리세요. 기다리지 않으려면 다른 받는 주소로 바꾸거나 요청을 취소하세요.';
+  }
+  // 이미 결정한 승인자: 승인·반려를 다시 하라고 하지 않는다.
+  if (decided && role === 'approver' && r.status === 'PENDING_APPROVAL') return '내 결정을 마쳤습니다. 다른 승인자의 결정을 기다리는 중입니다.';
   // 출금 요청 제출 때는 끝자리를 다시 입력한다(가운데 8자리 재입력은 주소 등록·확인 단계의 규칙). 눈으로는 가운데까지 대조하게 한다.
   if (r.status === 'REVIEW' && role === 'requester') return `받는 주소를 가운데 묶음까지 원본과 대조하고, 끝 ${tailLength}자리를 입력해 승인 요청을 보내세요.`;
   return NEXT_FOR_ROLE[r.status]![role];
@@ -120,8 +157,10 @@ export function RequestDetailPage() {
   const [checkReasons, setCheckReasons] = useState<Record<string, string>>({});
   // 방금 승인 요청을 보냈는지: 요청자에게 승인 대상 지문을 알려 주는 안내를 한 번 보인다.
   const [justSubmitted, setJustSubmitted] = useState(false);
+  // 방금 승인·반려했는지와 그 결과(응답 기준): 결정 카드가 사라진 자리 대신 화면 위쪽에 결과 안내를 보이고 포커스를 옮긴다.
+  const [justDecided, setJustDecided] = useState<null | { action: 'approve' | 'reject'; status: string; approved: number; required: number }>(null);
   // 같은 화면에서 다른 요청으로 이동하면 앞 요청의 사유·안내를 남기지 않는다.
-  useEffect(() => { setCheckReasons({}); setJustSubmitted(false); }, [id]);
+  useEffect(() => { setCheckReasons({}); setJustSubmitted(false); setJustDecided(null); }, [id]);
   const idem = useRef<Record<string, string>>({});
   const keyFor = (action: string) => (idem.current[action] ??= newIdemKey());
 
@@ -144,6 +183,9 @@ export function RequestDetailPage() {
     onSuccess: (data, vars) => {
       qc.setQueryData(['request', id], data); refresh(); setEditing(false); setReason(''); setTail('');
       if (vars.action === 'submit') { setCheckReasons({}); setJustSubmitted(true); }
+      if (vars.action === 'approve' || vars.action === 'reject') {
+        setJustDecided({ action: vars.action, status: data.status, approved: data.approvedCount, required: data.requiredApprovals });
+      }
     },
     onError: reloadOnStale,
   });
@@ -182,6 +224,28 @@ export function RequestDetailPage() {
     });
     return () => cancelAnimationFrame(raf);
   }, [showSubmitted]);
+  // 승인·반려 직후: 결정 카드(누른 버튼)가 사라지므로 화면 위쪽의 결과 안내로 포커스를 옮기고 화면 안으로 가져온다.
+  const decidedRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!justDecided) return;
+    const raf = requestAnimationFrame(() => {
+      const el = decidedRef.current;
+      if (el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: 'center' }); }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [justDecided]);
+  // 확인 카드가 없는 화면(작성 중 「검토로 이동」, 되돌리기 등)의 처리 오류: 버튼 줄 바로 위에 보이고 그 안내로 포커스를 옮긴다.
+  // 카드가 있으면 카드 안 결정 버튼 위에 보인다(아래 actNotice). 409는 conflictNotice가 따로 맡는다.
+  const actErrorNow = act.error && !(act.error instanceof ApiError && act.error.status === 409) ? act.error : null;
+  const actTopRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!actErrorNow || actionCardNow) return;
+    const raf = requestAnimationFrame(() => {
+      const el = actTopRef.current;
+      if (el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: 'center' }); }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [actErrorNow, actionCardNow]);
   const editDirty = editing && !!form && !!original && JSON.stringify(form) !== JSON.stringify(original);
   const reasonDirty = reason.trim() !== '' && reason !== reasonSeed;
   const checkReasonDirty = Object.values(checkReasons).some((v) => v.trim() !== '');
@@ -202,10 +266,21 @@ export function RequestDetailPage() {
   const tampered = r.blockedReason === 'INTENT_TAMPERED';
   const decideCard = can('approve') || can('reject');
   const allChecked = checked.counterparty && checked.amount && checked.address;
-  const actNotice = act.error && !(act.error instanceof ApiError && act.error.status === 409) ? act.error : null;
+  const actNotice = actErrorNow;
   const conflict = conflictErr;
   const checks = (r.checks ?? null) as ChecksView;
   const submitted = !!r.submittedAt;
+  // 받는 주소 상태(작성·검토 중 요청). 승인 요청 뒤의 승인 불가(blocked)와 따로 안내한다.
+  const hold = addressHold(r);
+  const addrSt = ADDRESS_STATUS[r.address.status as AddressStatus];
+  // 방금 승인·반려한 결과 안내. 처리 중·처리 완료·실패로 넘어갔으면 필요한 승인이 모두 모인 마지막 승인이다.
+  // 1/2 승인 안내는 아직 승인 대기일 때만 보인다(그 사이 다른 승인자가 결정해 상태가 바뀌면 낡은 안내를 남기지 않는다).
+  const decidedNotice = !justDecided || (justDecided.action === 'approve' && justDecided.status === 'PENDING_APPROVAL' && r.status !== 'PENDING_APPROVAL') ? null
+    : justDecided.action === 'reject'
+      ? { title: '반려했습니다', body: '요청자에게 반려 사유가 보이고, 승인 요청 때 예약한 수량이 풀렸습니다.' }
+      : justDecided.status === 'PENDING_APPROVAL'
+        ? { title: `승인했습니다 (${justDecided.approved}/${justDecided.required})`, body: '다른 승인자의 결정을 기다립니다. 필요한 승인 수가 채워지면 바로 커스터디 처리가 시작됩니다.' }
+        : { title: '승인했습니다', body: '필요한 승인 수가 채워져 커스터디 처리를 시작했습니다. 블록체인 전송은 처리 후 되돌릴 수 없습니다.' };
   // 승인 요청 때 보낼 진행 사유: 지금 보이는 점검 항목 id만 보낸다.
   const reasonsToSend = Object.fromEntries((checks?.items ?? []).filter((c) => (checkReasons[c.id] ?? '').trim() !== '').map((c) => [c.id, checkReasons[c.id]!]));
 
@@ -220,7 +295,7 @@ export function RequestDetailPage() {
   const secondary = can('back_to_draft') || can('cancel');
   const rowAbove = !editing && (can('edit') || can('review') || (!hasActionCard && secondary));
   const rowBelow = !editing && hasActionCard && secondary;
-  const editButton = can('edit') && <button className="btn" onClick={() => { const v = { assetCode: r.assetCode, networkCode: r.networkCode, addressId: r.address.id, amount: r.amount, purpose: r.purpose }; setForm(v); setOriginal(v); save.reset(); setEditing(true); }}>내용 수정</button>;
+  const editButton = can('edit') && <button className="btn" onClick={() => { const v = { assetCode: r.assetCode, networkCode: r.networkCode, addressId: r.address.id, amount: r.amount, purpose: r.purpose }; setForm(v); setOriginal(v); save.reset(); act.reset(); setEditing(true); }}>내용 수정</button>;
   const backButton = can('back_to_draft') && <button className="btn" onClick={() => act.mutate({ action: 'back-to-draft', body: {} })} disabled={act.isPending}>작성 단계로 되돌리기</button>;
   const cancelButton = can('cancel') && <button type="button" className="btn btn-danger-outline" onClick={() => { cancelM.reset(); setConfirmCancel(true); }} disabled={act.isPending}>요청 취소</button>;
   const reviewButton = can('review') && <button className="btn btn-primary" onClick={() => act.mutate({ action: 'review', body: {} })} disabled={act.isPending}>검토로 이동</button>;
@@ -243,7 +318,7 @@ export function RequestDetailPage() {
 
       <section className="next-action" aria-labelledby="next-h">
         <h2 id="next-h">다음 할 일</h2>
-        <p>{nextAction(r, roleKey, n, can('reject'), reasonPrefilled)}</p>
+        <p>{nextAction(r, roleKey, n, can('reject'), reasonPrefilled, !!decided)}</p>
         {mine && r.status === 'PENDING_APPROVAL' && <p className="muted small">본인이 작성한 요청은 승인할 수 없습니다. 승인 {r.approvedCount}/{r.requiredApprovals}명.</p>}
         {decided && <p className="muted small">내 결정: {decided.decision === 'approved' ? '승인' : '반려'} ({dateTime(decided.createdAt)})</p>}
       </section>
@@ -268,6 +343,15 @@ export function RequestDetailPage() {
         <Notice tone="warning" title="받는 주소가 사용 중지되어 승인할 수 없는 요청입니다">
           요청이 취소되거나 반려되면 예약 수량이 풀립니다.
         </Notice>
+      )}
+      {hold && roleKey === 'requester' && (() => {
+        const h = holdNotice(r, hold);
+        return <Notice tone={hold === 'stopped' ? 'danger' : 'warning'} title={h.title}>{h.body}</Notice>;
+      })()}
+      {decidedNotice && (
+        <div ref={decidedRef} tabIndex={-1} className="rc-focus-target">
+          <Notice tone="success" role="status" title={decidedNotice.title}>{decidedNotice.body}</Notice>
+        </div>
       )}
       {showSubmitted && (
         <div ref={submittedRef} tabIndex={-1} className="rc-focus-target">
@@ -299,7 +383,7 @@ export function RequestDetailPage() {
               <Valuation r={r} preSubmit={preSubmit} currentKrw={currentKrw} price={price} assetPrice={assetPrice} balancesError={!!bal.error} />
             </dd>
             <dt>네트워크</dt><dd>{r.networkName} <span className="muted small">· 출금 지갑: {r.walletName}</span></dd>
-            <dt>받는 곳</dt><dd>{r.address.label} <span className="muted">· {r.address.counterparty}</span>{r.address.status !== 'ACTIVE' && <> <Badge tone="danger">주소 사용 불가</Badge></>}</dd>
+            <dt>받는 곳</dt><dd>{r.address.label} <span className="muted">· {r.address.counterparty}</span>{r.address.status !== 'ACTIVE' && <> <Badge tone={r.address.status === 'COOLING_DOWN' || r.address.status === 'PENDING_REVIEW' ? 'warning' : 'danger'} title={addrSt?.description}>{addrSt?.label ?? r.address.status}</Badge></>}</dd>
             <dt>받는 주소</dt><dd><AddressStrip address={r.address.address} memo={r.address.memo} memoLabel={r.networkCode === 'XRPL' ? '데스티네이션 태그' : '메모'} /></dd>
             <dt>목적</dt><dd className="cell-wrap">{r.purpose}</dd>
             <dt>요청자</dt><dd>{r.createdBy.name} · {dateTime(r.createdAt)}</dd>
@@ -345,6 +429,14 @@ export function RequestDetailPage() {
         </section>
       )}
 
+      {!hasActionCard && actNotice && (
+        <div ref={actTopRef} tabIndex={-1} className="rc-focus-target">
+          {/* 받는 주소가 사용 중지·등록 거절된 경우의 거부: 기다리면 풀리는 일이 아니므로 「다음 할 일」과 같은 행동(주소 바꾸기·취소)을 함께 보인다. */}
+          {actErr?.code === 'ADDRESS_NOT_ACTIVE' && hold === 'stopped' && roleKey === 'requester'
+            ? <Notice tone="danger" role="alert" title={actErr.body.message}>{nextAction(r, roleKey, n, false, false)}</Notice>
+            : <ApiErrorNotice error={actNotice} />}
+        </div>
+      )}
       {rowAbove && (
         <div className="form-actions form-actions-left">
           {editButton}
@@ -418,7 +510,7 @@ export function RequestDetailPage() {
               <hr />
             </>
           )}
-          <Field label="반려 사유" htmlFor="reason" error={actErr?.fieldError('reason')} hint="요청자가 무엇을 고쳐야 하는지 알 수 있게 5자 이상 적어 주세요.">
+          <Field label="반려 사유" htmlFor="reason" error={actErr?.fieldError('reason')} hint="요청자가 무엇을 고쳐야 하는지 알 수 있게 글자·숫자 5자 이상 적어 주세요.">
             <TextareaAuto id="reason" rows={2} maxRows={8} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />
           </Field>
           {/* 직접 적은 사유를 지키되, 승인할 수 없는 이유(지문 불일치·주소 사용 중지)에 맞춘 사유를 원하면 한 번에 넣을 수 있게 한다. */}

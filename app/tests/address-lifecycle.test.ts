@@ -425,9 +425,56 @@ describe('0원·소액 입금 주소 오염 점검', () => {
     const r = await oh.post(`/api/addresses/${created.id}/review`, { decision: 'approve', version: created.version, confirmTail: tail(address), confirmMiddle: middle(address), note: REASON });
     expect(r.status).toBe(422);
     expect(r.body.error.code).toBe('ADDRESS_POISON_SUSPECTED');
-    expect((await oh.get(`/api/addresses/${created.id}`)).body.status).toBe('PENDING_REVIEW');
-    const rej = await oh.post(`/api/addresses/${created.id}/review`, { decision: 'reject', version: created.version, note: '최근 소액 입금을 보낸 주소와 같아 거절합니다' });
+    const after = (await oh.get(`/api/addresses/${created.id}`)).body;
+    expect(after.status).toBe('PENDING_REVIEW');
+    // 막힌 확인 시도로 찾은 결과는 저장되어 있으므로(버전이 오른다) 최신 버전으로 거절한다.
+    const rej = await oh.post(`/api/addresses/${created.id}/review`, { decision: 'reject', version: after.version, note: '최근 소액 입금을 보낸 주소와 같아 거절합니다' });
     expect(rej.body.status).toBe('REJECTED');
+  });
+
+  it('keeps the poisoning match found at review: the finding is saved first in the address findings and audited, then 422 is returned', async () => {
+    const c = await app();
+    const address = evm('등록 뒤 소액 입금 기록');
+    const created = await register(c, address);
+    expect(created.findings.map((f: any) => f.code)).not.toContain('ADDRESS_POISON_SUSPECTED');
+    insertDeposit(c.db, 'T-after-2', address, '0', 0);
+    const oh = api(c.app, await login(c.app, 'u-a-oh'));
+    const body = { decision: 'approve', version: created.version, confirmTail: tail(address), confirmMiddle: middle(address), note: REASON };
+    const r = await oh.post(`/api/addresses/${created.id}/review`, body);
+    expect(r.status).toBe(422);
+    expect(r.body.error.message).toBe(POISON_SUSPECTED_MESSAGE);
+    expect(r.body.error.findings[0].code).toBe('ADDRESS_POISON_SUSPECTED');
+
+    // 다음 확인 담당자(서예린)도 상세 화면에서 경고를 본다: 점검 결과 맨 앞, 버전 +1, 상태는 확인 대기 그대로.
+    const seo = api(c.app, await login(c.app, 'u-a-seo'));
+    const now = (await seo.get(`/api/addresses/${created.id}`)).body;
+    expect(now.status).toBe('PENDING_REVIEW');
+    expect(now.version).toBe(created.version + 1);
+    expect(now.findings[0]).toMatchObject({ code: 'ADDRESS_POISON_SUSPECTED', level: 'error', message: POISON_SUSPECTED_MESSAGE });
+    expect(now.findings[0].data.dust).toEqual([expect.objectContaining({ txRef: 'MOCK-TX-T-after-2', amount: '0', assetCode: 'USDC' })]);
+    expect(now.findings.slice(1).map((f: any) => f.code)).toEqual(created.findings.map((f: any) => f.code));
+
+    // 해시 연결 감사 기록에 탐지 사실이 남는다(보낸 주소 전체는 남기지 않음). 변경 이력에도 보인다.
+    const rows = auditOf(c.db, created.id, 'address.findings_updated');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].actor_id).toBe('u-a-oh');
+    expect(rows[0].summary).toContain('최근 0원·소액 입금을 보낸 주소와 같음');
+    const detail = JSON.parse(rows[0].detail);
+    expect(detail).toMatchObject({ attempted: 'approve', added: ['ADDRESS_POISON_SUSPECTED'], version: created.version + 1 });
+    expect(detail.findings[0]).toBe('ADDRESS_POISON_SUSPECTED');
+    expect(detail.dust[0].txRef).toBe('MOCK-TX-T-after-2');
+    expect(rows[0].detail).not.toContain(addressBody(address));
+    expect(now.history.map((h: any) => h.action)).toContain('address.findings_updated');
+    expect(verifyChain(c.db, 'org-a').ok).toBe(true);
+
+    // 같은 입금으로 다시 확인을 시도해도 막히고, 같은 결과를 또 쓰지 않는다(버전·감사 기록이 늘지 않음).
+    const again = await seo.post(`/api/addresses/${created.id}/review`, { ...body, version: now.version });
+    expect(again.status).toBe(422);
+    expect(again.body.error.code).toBe('ADDRESS_POISON_SUSPECTED');
+    expect((await seo.get(`/api/addresses/${created.id}`)).body.version).toBe(now.version);
+    expect(auditOf(c.db, created.id, 'address.findings_updated')).toHaveLength(1);
+    // 오래된 버전으로 보내면 409(먼저 바뀜)다.
+    expect((await seo.post(`/api/addresses/${created.id}/review`, body)).status).toBe(409);
   });
 
   it('marks the dust deposit on the activity list (with the look-alike book entry) and leaves other rows unmarked', async () => {
