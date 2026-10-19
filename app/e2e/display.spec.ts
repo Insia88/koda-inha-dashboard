@@ -196,3 +196,17 @@ test('감사 기록: 무결성 확인의 범위를 넘겨 말하지 않고 보�
   await expect(scope).not.toContainText('수정·삭제를 찾아냅니다');
   await expect(scope.locator('.audit-anchor')).toContainText(/보관용 값: 기록 \d+건 · 마지막 기록 해시 [0-9a-f]{64}/);
 });
+
+test('마켓 인사이트 표지: 같은 출처의 장식용 그림이 모두 로드되고 읽기 순서에 끼어들지 않는다', async ({ page }) => {
+  const imageHosts = new Set<string>();
+  page.on('request', (r) => { if (r.resourceType() === 'image') imageHosts.add(new URL(r.url()).host); });
+  await loginAs(page, '한지수');
+  await page.goto('/insights');
+  const covers = page.locator('img.insight-cover');
+  await expect(covers.first()).toBeVisible();
+  // 화면에 보이는 첫 줄의 표지가 실제로 그려졌는지(깨진 이미지가 아닌지)
+  await expect.poll(() => covers.evaluateAll((els) => els.slice(0, 3).every((i) => (i as HTMLImageElement).complete && (i as HTMLImageElement).naturalWidth > 0))).toBe(true);
+  // 장식용이므로 대체 텍스트를 비우고 보조기술에서 숨긴다(제목이 정보를 전달한다)
+  expect(await covers.evaluateAll((els) => els.every((i) => i.getAttribute('alt') === '' && i.getAttribute('aria-hidden') === 'true'))).toBe(true);
+  expect([...imageHosts].every((h) => h === new URL(page.url()).host)).toBe(true);
+});

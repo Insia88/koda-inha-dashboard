@@ -35,3 +35,5 @@ fast-check(Copyright (c) 2017 Nicolas DUBIEN), @fast-check/vitest(Copyright (c) 
 
 ## 로고·에셋
 `public/koda-logo.svg`는 KODA 공식 웹사이트 헤더에서 추출된 공식 로고(공동 작업 에셋 `logos/koda/KODA-official-web-logo.svg`)다. 상표·저작권은 KODA에 있으며 **오픈소스 라이선스가 부여되지 않는다**. 산학과제의 기관 식별 용도로 원본 비율·색상을 유지해 사용한다.
+## 생성 이미지
+`public/insights/covers/*.webp`(8종: stablecoin, ethereum, bitcoin, kaia, payments, regulation, security, market)는 2026-10-19에 Higgsfield의 이미지 생성 기능(모델 `gpt_image_2_5`)으로 만든 주제별 장식용 그림이다. 실제 리서치 기관의 리포트 표지가 아니며, 모의 데이터 화면에서 자료의 주제를 시각적으로 구분하는 데만 쓴다. 글자·로고·인물은 넣지 않았고, 480px 너비 WebP로 줄여 같은 출처에서 제공한다(합계 약 46KB). 실제 운영에서는 기관이 제공한 표지나 KODA가 승인한 그림으로 바꾼다.

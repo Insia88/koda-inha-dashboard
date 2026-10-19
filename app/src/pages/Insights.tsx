@@ -6,6 +6,20 @@ import { useMe } from '../auth.tsx';
 import { Badge, Empty, ErrorState, Loading, PageHeader } from '../components/ui.tsx';
 import { SearchField } from '../components/SearchField.tsx';
 import { date } from '../format.ts';
+import './insights.css';
+
+/**
+ * 카드 왼쪽의 주제 표지. 실제 리포트 표지가 아니라 주제별 장식용 그림(모의 데이터 화면용)이며,
+ * 자산 태그를 먼저 보고 없으면 제목의 주제어로 고른다. 그림은 public/insights/covers/에 함께 배포한다.
+ */
+const COVER_BY_ASSET: Record<string, string> = { USDC: 'stablecoin', ETH: 'ethereum', BTC: 'bitcoin', KAIA: 'kaia', XRP: 'payments' };
+function coverFor(item: { assetTags: string[]; title: string }): string {
+  const byAsset = item.assetTags.map((t) => COVER_BY_ASSET[t]).find(Boolean);
+  if (byAsset) return byAsset;
+  if (/보안|사기|오송금|사고|security|fraud/i.test(item.title)) return 'security';
+  if (/제도|과세|회계|세무|커스터디|규제|권한|regulat|tax|accounting/i.test(item.title)) return 'regulation';
+  return 'market';
+}
 
 /** 원문 링크의 도메인(표시용). 읽을 수 없으면 표시하지 않는다. */
 function hostOf(url: string): string {
@@ -46,7 +60,9 @@ export function InsightsPage() {
           <p className="result-count" aria-live="polite">{first.total}건 중 {items.length}건 표시 · 발행일 최신순</p>
           <ul className="insight-list">
             {items.map((i: any) => (
-              <li key={i.id} className="insight">
+              <li key={i.id} className="insight has-cover">
+                <img className="insight-cover" src={`/insights/covers/${coverFor(i)}.webp`} alt="" aria-hidden="true" width={84} height={112} loading="lazy" decoding="async" />
+                <div className="insight-body">
                 <div className="insight-meta">
                   <span className="insight-provider">{i.providerName}</span>
                   <time dateTime={i.publishedAt}>발행 {date(i.publishedAt)}</time>
@@ -66,6 +82,7 @@ export function InsightsPage() {
                     {hostOf(i.url) && <span>원문: {hostOf(i.url)} (새 창)</span>}
                     {i.curatedAt && <span>KODA 선별 {date(i.curatedAt)}</span>}
                   </div>
+                </div>
                 </div>
               </li>
             ))}
