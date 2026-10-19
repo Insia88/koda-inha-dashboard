@@ -121,12 +121,14 @@ export function seed(db: DB) {
     // 주소록 (모의법인 A 12건, B 1건)
     const book: [string, string, string, string, string, string, string, string, string, string | null, number, string | null][] = [
       // id, org, label, counterparty, asset, network, memo, status, createdBy, reviewedBy, daysAgo, note
-      ['ab-01', 'org-a', '모의 거래소 A 입금 (USDC)', '모의 거래소 A', 'USDC', 'ETHEREUM', '', 'ACTIVE', 'u-a-han', 'u-a-oh', 90, null],
-      ['ab-02', 'org-a', '정산 파트너 B (Kaia USDC)', '모의 정산 파트너 B', 'USDC', 'KAIA', '', 'ACTIVE', 'u-a-han', 'u-a-seo', 80, null],
-      ['ab-03', 'org-a', '그룹사 BTC 보관 이전용', '모의 그룹사 C', 'BTC', 'BITCOIN', '', 'ACTIVE', 'u-a-kang', 'u-a-oh', 75, null],
-      ['ab-04', 'org-a', '모의 거래소 A 입금 (XRP)', '모의 거래소 A', 'XRP', 'XRPL', '1234567', 'ACTIVE', 'u-a-han', 'u-a-oh', 70, null],
-      ['ab-05', 'org-a', '운영비 정산 (ETH)', '모의 서비스사 D', 'ETH', 'ETHEREUM', '', 'ACTIVE', 'u-a-kang', 'u-a-seo', 60, null],
-      ['ab-06', 'org-a', '카이아 생태계 파트너', '모의 파트너 E', 'KAIA', 'KAIA', '', 'ACTIVE', 'u-a-han', 'u-a-kang', 50, null],
+      // ab-01~ab-06은 거래 내역의 출금 상대방이다. 출금은 확인된 주소로만 가므로 거래 내역 범위(최근 120일)보다 먼저 등록·확인되게
+      // 126~146일 전으로 둔다. 서로의 순서와 다른 주소와의 순서(ab-11이 가장 오래됨)는 그대로다. 난수를 쓰지 않아 다른 모의 값은 바뀌지 않는다.
+      ['ab-01', 'org-a', '모의 거래소 A 입금 (USDC)', '모의 거래소 A', 'USDC', 'ETHEREUM', '', 'ACTIVE', 'u-a-han', 'u-a-oh', 146, null],
+      ['ab-02', 'org-a', '정산 파트너 B (Kaia USDC)', '모의 정산 파트너 B', 'USDC', 'KAIA', '', 'ACTIVE', 'u-a-han', 'u-a-seo', 142, null],
+      ['ab-03', 'org-a', '그룹사 BTC 보관 이전용', '모의 그룹사 C', 'BTC', 'BITCOIN', '', 'ACTIVE', 'u-a-kang', 'u-a-oh', 138, null],
+      ['ab-04', 'org-a', '모의 거래소 A 입금 (XRP)', '모의 거래소 A', 'XRP', 'XRPL', '1234567', 'ACTIVE', 'u-a-han', 'u-a-oh', 134, null],
+      ['ab-05', 'org-a', '운영비 정산 (ETH)', '모의 서비스사 D', 'ETH', 'ETHEREUM', '', 'ACTIVE', 'u-a-kang', 'u-a-seo', 130, null],
+      ['ab-06', 'org-a', '카이아 생태계 파트너', '모의 파트너 E', 'KAIA', 'KAIA', '', 'ACTIVE', 'u-a-han', 'u-a-kang', 126, null],
       ['ab-07', 'org-a', '해외 법인 결제 대행사 — 2026년 4분기 정산 전용 계정(분기 종료 후 사용 중지 예정)', '모의 결제 대행사 F (해외)', 'USDC', 'ETHEREUM', '', 'ACTIVE', 'u-a-kang', 'u-a-oh', 40, null],
       ['ab-08', 'org-a', '신규 거래처 G 입금 주소', '모의 거래처 G', 'USDC', 'ETHEREUM', '', 'PENDING_REVIEW', 'u-a-han', null, 1, null],
       ['ab-09', 'org-a', '그룹사 BTC 예비 주소', '모의 그룹사 C', 'BTC', 'BITCOIN', '', 'PENDING_REVIEW', 'u-a-kang', null, 2, null],

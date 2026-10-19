@@ -27,6 +27,25 @@ describe('거래 내역 모의 데이터', () => {
     }
   });
 
+  it('sends every withdrawal (transactions and requests) only after its address-book entry was registered and confirmed', () => {
+    // 출금은 확인된 주소로만 간다: 거래 시각은 같은 이름·자산·네트워크로 등록된 주소의 확인 시각보다 뒤여야 한다.
+    const txs = db.prepare(`SELECT t.id, t.counterparty, t.occurred_at, ab.id ab_id, ab.created_at, ab.reviewed_at
+      FROM transactions t JOIN address_book ab ON ab.org_id = t.org_id AND ab.label = t.counterparty AND ab.asset_code = t.asset_code AND ab.network_code = t.network_code
+      WHERE t.type = 'withdrawal'`).all() as any[];
+    expect(txs.length).toBe((db.prepare("SELECT COUNT(*) c FROM transactions WHERE type = 'withdrawal'").get() as any).c);
+    for (const t of txs) {
+      expect(t.reviewed_at, `${t.id} → ${t.ab_id}`).toBeTruthy();
+      expect(t.created_at <= t.reviewed_at, `${t.id} → ${t.ab_id}`).toBe(true);
+      expect(t.occurred_at >= t.reviewed_at, `${t.id} (${t.occurred_at}) → ${t.ab_id} 확인 ${t.reviewed_at}`).toBe(true);
+    }
+    const reqs = db.prepare(`SELECT r.ref_no, r.created_at, ab.id ab_id, ab.reviewed_at FROM withdrawal_requests r JOIN address_book ab ON ab.id = r.address_id`).all() as any[];
+    expect(reqs.length).toBeGreaterThan(0);
+    for (const r of reqs) {
+      expect(r.reviewed_at, `${r.ref_no} → ${r.ab_id}`).toBeTruthy();
+      expect(r.created_at >= r.reviewed_at, `${r.ref_no} (${r.created_at}) → ${r.ab_id} 확인 ${r.reviewed_at}`).toBe(true);
+    }
+  });
+
   it('records failures only for withdrawals (no failed deposit or reward)', () => {
     const failed = db.prepare("SELECT type, COUNT(*) c FROM transactions WHERE status = 'failed' GROUP BY type").all() as any[];
     expect(failed.filter((f) => f.type !== 'withdrawal')).toEqual([]);

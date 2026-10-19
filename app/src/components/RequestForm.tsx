@@ -61,7 +61,11 @@ export function RequestForm({ value, onChange, error }: { value: RequestFormValu
   const heldAssets = new Set((bal.data?.assets ?? []).map((a: any) => a.assetCode));
   const rule = me.policy.approval;
   const highN = Math.max(rule.highValueRequiredApprovals, rule.defaultRequiredApprovals);
-  const preview = readAmount(value.amount, asset?.precision, { krw: assetBal?.krwPrice ?? null, asOf: bal.data?.price?.asOf ?? null, state: bal.data?.price?.state ?? 'unavailable' });
+  // 시세를 불러오는 중이거나 불러오지 못했으면 '시세 없음'과 구분한다(원인이 다르고, 시세 없음일 때의 승인 수 안내가 맞지 않는다).
+  const priceInput = bal.isError ? { krw: null, asOf: null, state: 'load_error' }
+    : bal.isPending ? { krw: null, asOf: null, state: 'loading' }
+      : { krw: assetBal?.krwPrice ?? null, asOf: bal.data?.price?.asOf ?? null, state: bal.data?.price?.state ?? 'unavailable' };
+  const preview = readAmount(value.amount, asset?.precision, priceInput);
   const amountError = step3Err?.fieldError('amount');
 
   return (
@@ -128,15 +132,23 @@ function AmountPreview({ preview, unit, thresholdKrw, highN, serverMessage }: { 
   }
   const high = preview.krw !== null && preview.krw >= BigInt(thresholdKrw);
   const priceKnown = preview.krw !== null && preview.priceState === 'mock';
+  // 시세를 아직 못 받았거나 받지 못한 경우: 시세가 없다고 말하지 않고, 승인 수는 규칙만 보인다.
+  const notLoaded = preview.priceState === 'loading' || preview.priceState === 'load_error';
   return (
     <output htmlFor="amount" className="amount-preview small" style={{ display: 'block', marginTop: -4, color: 'var(--ink-2)' }}>
       읽은 수량 <b className="num" style={{ color: 'var(--ink)' }}>{preview.quantity} {unit}</b>
       {' · '}
       {priceKnown
         ? <>{krwShort(preview.krw!.toString())} (모의 시세 {dateTime(preview.priceAsOf).slice(11)} 기준)</>
-        : <span className="warn-text" style={{ fontWeight: 600 }}>{preview.priceState === 'stale' ? '시세가 지연되어' : '시세가 없어'} 평가액을 확인할 수 없습니다</span>}
+        : preview.priceState === 'loading'
+          ? <>시세를 불러오는 중…</>
+          : preview.priceState === 'load_error'
+            ? <span className="warn-text" style={{ fontWeight: 600 }}>시세를 불러오지 못해 평가액을 확인할 수 없습니다</span>
+            : <span className="warn-text" style={{ fontWeight: 600 }}>{preview.priceState === 'stale' ? '시세가 지연되어' : '시세가 없어'} 평가액을 확인할 수 없습니다</span>}
       {' · '}
-      {!priceKnown
+      {notLoaded
+        ? <>{threshold} 이상이면 서로 다른 승인자 {highN}명 필요</>
+        : !priceKnown
         ? <>이 경우 승인 요청 때 서로 다른 승인자 {highN}명이 필요합니다</>
         : high
           ? <b style={{ color: 'var(--ink)' }}>{threshold} 이상이라 서로 다른 승인자 {highN}명 필요</b>

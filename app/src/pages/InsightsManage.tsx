@@ -34,13 +34,26 @@ export function InsightsManagePage() {
   const items: any[] = list.data?.pages.flatMap((p: any) => p.items) ?? [];
   const total: number = list.data?.pages[0]?.total ?? 0;
   const filtered = !!(filter.q || filter.provider);
+  // 방금 게시한 자료. 목록은 발행일 최신순이라 지난 날짜로 게시한 자료는 처음 불러온 묶음 밖에 있을 수 있다.
+  const [justPublished, setJustPublished] = useState<{ id: string; snapshot: InsightForm } | null>(null);
+  // 방금 게시한 자료의 지금 상태(숨기기·다시 게시 반영)는 제목·기관으로 좁혀 다시 받는다. 키가 'insights'로 시작해 목록과 함께 새로 고쳐진다.
+  const pinnedQ = useQuery({
+    queryKey: ['insights', 'manage', 'just-published', justPublished?.id],
+    queryFn: ({ signal }) => api(`/api/insights?${new URLSearchParams({ includeHidden: '1', q: justPublished!.snapshot.title.trim(), provider: justPublished!.snapshot.providerId, limit: '50' })}`, { signal }),
+    enabled: !!justPublished,
+  });
+  // 불러온 행에 이미 있으면 따로 그리지 않는다(같은 자료가 두 줄로 보이지 않게). 필터를 쓰는 중이거나 목록을 다시 받는 중에도 그리지 않는다.
+  const pinned: any = justPublished && !filtered && !list.isRefetching && !items.some((i) => i.id === justPublished.id)
+    ? (pinnedQ.data?.items.find((i: any) => i.id === justPublished.id) ?? pinnedFromSnapshot(justPublished, providers.data))
+    : null;
   // 폼 기준값(최초 값 또는 마지막 게시 성공 뒤 값). 기관·발행일·언어를 포함한 전체 폼을 비교해 작성 중 여부를 판단한다.
   const [baseline, setBaseline] = useState<InsightForm>(initialInsightForm);
   const [f, setF] = useState<InsightForm>(baseline);
   const create = useMutation({
     // 제출 시점 스냅샷을 보낸다. 게시 중에는 입력을 잠가(fieldset disabled) 성공 뒤 초기화가 새 입력을 지우지 않게 한다.
     mutationFn: (snapshot: InsightForm) => api('/api/insights', { method: 'POST', body: snapshot }),
-    onSuccess: (_d, snapshot) => {
+    onSuccess: (d: { id: string }, snapshot) => {
+      setJustPublished({ id: d.id, snapshot });
       qc.invalidateQueries({ queryKey: ['insights'] });
       // 연속 게시를 위해 기관·발행일·언어는 유지하고 본문만 비운다. 이 값이 새 깨끗한 기준이다.
       const next = { ...snapshot, title: '', summary: '', url: '' };
@@ -110,22 +123,15 @@ export function InsightsManagePage() {
           </Empty>
         ) : (
           <>
-            <p className="result-count" aria-live="polite">{total}건 중 {items.length}건 표시 · 발행일 최신순 · 숨긴 자료 포함</p>
+            <p className="result-count" aria-live="polite">{total}건 중 {items.length}건 표시 · 발행일 최신순 · 숨긴 자료 포함{pinned && ' · 방금 게시한 자료는 발행일과 관계없이 맨 위에 따로 표시'}</p>
             <div className="table-wrap">
               {/* 좁은 화면에서는 표의 행을 카드처럼 쌓는다(table-stack). 제목은 한 줄 전체를 쓴다. */}
               <table className="table table-stack">
                 <caption className="sr-only">게시 자료 목록</caption>
                 <thead><tr><th scope="col">발행일</th><th scope="col">기관</th><th scope="col">제목</th><th scope="col">상태</th><th scope="col"><span className="sr-only">작업</span></th></tr></thead>
                 <tbody>
-                  {items.map((i: any) => (
-                    <tr key={i.id}>
-                      <td className="nowrap" data-label="발행일">{date(i.publishedAt)}</td>
-                      <td data-label="기관">{i.providerName}{!i.providerWhitelisted && <div><Badge tone="warning">화이트리스트 아님 · 고객에게 숨김</Badge></div>}</td>
-                      <td className="cell-wrap" data-label="제목" id={`ins-title-${i.id}`} style={{ gridColumn: '1 / -1' }}>{i.title}</td>
-                      <td data-label="상태">{i.status === 'published' ? <Badge tone="success">게시</Badge> : <Badge tone="neutral">숨김</Badge>}</td>
-                      <td><button className="btn btn-sm" onClick={() => toggle.mutate({ id: i.id, status: i.status === 'published' ? 'hidden' : 'published' })} disabled={toggle.isPending} aria-describedby={`ins-title-${i.id}`}>{i.status === 'published' ? '숨기기' : '다시 게시'}</button></td>
-                    </tr>
-                  ))}
+                  {pinned && <InsightRow i={pinned} pinned onToggle={(v) => toggle.mutate(v)} busy={toggle.isPending} />}
+                  {items.map((i: any) => <InsightRow key={i.id} i={i} onToggle={(v) => toggle.mutate(v)} busy={toggle.isPending} />)}
                 </tbody>
               </table>
             </div>
@@ -136,5 +142,24 @@ export function InsightsManagePage() {
         )}
       </section>
     </div>
+  );
+}
+
+/** 상태를 다시 받기 전에는 게시 때 보낸 값으로 한 줄을 만든다(막 게시했으므로 상태는 게시). */
+function pinnedFromSnapshot(p: { id: string; snapshot: InsightForm }, providers: any[] | undefined) {
+  const prov = providers?.find((x: any) => x.id === p.snapshot.providerId);
+  return { id: p.id, title: p.snapshot.title.trim(), publishedAt: p.snapshot.publishedAt, status: 'published', providerName: prov?.name ?? '', providerWhitelisted: prov?.isWhitelisted ?? true };
+}
+
+/** 게시 자료 한 줄. pinned는 방금 게시했지만 불러온 묶음 밖에 있는 자료를 맨 위에 따로 보일 때 쓴다. */
+function InsightRow({ i, pinned, onToggle, busy }: { i: any; pinned?: boolean; onToggle: (v: { id: string; status: string }) => void; busy: boolean }) {
+  return (
+    <tr>
+      <td className="nowrap" data-label="발행일">{date(i.publishedAt)}{pinned && <div><Badge tone="info">방금 게시</Badge></div>}</td>
+      <td data-label="기관">{i.providerName}{!i.providerWhitelisted && <div><Badge tone="warning">화이트리스트 아님 · 고객에게 숨김</Badge></div>}</td>
+      <td className="cell-wrap" data-label="제목" id={`ins-title-${i.id}`} style={{ gridColumn: '1 / -1' }}>{i.title}</td>
+      <td data-label="상태">{i.status === 'published' ? <Badge tone="success">게시</Badge> : <Badge tone="neutral">숨김</Badge>}</td>
+      <td><button className="btn btn-sm" onClick={() => onToggle({ id: i.id, status: i.status === 'published' ? 'hidden' : 'published' })} disabled={busy} aria-describedby={`ins-title-${i.id}`}>{i.status === 'published' ? '숨기기' : '다시 게시'}</button></td>
+    </tr>
   );
 }

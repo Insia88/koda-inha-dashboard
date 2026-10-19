@@ -26,12 +26,13 @@ const NEXT_FOR_ROLE: Record<string, Record<RoleKey, string>> = {
   FAILED: { requester: '실패 사유를 확인하세요. 예약 수량은 해제되었습니다.', approver: '처리에 실패한 요청입니다.', other: '처리에 실패한 요청입니다.' },
 };
 
-function nextAction(r: any, role: RoleKey, tailLength: number, canReject: boolean): string {
-  // 승인할 수 없는 이유는 아래 안내에 쓰고, 여기에는 할 일만 쓴다.
+function nextAction(r: any, role: RoleKey, tailLength: number, canReject: boolean, reasonPrefilled: boolean): string {
+  // 승인할 수 없는 이유는 아래 안내에 쓰고, 여기에는 할 일만 쓴다(안내 제목과 같은 문장을 되풀이하지 않는다).
   if (r.blockedReason === 'ADDRESS_NOT_ACTIVE') {
     if (role === 'requester') return '이 요청을 취소하세요. 같은 출금이 필요하면 사용 가능한 주소로 새 요청을 작성하세요.';
-    if (role === 'approver' && canReject) return '미리 채운 반려 사유를 확인하고 반려하세요.';
-    return '받는 주소가 사용 중지되어 승인할 수 없는 요청입니다.';
+    if (role === 'approver' && canReject) return reasonPrefilled ? '미리 채운 반려 사유를 확인하고 반려하세요.' : '반려 사유를 확인하고 반려하세요.';
+    // 감사 담당자나 이미 결정한 승인자: 할 일이 없다. 무엇을 기다리는지만 쓴다.
+    return '요청자의 취소나 승인자의 반려를 기다리는 중입니다.';
   }
   // 출금 요청 제출 때는 끝자리를 다시 입력한다(가운데 8자리 재입력은 주소 등록·확인 단계의 규칙). 눈으로는 가운데까지 대조하게 한다.
   if (r.status === 'REVIEW' && role === 'requester') return `받는 주소를 가운데 묶음까지 원본과 대조하고, 끝 ${tailLength}자리를 입력해 승인 요청을 보내세요.`;
@@ -83,10 +84,16 @@ export function RequestDetailPage() {
   const suggestedReason = q.data?.blockedReason === 'ADDRESS_NOT_ACTIVE' && q.data.allowedActions.includes('reject')
     ? `받는 곳 '${q.data.address.label}'의 주소가 사용 중지되어 승인할 수 없으므로 반려합니다. 사용 가능한 주소로 새 요청을 작성해 주세요.`
     : '';
+  // reasonSeed: 입력란에 넣은 제안(사용자가 고치지 않았으면 reason과 같다). reasonOffered: 마지막으로 처리한 제안.
   const [reasonSeed, setReasonSeed] = useState('');
+  const [reasonOffered, setReasonOffered] = useState('');
   useEffect(() => {
-    if (suggestedReason && suggestedReason !== reasonSeed) { setReason(suggestedReason); setReasonSeed(suggestedReason); }
-  }, [suggestedReason, reasonSeed]);
+    if (!suggestedReason || suggestedReason === reasonOffered) return;
+    setReasonOffered(suggestedReason);
+    // 승인자가 직접 쓴 사유는 덮어쓰지 않는다(주기적 새로 고침 중에 요청이 승인 불가로 바뀌어도). 비었거나 앞서 넣은 제안 그대로일 때만 채운다.
+    if (reason.trim() === '' || reason === reasonSeed) { setReason(suggestedReason); setReasonSeed(suggestedReason); }
+  }, [suggestedReason, reasonOffered, reason, reasonSeed]);
+  const reasonPrefilled = !!suggestedReason && reason === suggestedReason;
   const [checked, setChecked] = useState({ counterparty: false, amount: false, address: false });
   const idem = useRef<Record<string, string>>({});
   const keyFor = (action: string) => (idem.current[action] ??= newIdemKey());
@@ -160,7 +167,7 @@ export function RequestDetailPage() {
 
       <section className="next-action" aria-labelledby="next-h">
         <h2 id="next-h">다음 할 일</h2>
-        <p>{nextAction(r, roleKey, n, can('reject'))}</p>
+        <p>{nextAction(r, roleKey, n, can('reject'), reasonPrefilled)}</p>
         {mine && r.status === 'PENDING_APPROVAL' && <p className="muted small">본인이 작성한 요청은 승인할 수 없습니다. 승인 {r.approvedCount}/{r.requiredApprovals}명.</p>}
         {decided && <p className="muted small">내 결정: {decided.decision === 'approved' ? '승인' : '반려'} ({dateTime(decided.createdAt)})</p>}
       </section>
@@ -173,7 +180,7 @@ export function RequestDetailPage() {
       )}
       {blocked && !decideCard && roleKey !== 'requester' && (
         <Notice tone="warning" title="받는 주소가 사용 중지되어 승인할 수 없는 요청입니다">
-          요청자가 취소하거나 승인자가 반려하면 예약 수량이 풀립니다.
+          요청이 취소되거나 반려되면 예약 수량이 풀립니다.
         </Notice>
       )}
       {r.status === 'REJECTED' && <Notice tone="danger" title="반려 사유">{r.rejectReason}</Notice>}
@@ -205,8 +212,11 @@ export function RequestDetailPage() {
             <dt>요청자</dt><dd>{r.createdBy.name} · {dateTime(r.createdAt)}</dd>
             <dt>필요 승인</dt>
             <dd>
-              {r.submittedAt ? <>{r.requiredApprovals}명 <span className="muted">(현재 {r.approvedCount}명)</span></> : <>승인 요청을 보낼 때 정해집니다</>}
-              <div className="small" style={{ color: 'var(--ink-2)' }}>{basisText(r, me.policy.approval, projected)} <span className="muted">(설계 가정)</span></div>
+              {r.submittedAt
+                ? <>{r.requiredApprovals}명 <span className="muted">(현재 {r.approvedCount}명)</span></>
+                : preSubmit ? <>승인 요청을 보낼 때 정해집니다</> : <>승인 요청 전에 끝난 요청이라 정하지 않았습니다</>}
+              {/* 승인 요청 없이 끝난 요청(작성·검토 중 취소)에는 정해질 일이 없으므로 근거·예상 문구를 쓰지 않는다. */}
+              {(r.submittedAt || preSubmit) && <div className="small" style={{ color: 'var(--ink-2)' }}>{basisText(r, me.policy.approval, projected)} <span className="muted">(설계 가정)</span></div>}
             </dd>
             {preSubmit && <><dt>사용 가능 수량</dt><dd>{amount(r.available, r.assetCode)}</dd></>}
             {r.custodyRef && <><dt>처리 참조</dt><dd className="mono small">{r.custodyRef} (모의)</dd></>}
@@ -245,7 +255,8 @@ export function RequestDetailPage() {
           <h2 id="approve-h">{can('approve') ? '승인 또는 반려' : '반려'}</h2>
           {blocked && (
             <Notice tone="danger" title="받는 주소가 사용 중지되어 승인할 수 없습니다. 사유와 함께 반려하세요">
-              반려하면 예약된 수량이 풀리고 요청자에게 사유가 전달됩니다. 아래 사유는 필요하면 고쳐 쓸 수 있습니다.
+              반려하면 예약된 수량이 풀리고 요청자에게 사유가 전달됩니다.
+              {reasonPrefilled && ' 아래에 미리 채운 사유는 필요하면 고쳐 쓸 수 있습니다.'}
             </Notice>
           )}
           {can('approve') && (
@@ -267,6 +278,12 @@ export function RequestDetailPage() {
           <Field label="반려 사유" htmlFor="reason" error={actErr?.fieldError('reason')} hint="요청자가 무엇을 고쳐야 하는지 알 수 있게 5자 이상 적어 주세요.">
             <TextareaAuto id="reason" rows={2} maxRows={8} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />
           </Field>
+          {/* 직접 적은 사유를 지키되, 주소 사용 중지에 맞춘 사유를 원하면 한 번에 넣을 수 있게 한다. */}
+          {suggestedReason && reason !== suggestedReason && (
+            <div className="form-actions form-actions-left" style={{ marginTop: -4 }}>
+              <button type="button" className="btn btn-sm" onClick={() => { setReason(suggestedReason); setReasonSeed(suggestedReason); }}>주소 사용 중지 사유로 바꾸기</button>
+            </div>
+          )}
           <ApiErrorNotice error={actNotice} />
           <div className="form-actions">
             <button className="btn btn-danger-outline" onClick={() => act.mutate({ action: 'reject', body: { reason } })} disabled={act.isPending}>반려</button>
