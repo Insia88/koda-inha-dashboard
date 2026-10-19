@@ -20,6 +20,14 @@
 | vitest | 5.0.5 | MIT | 단위·API 테스트(개발 도구) |
 | @playwright/test | 1.64.1 | Apache-2.0 | 브라우저 E2E·스크린샷(개발 도구) |
 | @axe-core/playwright | 4.14.0 | MPL-2.0 | 접근성 자동 검사(개발 도구, 배포물에 포함하지 않음) |
+| fast-check | 4.10.2 | MIT | 수량 파싱 속성 기반 테스트(개발 도구, 배포물에 포함하지 않음) |
+| @fast-check/vitest | 0.5.0 | MIT | fast-check를 Vitest 테스트로 실행(개발 도구, 배포물에 포함하지 않음) |
+| esbuild | 0.28.2 | MIT | 서버 코드 번들(`build:api`, 빌드 도구). tsx가 잠근 버전과 같은 버전으로 고정 |
+| pretendard | 1.3.9 | OFL-1.1 | 화면 서체(Pretendard). 화면에서 불러온 글꼴 파일은 빌드 결과물(`dist/`)에 번들되어 외부 CDN을 쓰지 않는다 |
+
+Pretendard는 SIL Open Font License 1.1로 배포된다(Copyright (c) 2021, Kil Hyung-jin, Reserved Font Name Pretendard). 라이선스 원문은 `node_modules/pretendard/dist/LICENSE.txt`에 있다. 글꼴 파일만 따로 판매하지 않고, 글꼴을 수정해 배포할 때는 예약된 글꼴 이름 "Pretendard"를 쓰지 않는다. 글꼴 파일을 `dist/`에 함께 배포할 때는 이 저작권 고지와 라이선스를 함께 둔다(OFL 1.1 제2조).
+
+fast-check(Copyright (c) 2017 Nicolas DUBIEN), @fast-check/vitest(Copyright (c) 2020 Nicolas DUBIEN), esbuild(Copyright (c) 2020 Evan Wallace)는 테스트·빌드에만 쓰며 배포물에 포함하지 않는다.
 
 데이터 저장은 Node.js 내장 `node:sqlite`(SQLite 3.53, Node.js 라이선스/SQLite 퍼블릭 도메인)를 사용해 네이티브 빌드 의존성을 추가하지 않았다.
 

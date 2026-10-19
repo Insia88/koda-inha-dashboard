@@ -1,7 +1,11 @@
 // 금액·수량은 자산별 최소 단위(정수)를 bigint로 계산하고 문자열로 저장한다.
 // 부동소수점(Number)으로 금액을 계산하지 않는다. 표시용 포맷은 formatGrouped에서만 만든다.
 
-const DECIMAL_RE = /^(0|[1-9]\d*)(\.\d+)?$/;
+// 입력 형식: 쉼표 없는 10진수, 또는 정수부에 천 단위 쉼표가 모두 바른 자리에 있는 10진수.
+// 쉼표는 이 검사를 통과한 뒤에만 지운다. 먼저 지우면 "1,5"가 15로 읽힌다.
+const AMOUNT_INPUT_RE = /^(?:0|[1-9]\d{0,2}(?:,\d{3})+|[1-9]\d*)(?:\.\d+)?$/;
+const FORMAT_MESSAGE = '숫자와 소수점만 입력할 수 있습니다. 예: 1.25';
+const COMMA_MESSAGE = '쉼표는 천 단위 구분(예: 1,000)에만 쓸 수 있습니다. 소수점은 마침표(.)로 입력하세요.';
 
 export class AmountError extends Error {
   constructor(public code: 'AMOUNT_FORMAT' | 'AMOUNT_PRECISION' | 'AMOUNT_NOT_POSITIVE' | 'AMOUNT_TOO_LARGE', message: string) {
@@ -9,12 +13,13 @@ export class AmountError extends Error {
   }
 }
 
-/** "1.5" + precision 8 → 150000000n */
+/** "1.5" + precision 8 → 150000000n, "1,234.5" + precision 2 → 123450n. "1,5"·"1,2,3"은 AMOUNT_FORMAT */
 export function parseUnits(input: string, precision: number): bigint {
-  const s = input.trim().replace(/,/g, '');
-  if (!DECIMAL_RE.test(s)) {
-    throw new AmountError('AMOUNT_FORMAT', '숫자와 소수점만 입력할 수 있습니다. 예: 1.25');
+  const trimmed = input.trim();
+  if (!AMOUNT_INPUT_RE.test(trimmed)) {
+    throw new AmountError('AMOUNT_FORMAT', trimmed.includes(',') ? COMMA_MESSAGE : FORMAT_MESSAGE);
   }
+  const s = trimmed.replace(/,/g, '');
   const [whole, frac = ''] = s.split('.') as [string, string?];
   const fraction = frac.startsWith('.') ? frac.slice(1) : frac;
   if (fraction.length > precision) {
