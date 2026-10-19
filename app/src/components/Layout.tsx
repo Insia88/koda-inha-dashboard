@@ -1,14 +1,62 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   IconHome, IconWallet, IconListDetails, IconChecklist, IconStack2, IconBuildingBank, IconAddressBook, IconCoins,
   IconUsers, IconShieldCheck, IconNews, IconLogout, IconMenu2, IconX, IconFlask,
 } from '@tabler/icons-react';
-import { api } from '../api.ts';
+import { acknowledgeDemoReset, api, DEMO_INSTANCE_CHANGED, isDemoResetPending, type DeploymentInfo } from '../api.ts';
 import { useMe } from '../auth.tsx';
+import { dateTime } from '../format.ts';
+import { Notice } from './ui.tsx';
 
 interface Item { to: string; label: string; icon: typeof IconHome; perm: string; badge?: number; end?: boolean }
+
+const NARROW = '(max-width: 560px)';
+function useNarrow() {
+  return useSyncExternalStore(
+    (onChange) => {
+      const m = window.matchMedia(NARROW);
+      m.addEventListener('change', onChange);
+      return () => m.removeEventListener('change', onChange);
+    },
+    () => window.matchMedia(NARROW).matches,
+    () => false,
+  );
+}
+
+/** 데이터 생성 시각(KST HH:mm). */
+const seededTime = (seededAt?: string | null) => (seededAt ? dateTime(seededAt).slice(11) : null);
+
+/** 공개 데모 고지 본문. 상단 띠와 로그인 화면이 같은 내용을 쓴다. */
+export function DemoNoticeText({ seededAt }: { seededAt?: string | null }) {
+  const t = seededTime(seededAt);
+  return <>모든 사람·법인·자산·주소는 모의 데이터입니다. KODA 공식 서비스가 아니며 실제 계정·자산과 연결되지 않습니다. 서버가 다시 시작되면 데이터가 초기화됩니다{t ? ` (데이터 생성 ${t})` : ''}.</>;
+}
+
+/** 공개 데모 서버가 바뀌어(재시작·다른 인스턴스) 모의 데이터가 처음 상태로 돌아갔는지. */
+export function useDemoReset(): [boolean, () => void] {
+  const [pending, setPending] = useState(isDemoResetPending);
+  useEffect(() => {
+    const on = () => setPending(true);
+    window.addEventListener(DEMO_INSTANCE_CHANGED, on);
+    if (isDemoResetPending()) setPending(true);
+    return () => window.removeEventListener(DEMO_INSTANCE_CHANGED, on);
+  }, []);
+  const acknowledge = useCallback(() => { acknowledgeDemoReset(); setPending(false); }, []);
+  return [pending, acknowledge];
+}
+
+function EnvRibbon({ env }: { env: { custody: string } & DeploymentInfo }) {
+  const narrow = useNarrow();
+  if (env.mode !== 'public-demo') {
+    return <span><b>개발 환경</b> · 개발용 로그인 · 모의 데이터 · {env.custody} — 실제 자산 전송이나 운영 인증이 일어나지 않습니다.</span>;
+  }
+  const t = seededTime(env.seededAt);
+  // 좁은 화면에서도 네 가지(공개 데모·모의 데이터·KODA 공식 서비스 아님·초기화)는 빠뜨리지 않는다.
+  if (narrow) return <span><b>공개 데모</b> · 모의 데이터 · KODA 공식 서비스가 아닙니다 · 재시작하면 데이터가 초기화됩니다{t ? ` (${t} 생성)` : ''}</span>;
+  return <span><b>공개 데모</b> · 모든 사람·법인·자산·주소는 모의 데이터 · KODA 공식 서비스가 아니며 실제 계정·자산과 연결되지 않습니다 · 서버가 다시 시작되면 데이터가 초기화됩니다{t ? ` (데이터 생성 ${t})` : ''}</span>;
+}
 
 export function Layout() {
   const me = useMe();
@@ -16,6 +64,8 @@ export function Layout() {
   const loc = useLocation();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [demoReset, acknowledgeReset] = useDemoReset();
+  const env = me.environment as typeof me.environment & DeploymentInfo;
   const firstRender = useRef(true);
   const can = (p: string) => me.permissions.includes(p);
   const dash = useQuery({ queryKey: ['dashboard'], queryFn: () => api('/api/dashboard'), enabled: can('dashboard.read'), refetchInterval: 15_000 });
@@ -59,12 +109,18 @@ export function Layout() {
     }
   };
 
+  const restartDemo = () => {
+    acknowledgeReset();
+    qc.clear();
+    nav('/login', { replace: true });
+  };
+
   return (
     <div className={`shell ${open ? 'nav-open' : ''}`}>
       <a href="#main" className="skip-link">본문으로 건너뛰기</a>
       <div className="env-ribbon" role="note">
         <IconFlask size={16} aria-hidden="true" />
-        <span><b>개발 환경</b> · 개발용 로그인 · 모의 데이터 · {me.environment.custody} — 실제 자산 전송이나 운영 인증이 일어나지 않습니다.</span>
+        <EnvRibbon env={env} />
       </div>
       <header className="topbar">
         <button className="btn btn-icon nav-toggle" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls="sidenav" aria-label={open ? '메뉴 닫기' : '메뉴 열기'}>
@@ -102,6 +158,19 @@ export function Layout() {
       </nav>
       <div className="nav-scrim" onClick={() => setOpen(false)} aria-hidden="true" />
       <main id="main" className="main">
+        {/* 공개 데모에서만: 미리 있는 알림 영역에 내용을 넣어야 화면 낭독기가 변경을 읽어 준다. 로컬 화면 구조는 그대로 둔다. */}
+        {env.mode === 'public-demo' && (
+          <div role="status" aria-live="polite">
+            {demoReset && (
+              <div style={{ marginBottom: 'var(--s4)' }}>
+                <Notice tone="info" title="데모 서버가 새로 시작되었습니다">
+                  모의 데이터가 처음 상태로 돌아갔습니다. 방금 만든 항목이나 로그인 상태가 남아 있지 않을 수 있습니다.
+                  <div style={{ marginTop: 'var(--s2)' }}><button type="button" className="btn btn-sm" onClick={restartDemo}>처음 화면으로</button></div>
+                </Notice>
+              </div>
+            )}
+          </div>
+        )}
         <Outlet />
       </main>
     </div>

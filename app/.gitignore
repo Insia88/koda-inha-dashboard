@@ -6,3 +6,5 @@ playwright-report/
 *.sqlite-*
 artifacts/
 test-results/
+.vercel-server/
+.vercel/

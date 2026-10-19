@@ -32,9 +32,33 @@ function parse<T>(schema: z.ZodType<T>, data: unknown): T {
 const str = z.string().max(200).optional();
 const idParam = z.object({ id: z.string().min(1).max(64) });
 
-export interface AppDeps { cfg: AppConfig; db: DB; custody: CustodyAdapter }
+/** 서버 인스턴스 정보(runtime.ts). 없으면 buildApp이 instanceId만 새로 만든다. */
+export interface RuntimeInfo { instanceId: string; seededAt: string | null; tick?: () => void }
+export interface AppDeps { cfg: AppConfig; db: DB; custody: CustodyAdapter; runtime?: RuntimeInfo }
 
-export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyInstance> {
+/** 원문 링크가 제공 기관 홈페이지와 같은 호스트인지 확인한다(모든 모드). */
+function assertProviderDomain(p: { name: string; homepage: string }, url: string) {
+  let host = '';
+  let expected = '';
+  try { host = new URL(url).host; } catch { host = ''; }
+  try { expected = new URL(p.homepage).host; } catch { expected = ''; }
+  if (!host || !expected || host !== expected) {
+    throw new AppError(422, 'PROVIDER_DOMAIN_MISMATCH', `원문 링크의 도메인(${host || '알 수 없음'})이 '${p.name}'의 등록 도메인(${expected || '미등록'})과 다릅니다.`, `'${p.name}'의 등록 도메인(${expected || '미등록'})에 있는 원문 링크만 게시하세요.`, [{ field: 'url', message: `${expected || '등록된'} 도메인의 링크만 게시할 수 있습니다.` }]);
+  }
+}
+
+function assertWhitelisted(cfg: AppConfig, p: { name: string; is_whitelisted: number }) {
+  if (cfg.insightPolicy.requireWhitelistedProvider && !p.is_whitelisted) {
+    throw new AppError(422, 'PROVIDER_NOT_WHITELISTED', `'${p.name}'은(는) 화이트리스트에 없는 기관이라 게시할 수 없습니다.`, '화이트리스트 기관의 자료만 게시하세요. 기관 추가는 운영 기준에 따라 별도로 결정합니다.', [{ field: 'providerId', message: '화이트리스트 기관이 아닙니다.' }]);
+  }
+}
+
+const DEMO_CAP_TABLE = { addresses: 'address_book', requests: 'withdrawal_requests', insights: 'insights' } as const;
+const DEMO_CAP_LABEL: Record<keyof typeof DEMO_CAP_TABLE, string> = { addresses: '주소 등록', requests: '출금 요청', insights: '인사이트 게시' };
+
+export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<FastifyInstance> {
+  const demo = cfg.deployment === 'public-demo';
+  const instance = { instanceId: runtime?.instanceId ?? randomUUID(), seededAt: runtime?.seededAt ?? null };
   const app = Fastify({
     logger: cfg.logLevel === 'silent' ? false : {
       level: cfg.logLevel,
@@ -43,8 +67,19 @@ export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyIn
     },
     genReqId: () => randomUUID(),
     bodyLimit: 64 * 1024,
-    trustProxy: false,
+    // 공개 데모(Vercel)는 플랫폼이 X-Forwarded-For를 덮어쓰므로 그 값을 접속 IP로 쓴다. 로컬에서는 무시한다.
+    trustProxy: cfg.trustProxy,
   });
+
+  // 공개 데모: 인스턴스마다 사용자가 새로 만든 행 수를 종류별로 제한한다(기동 시점의 모의 데이터는 세지 않는다).
+  const count = (t: string) => (db.prepare(`SELECT COUNT(*) c FROM ${t}`).get() as { c: number }).c;
+  const demoBaseline = demo ? Object.fromEntries(Object.entries(DEMO_CAP_TABLE).map(([k, t]) => [k, count(t)])) as Record<keyof typeof DEMO_CAP_TABLE, number> : null;
+  const assertDemoCapacity = (kind: keyof typeof DEMO_CAP_TABLE) => {
+    if (!demoBaseline) return;
+    if (count(DEMO_CAP_TABLE[kind]) - demoBaseline[kind] >= cfg.demoCreateLimit) {
+      throw new AppError(422, 'DEMO_LIMIT', `공개 데모에서 새로 만들 수 있는 ${DEMO_CAP_LABEL[kind]} 건수(${cfg.demoCreateLimit}건)를 모두 사용했습니다.`, '이미 만들어진 항목으로 계속 확인하세요. 데모 데이터가 처음 상태로 돌아가면 다시 만들 수 있습니다.');
+    }
+  };
 
   await app.register(helmet, {
     contentSecurityPolicy: {
@@ -65,6 +100,19 @@ export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyIn
     errorResponseBuilder: (_req, ctx) => ({ statusCode: 429, error: { code: 'RATE_LIMITED', message: '요청이 너무 많아 잠시 처리를 멈췄습니다.', action: `${Math.ceil(ctx.ttl / 1000)}초 후 다시 시도하세요.` } }),
   });
 
+  // 상주 타이머가 없는 런타임(공개 데모 함수): /api 요청 때 정산·시세 기준 시각 갱신을 1초에 한 번까지 실행한다.
+  const tick = runtime?.tick;
+  if (cfg.lazyTicks && tick) {
+    let lastTick = 0;
+    app.addHook('onRequest', async (req) => {
+      if (!req.url.startsWith('/api/')) return;
+      const t = Date.now();
+      if (t - lastTick < 1000) return;
+      lastTick = t;
+      tick();
+    });
+  }
+
   app.decorateRequest('auth', null);
   app.addHook('onRequest', async (req) => {
     if (!req.url.startsWith('/api/')) return;
@@ -73,7 +121,10 @@ export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyIn
     if (mutating && req.auth && req.url !== '/api/auth/dev-login') checkCsrf(req);
   });
   app.addHook('onSend', async (req, reply) => {
-    if (req.url.startsWith('/api/')) reply.header('Cache-Control', 'no-store');
+    if (!req.url.startsWith('/api/')) return;
+    reply.header('Cache-Control', 'no-store');
+    // 공개 데모: 응답한 인스턴스를 알려 화면이 데이터 초기화(다른 인스턴스·재시작)를 감지하게 한다.
+    if (demo) reply.header('X-Demo-Instance', instance.instanceId);
   });
 
   app.setErrorHandler((err: any, req, reply) => {
@@ -97,7 +148,7 @@ export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyIn
   });
 
   // ---------- 상태·인증 ----------
-  app.get('/api/healthz', async () => ({ ok: true, env: cfg.nodeEnv, authMode: cfg.authMode, custody: custody.name }));
+  app.get('/api/healthz', async () => ({ ok: true, env: cfg.nodeEnv, authMode: cfg.authMode, custody: custody.name, mode: cfg.deployment, instanceId: instance.instanceId, seededAt: instance.seededAt }));
 
   app.get('/api/auth/dev-users', async () => {
     const users = db.prepare('SELECT u.id, u.name, u.title, o.name org_name, o.id org_id FROM users u JOIN organizations o ON o.id = u.org_id WHERE u.is_active = 1 ORDER BY o.kind, o.name, u.name').all() as any[];
@@ -111,7 +162,7 @@ export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyIn
     if (req.auth) revokeSession(db, req.auth.sessionHash);
     const s = createSession(db, u.id, cfg.sessionTtlMinutes);
     tx(db, () => writeAudit(db, { orgId: u.org_id, actorId: u.id, actorName: u.name, action: 'auth.login', targetType: 'user', targetId: u.id, summary: `${u.name} 로그인 (개발용 로그인)` }));
-    setSessionCookie(reply, s.token, s.expires, false);
+    setSessionCookie(reply, s.token, s.expires, cfg.cookieSecure);
     return { ok: true };
   });
 
@@ -121,7 +172,7 @@ export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyIn
       revokeSession(db, a.sessionHash);
       tx(db, () => writeAudit(db, { orgId: a.org.id, actorId: a.user.id, actorName: a.user.name, action: 'auth.logout', targetType: 'user', targetId: a.user.id, summary: `${a.user.name} 로그아웃` }));
     }
-    reply.clearCookie(SESSION_COOKIE, { path: '/' });
+    reply.clearCookie(SESSION_COOKIE, { path: '/', secure: cfg.cookieSecure });
     return { ok: true };
   });
 
@@ -129,7 +180,7 @@ export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyIn
     const a = requireAuth(req);
     return {
       user: a.user, org: a.org, roles: a.roles, roleLabels: a.roles.map((r) => ROLE_LABEL[r].label), permissions: [...a.perms], csrfToken: a.csrf,
-      environment: { name: cfg.nodeEnv, authMode: cfg.authMode, custody: custody.name, custodyIsMock: custody.isMock, dataIsMock: a.org.isMock },
+      environment: { name: cfg.nodeEnv, authMode: cfg.authMode, custody: custody.name, custodyIsMock: custody.isMock, dataIsMock: a.org.isMock, mode: cfg.deployment, instanceId: instance.instanceId, seededAt: instance.seededAt },
       policy: { confirmTailLength: cfg.policy.addressBook.confirmTailLength, approval: cfg.policy.approval },
       insight: { experiments: cfg.insightPolicy.experiments },
     };
@@ -166,6 +217,7 @@ export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyIn
   });
   app.post('/api/addresses', async (req, reply) => {
     const a = requirePerm(req, 'address.create', '주소 등록');
+    assertDemoCapacity('addresses');
     const input = parse(addressCreateSchema, req.body);
     reply.status(201);
     return createAddress(db, a, cfg.policy, input);
@@ -191,7 +243,10 @@ export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyIn
     const a = requirePerm(req, 'request.create', '출금 요청 작성');
     const key = readIdemKey(req.headers['idempotency-key'], true);
     const input = parse(requestDraftSchema, req.body);
-    const out = tx(db, () => withIdempotency(db, a.user.id, 'POST /api/requests', key, input, () => ({ status: 201, body: createDraft(db, a, input, key) })));
+    const out = tx(db, () => withIdempotency(db, a.user.id, 'POST /api/requests', key, input, () => {
+      assertDemoCapacity('requests');
+      return { status: 201, body: createDraft(db, a, input, key) };
+    }));
     if (out.replayed) reply.header('Idempotent-Replayed', 'true');
     reply.status(out.status);
     return out.body;
@@ -258,11 +313,11 @@ export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyIn
   app.post('/api/insights', async (req, reply) => {
     const a = requirePerm(req, 'insight.manage', 'Market Insight 게시');
     const input = parse(insightCreateSchema, req.body);
-    const p = db.prepare('SELECT id, name, is_whitelisted FROM insight_providers WHERE id = ?').get(input.providerId) as any;
+    const p = db.prepare('SELECT id, name, is_whitelisted, homepage FROM insight_providers WHERE id = ?').get(input.providerId) as any;
     if (!p) throw new AppError(422, 'PROVIDER_NOT_FOUND', '제공 기관을 찾을 수 없습니다.', '기관 목록에서 다시 선택하세요.', [{ field: 'providerId', message: '기관을 선택하세요.' }]);
-    if (cfg.insightPolicy.requireWhitelistedProvider && !p.is_whitelisted) {
-      throw new AppError(422, 'PROVIDER_NOT_WHITELISTED', `'${p.name}'은(는) 화이트리스트에 없는 기관이라 게시할 수 없습니다.`, '화이트리스트 기관의 자료만 게시하세요. 기관 추가는 운영 기준에 따라 별도로 결정합니다.', [{ field: 'providerId', message: '화이트리스트 기관이 아닙니다.' }]);
-    }
+    assertWhitelisted(cfg, p);
+    assertProviderDomain(p, input.url);
+    assertDemoCapacity('insights');
     const id = randomUUID();
     tx(db, () => {
       db.prepare("INSERT INTO insights (id, provider_id, title, summary, language, published_at, url, asset_tags, status, curated_by, curated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'published', ?, ?)")
@@ -276,8 +331,13 @@ export async function buildApp({ cfg, db, custody }: AppDeps): Promise<FastifyIn
     const a = requirePerm(req, 'insight.manage', 'Market Insight 관리');
     const { id } = parse(idParam, req.params);
     const { status } = parse(insightStatusSchema, req.body);
-    const row = db.prepare('SELECT id, title FROM insights WHERE id = ?').get(id) as any;
+    const row = db.prepare('SELECT i.id, i.title, i.url, p.name, p.is_whitelisted, p.homepage FROM insights i JOIN insight_providers p ON p.id = i.provider_id WHERE i.id = ?').get(id) as any;
     if (!row) throw Errors.notFound('리서치 자료');
+    // 다시 게시할 때도 게시 때와 같은 기준(화이트리스트·기관 도메인)을 다시 확인한다.
+    if (status === 'published') {
+      assertWhitelisted(cfg, row);
+      assertProviderDomain(row, row.url);
+    }
     tx(db, () => {
       db.prepare('UPDATE insights SET status = ? WHERE id = ?').run(status, id);
       writeAudit(db, { orgId: a.org.id, actorId: a.user.id, actorName: a.user.name, action: status === 'hidden' ? 'insight.hidden' : 'insight.published', targetType: 'insight', targetId: id, summary: `리서치 ${status === 'hidden' ? '숨김' : '게시'}: ${row.title}` });
