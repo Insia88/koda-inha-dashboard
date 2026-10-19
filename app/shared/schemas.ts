@@ -14,6 +14,8 @@ export const addressCreateSchema = addressCheckSchema.extend({
   label: trimmed(60, '주소 이름'),
   counterparty: trimmed(80, '받는 곳'),
   confirmTail: z.string().trim().min(1, '주소 끝자리를 다시 입력하세요.').max(20),
+  confirmMiddle: z.string().trim().min(1, '주소 가운데 8자리를 다시 입력하세요.').max(20),
+  lookalikeReason: z.string().trim().max(300, '등록 사유는 300자 이내로 입력하세요.').optional().default(''),
   ackNotVerified: z.literal(true, { message: '형식 점검이 주소의 안전성을 보증하지 않는다는 점을 확인하세요.' }),
   ackOutOfBandConfirmed: z.literal(true, { message: '받는 곳과 별도 연락 수단으로 주소를 대조했는지 확인하세요.' }),
 });
@@ -23,6 +25,7 @@ export const addressReviewSchema = z.object({
   note: z.string().trim().max(500).optional().default(''),
   version: z.number().int().positive(),
   confirmTail: z.string().trim().max(20).optional().default(''),
+  confirmMiddle: z.string().trim().max(20).optional().default(''),
 });
 
 export const versionSchema = z.object({ version: z.number().int().positive() });

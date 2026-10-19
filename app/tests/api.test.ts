@@ -9,12 +9,14 @@ import { seed } from '../server/seed.ts';
 import { buildApp } from '../server/app.ts';
 import { MockCustodyAdapter } from '../server/adapters/custody.ts';
 import { settleProcessing } from '../server/domain/requests.ts';
+import { middleSegment } from '../shared/address-rules.ts';
 
 let ctx: TestCtx;
 beforeEach(async () => { ctx = await makeApp(); });
 afterEach(async () => { await ctx.app.close(); ctx.db.close(); });
 
 const tail = (addr: string) => addr.slice(-6);
+const middle = (addr: string) => middleSegment(addr).text;
 const NEW_EVM = 'MOCK-EVM-' + '1234567890ABCDEF1234567890ABCDEF12345678';
 
 async function newDraft(c = ctx, userId = 'u-a-han', body: Record<string, unknown> = {}) {
@@ -257,14 +259,14 @@ describe('주소록', () => {
     const chk = await han.post('/api/addresses/check', { assetCode: 'USDC', networkCode: 'ETHEREUM', address: NEW_EVM, memo: '' });
     expect(chk.status).toBe(200);
     expect(chk.body.findings.map((f: any) => f.code)).toContain('ADDRESS_SHARED_FORMAT');
-    const body = { label: '신규 테스트 주소', counterparty: '테스트 상대방', assetCode: 'USDC', networkCode: 'ETHEREUM', address: NEW_EVM, memo: '', confirmTail: tail(NEW_EVM), ackNotVerified: true, ackOutOfBandConfirmed: true };
+    const body = { label: '신규 테스트 주소', counterparty: '테스트 상대방', assetCode: 'USDC', networkCode: 'ETHEREUM', address: NEW_EVM, memo: '', confirmTail: tail(NEW_EVM), confirmMiddle: middle(NEW_EVM), ackNotVerified: true, ackOutOfBandConfirmed: true };
     const cr = await han.post('/api/addresses', body);
     expect(cr.status).toBe(201);
     expect(cr.body.address.status).toBe('PENDING_REVIEW');
     const id = cr.body.address.id;
-    const self = await api(ctx.app, await login(ctx.app, 'u-a-kang')).post(`/api/addresses/${id}/review`, { decision: 'approve', version: 1, confirmTail: tail(NEW_EVM) });
+    const self = await api(ctx.app, await login(ctx.app, 'u-a-kang')).post(`/api/addresses/${id}/review`, { decision: 'approve', version: 1, confirmTail: tail(NEW_EVM), confirmMiddle: middle(NEW_EVM) });
     expect(self.status).toBe(200); // 강도윤은 등록자가 아니므로 가능
-    const hanSelf = await api(ctx.app, await login(ctx.app, 'u-a-oh')).post(`/api/addresses/${id}/review`, { decision: 'approve', version: 1, confirmTail: tail(NEW_EVM) });
+    const hanSelf = await api(ctx.app, await login(ctx.app, 'u-a-oh')).post(`/api/addresses/${id}/review`, { decision: 'approve', version: 1, confirmTail: tail(NEW_EVM), confirmMiddle: middle(NEW_EVM) });
     expect(hanSelf.status).toBe(409);
     const dup = await han.post('/api/addresses', body);
     expect(dup.body.error.code).toBe('ADDRESS_DUPLICATE');
@@ -276,7 +278,7 @@ describe('주소록', () => {
   });
   it('rejects network mismatch, missing memo and wrong confirmation tail', async () => {
     const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
-    const base = { label: 'x', counterparty: 'y', confirmTail: '000000', ackNotVerified: true, ackOutOfBandConfirmed: true, memo: '' };
+    const base = { label: 'x', counterparty: 'y', confirmTail: '000000', confirmMiddle: '00000000', ackNotVerified: true, ackOutOfBandConfirmed: true, memo: '' };
     const mm = await han.post('/api/addresses', { ...base, assetCode: 'BTC', networkCode: 'BITCOIN', address: NEW_EVM });
     expect(mm.body.error.code).toBe('ADDRESS_NETWORK_MISMATCH');
     expect(mm.body.error.message).toContain('Ethereum');
@@ -287,6 +289,34 @@ describe('주소록', () => {
     const ack = await han.post('/api/addresses', { ...base, ackNotVerified: false, assetCode: 'USDC', networkCode: 'ETHEREUM', address: NEW_EVM, confirmTail: tail(NEW_EVM) });
     expect(ack.status).toBe(422);
     expect(ack.body.error.code).toBe('VALIDATION');
+  });
+  it('rejects a wrong middle segment at create and at review (CONFIRM_MIDDLE_MISMATCH)', async () => {
+    const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
+    const body = { label: '가운데 확인 주소', counterparty: '모의 상대방', assetCode: 'USDC', networkCode: 'ETHEREUM', address: NEW_EVM, memo: '', confirmTail: tail(NEW_EVM), ackNotVerified: true, ackOutOfBandConfirmed: true };
+    const missing = await han.post('/api/addresses', body);
+    expect(missing.status).toBe(422);
+    expect(missing.body.error.fields.map((f: any) => f.field)).toContain('confirmMiddle');
+    const wrong = await han.post('/api/addresses', { ...body, confirmMiddle: 'ZZZZZZZZ' });
+    expect(wrong.status).toBe(422);
+    expect(wrong.body.error.code).toBe('CONFIRM_MIDDLE_MISMATCH');
+    expect(wrong.body.error.fields[0].field).toBe('confirmMiddle');
+    expect(wrong.body.error.message).toContain('17~24');
+    const cr = await han.post('/api/addresses', { ...body, confirmMiddle: middle(NEW_EVM).toLowerCase() }); // 대소문자 무시
+    expect(cr.status).toBe(201);
+    const oh = api(ctx.app, await login(ctx.app, 'u-a-oh'));
+    const bad = await oh.post(`/api/addresses/${cr.body.address.id}/review`, { decision: 'approve', version: 1, confirmTail: tail(NEW_EVM), confirmMiddle: 'FFFFFFFF' });
+    expect(bad.status).toBe(422);
+    expect(bad.body.error.code).toBe('CONFIRM_MIDDLE_MISMATCH');
+    expect(bad.body.error.fields[0].field).toBe('confirmMiddle');
+    const noMid = await oh.post(`/api/addresses/${cr.body.address.id}/review`, { decision: 'approve', version: 1, confirmTail: tail(NEW_EVM) });
+    expect(noMid.body.error.code).toBe('CONFIRM_MIDDLE_MISMATCH');
+    // 끝자리 불일치는 이전과 같이 먼저 걸린다
+    const badTail = await oh.post(`/api/addresses/${cr.body.address.id}/review`, { decision: 'approve', version: 1, confirmTail: 'ZZZZZZ', confirmMiddle: middle(NEW_EVM) });
+    expect(badTail.body.error.code).toBe('CONFIRM_TAIL_MISMATCH');
+    expect((await oh.get(`/api/addresses/${cr.body.address.id}`)).body.status).toBe('PENDING_REVIEW');
+    const ok = await oh.post(`/api/addresses/${cr.body.address.id}/review`, { decision: 'approve', version: 1, confirmTail: tail(NEW_EVM), confirmMiddle: middle(NEW_EVM) });
+    expect(ok.status).toBe(200);
+    expect(ok.body.status).toBe('ACTIVE');
   });
   it('filters and returns an empty result without error', async () => {
     const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
@@ -327,7 +357,7 @@ describe('감사 기록', () => {
   });
   it('exports CSV for auditors with formula neutralisation and audits the export', async () => {
     const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
-    await han.post('/api/addresses', { label: '=HYPERLINK("http://evil")', counterparty: '+cmd', assetCode: 'USDC', networkCode: 'ETHEREUM', address: NEW_EVM, memo: '', confirmTail: tail(NEW_EVM), ackNotVerified: true, ackOutOfBandConfirmed: true });
+    await han.post('/api/addresses', { label: '=HYPERLINK("http://evil")', counterparty: '+cmd', assetCode: 'USDC', networkCode: 'ETHEREUM', address: NEW_EVM, memo: '', confirmTail: tail(NEW_EVM), confirmMiddle: middle(NEW_EVM), ackNotVerified: true, ackOutOfBandConfirmed: true });
     const aud = await login(ctx.app, 'u-a-moon');
     const res = await ctx.app.inject({ method: 'GET', url: '/api/audit/export.csv', headers: { cookie: aud.cookie } });
     expect(res.statusCode).toBe(200);

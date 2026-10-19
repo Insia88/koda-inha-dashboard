@@ -80,6 +80,9 @@ test('주소 사용 중지: 대상·되돌릴 수 없음 표시, 취소 시 변�
   const dlg = page.getByRole('alertdialog', { name: '이 주소를 사용 중지할까요?' });
   await expect(dlg).toContainText('모의 거래소 J 입금 (Kaia)');
   await expect(dlg).toContainText('되돌릴 수 없습니다');
+  // 이 주소를 쓰는 진행 중 요청 수(서버 값 기준)
+  const open: number = (await (await page.request.get('/api/addresses/ab-12')).json()).openRequestCount;
+  await expect(dlg).toContainText(open > 0 ? `이 주소를 쓰는 진행 중 요청 ${open}건은 승인할 수 없게 됩니다` : '지금 이 주소를 쓰는 진행 중 요청은 없습니다');
   await expect(dlg.getByRole('button', { name: '취소' })).toBeFocused();
   await dlg.getByRole('button', { name: '취소' }).click();
   await expect(trigger).toBeFocused();
@@ -218,6 +221,7 @@ test('주소 등록 오류: 끝자리 불일치 시 해당 입력으로 포커�
   await page.getByRole('textbox', { name: /^주소 이름/ }).fill('E2E 포커스 확인');
   await page.getByRole('textbox', { name: /^받는 곳/ }).fill('모의 포커스 거래처');
   await page.getByLabel(/주소 끝 6자리/).fill('123456');
+  await page.getByLabel(/가운데 8자리/).fill('55556666');
   await page.getByLabel(/별도 연락 수단/).check();
   await page.getByLabel(/보증하지 않는다는/).check();
   await page.getByRole('button', { name: '확인 요청 보내기' }).click();
@@ -226,6 +230,16 @@ test('주소 등록 오류: 끝자리 불일치 시 해당 입력으로 포커�
   await expect(tail).toHaveAttribute('aria-invalid', 'true');
   await expect(page.locator('#address')).toHaveValue(addr);
   await expect(page.getByRole('textbox', { name: /^주소 이름/ })).toHaveValue('E2E 포커스 확인');
+  // 끝자리를 고친 뒤 가운데가 틀리면 가운데 입력으로 포커스, 나머지 입력 유지
+  await tail.fill('990000');
+  const middle = page.getByLabel(/가운데 8자리/);
+  await middle.fill('55550000');
+  await page.getByRole('button', { name: '확인 요청 보내기' }).click();
+  await expect(middle).toBeFocused();
+  await expect(middle).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.locator('#confirmMiddle-error')).toContainText('가운데 글자와 일치하지 않습니다');
+  await expect(tail).toHaveValue('990000');
+  await expect(page.locator('#address')).toHaveValue(addr);
 });
 
 test('공통 검색: debounce, Enter 즉시, 한국어 IME 조합 중 조회 없음, 지우기 버튼·Escape, 늦은 응답이 최신 결과를 덮지 않음', async ({ page }) => {

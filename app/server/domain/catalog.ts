@@ -1,5 +1,5 @@
 import type { DB } from '../db.ts';
-import type { AddressFamily, NetworkRule } from '../../shared/address-rules.ts';
+import { XRPL_TAG_PATTERN, type AddressFamily, type NetworkRule } from '../../shared/address-rules.ts';
 import { AppError } from '../errors.ts';
 
 export interface AssetRow { code: string; name: string; precision: number }
@@ -22,7 +22,7 @@ export function getNetworkRules(db: DB): NetworkRule[] {
     family: r.family as AddressFamily,
     memoRequired: !!r.memo_required,
     memoLabel: r.memo_label,
-    memoPattern: r.memo_required ? /^(?:[0-9]{1,9}|[1-3][0-9]{9}|4[0-1][0-9]{8}|42[0-8][0-9]{7}|429[0-3][0-9]{6}|4294[0-8][0-9]{5}|42949[0-5][0-9]{4}|429496[0-6][0-9]{3}|4294967[0-1][0-9]{2}|42949672[0-8][0-9]|429496729[0-5])$/ : null,
+    memoPattern: r.memo_required ? XRPL_TAG_PATTERN : null,
   }));
 }
 

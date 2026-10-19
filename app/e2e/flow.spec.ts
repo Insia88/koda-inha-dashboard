@@ -24,6 +24,9 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await page.getByRole('textbox', { name: /^주소 이름/ }).fill('E2E 거래처 입금 주소');
   await page.getByRole('textbox', { name: /^받는 곳/ }).fill('모의 E2E 거래처');
   await page.getByLabel(/주소 끝 6자리/).fill('000000');
+  // 앞·뒤만 같게 만든 가짜 주소를 가려내기 위한 가운데 8자리 재입력(고유부 17~24번째)
+  await expect(page.getByLabel('원본 주소의 가운데 8자리 (고유부 17~24번째)')).toBeVisible();
+  await page.getByLabel(/가운데 8자리/).fill('ABCDEF01');
   await page.getByLabel(/별도 연락 수단/).check();
   await page.getByLabel(/보증하지 않는다는/).check();
   await page.getByRole('button', { name: '확인 요청 보내기' }).click();
@@ -40,6 +43,7 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await page.goto('/addresses?status=PENDING_REVIEW');
   await page.getByRole('link', { name: 'E2E 거래처 입금 주소' }).click();
   await page.getByLabel('원본 주소의 끝 6자리').fill('CD9876');
+  await page.getByLabel(/원본 주소의 가운데 8자리/).fill('ABCDEF01');
   await page.getByRole('button', { name: /사용 가능으로 확인/ }).click();
   await expect(page.getByText('사용 가능', { exact: true }).first()).toBeVisible();
   await logout(page);

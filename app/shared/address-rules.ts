@@ -1,7 +1,17 @@
 // 개발 환경 주소 규칙. 실제 네트워크 주소 형식이 아니라 "MOCK-" 접두의 모의 형식만 허용한다.
-// 운영 환경에서는 server/adapters/address-validator.ts의 어댑터를 실제 규칙으로 교체해야 한다.
+// 네트워크별 실제 형식·체크섬 검증 어댑터는 아직 구현되지 않았다(docs/operations.md '주소 검증' 참고).
+// 아래 기준(유사 주소 판정, 가운데 8자리 재입력)은 설계 가정이며 KODA가 확정한 정책이 아니다.
 
 export type AddressFamily = 'MOCK_BTC' | 'MOCK_EVM' | 'MOCK_XRP';
+
+/** 유사 주소 판정 규칙 버전. 저장된 점검 결과·감사 기록에 함께 남긴다. */
+export const LOOKALIKE_RULE_VERSION = 'lookalike-v2';
+/** 등록·확인 때 원본을 보고 다시 입력하는 가운데 글자 수 */
+export const CONFIRM_MIDDLE_LENGTH = 8;
+/** 유사 주소 경고에 담는 최대 일치 건수 */
+export const LOOKALIKE_MAX_MATCHES = 3;
+/** XRP Ledger 데스티네이션 태그: 0 ~ 4294967295(부호 없는 32비트 정수). 화면·서버가 같은 규칙을 쓴다. */
+export const XRPL_TAG_PATTERN = /^(?:[0-9]{1,9}|[1-3][0-9]{9}|4[0-1][0-9]{8}|42[0-8][0-9]{7}|429[0-3][0-9]{6}|4294[0-8][0-9]{5}|42949[0-5][0-9]{4}|429496[0-6][0-9]{3}|4294967[0-1][0-9]{2}|42949672[0-8][0-9]|429496729[0-5])$/;
 
 export const FAMILY_RULES: Record<AddressFamily, { pattern: RegExp; example: string; caseInsensitive: boolean; label: string }> = {
   MOCK_BTC: { pattern: /^MOCK-BTC-[A-Z2-7]{20,40}$/, example: 'MOCK-BTC-ABCDEFGHJKLMNPQRSTUV', caseInsensitive: false, label: 'Bitcoin 모의 형식' },
@@ -19,11 +29,22 @@ export interface NetworkRule {
 }
 
 export type FindingLevel = 'error' | 'warning' | 'info';
+/** 유사 주소 경고에 붙는 기존 주소 정보(같은 조직 주소록 기준) */
+export interface LookalikeFindingMatch {
+  id: string;
+  label: string;
+  status: string;
+  address: string;
+  prefix: number;
+  suffix: number;
+}
 export interface Finding {
   code: string;
   level: FindingLevel;
   message: string;
   action?: string;
+  /** 화면이 요청할 때만 쓰는 부가 정보. 기본 표시(Findings)는 message·action만 쓴다. */
+  data?: { matches?: LookalikeFindingMatch[] };
 }
 
 export function normalizeAddress(address: string, family: AddressFamily): string {
@@ -84,7 +105,7 @@ export function checkAddressFormat(
     if (!memo) {
       findings.push({ code: 'MEMO_REQUIRED', level: 'error', message: `${network.name}에서는 ${network.memoLabel ?? '메모'}가 필요합니다.`, action: `받는 곳에서 안내한 ${network.memoLabel ?? '메모'}를 입력하세요. 개인 지갑처럼 필요 없는 곳이라면 받는 곳에 확인하세요.` });
     } else if (network.memoPattern && !network.memoPattern.test(memo)) {
-      findings.push({ code: 'MEMO_FORMAT', level: 'error', message: `${network.memoLabel ?? '메모'} 형식이 올바르지 않습니다.`, action: '숫자만 입력하세요(최대 10자리).' });
+      findings.push({ code: 'MEMO_FORMAT', level: 'error', message: `${network.memoLabel ?? '메모'} 형식이 올바르지 않습니다.`, action: '0 ~ 4294967295 사이의 숫자만 입력하세요(최대 10자리).' });
     }
   } else if (memo) {
     findings.push({ code: 'MEMO_NOT_USED', level: 'warning', message: `${network.name}은(는) 메모를 쓰지 않습니다. 입력한 값은 전송에 쓰이지 않습니다.`, action: '받는 곳이 다른 네트워크를 안내했는지 확인하세요.' });
@@ -93,19 +114,48 @@ export function checkAddressFormat(
     code: 'NOT_OWNERSHIP_VERIFIED',
     level: 'info',
     message: '형식 점검은 주소의 주인이나 안전성을 확인하지 않습니다.',
-    action: '주소는 문서·이메일만 믿지 말고 받는 곳과 별도 연락 수단으로 앞·뒤 글자를 대조하세요.',
+    action: '주소는 문서·이메일만 믿지 말고 받는 곳과 별도 연락 수단으로 가운데를 포함한 전체 글자를 대조하세요.',
   });
   return findings;
 }
 
-/** 주소의 고유 부분(접두 제외) 앞 6자·뒤 4자가 같고 전체는 다른 주소 → 유사 주소 의심 */
+/** 비교용 고유부: MOCK-<계열>- 접두를 떼고 대문자로 맞춘다. */
+export function addressBody(address: string): string {
+  return address.trim().replace(/^MOCK-[A-Z]+-/, '').toUpperCase();
+}
+
+/**
+ * 유사 주소 판정(lookalike-v2): 고유부의 앞·뒤가 같고 가운데가 다른 주소.
+ * 앞·뒤 각각 4자 이상 같거나, 앞+뒤 합이 8자 이상 같으면 일치로 본다.
+ * 고유부가 완전히 같으면 null(같은 주소는 중복 점검이 다룬다). 앞·뒤 글자 수는 서로 겹쳐 세지 않는다.
+ */
+export function lookalikeMatch(a: string, b: string): { prefix: number; suffix: number } | null {
+  const x = addressBody(a);
+  const y = addressBody(b);
+  if (x === y || x.length < 10 || y.length < 10) return null;
+  const max = Math.min(x.length, y.length);
+  let prefix = 0;
+  while (prefix < max && x[prefix] === y[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < max - prefix && x[x.length - 1 - suffix] === y[y.length - 1 - suffix]) suffix++;
+  if ((prefix >= 4 && suffix >= 4) || prefix + suffix >= 8) return { prefix, suffix };
+  return null;
+}
+
+/** 이전 규칙(앞 6자·뒤 4자)과 호환되는 판정. lookalikeMatch의 상위 집합이므로 기존 일치는 계속 일치한다. */
 export function isLookalike(a: string, b: string): boolean {
-  if (a === b) return false;
-  const body = (s: string) => s.replace(/^MOCK-[A-Z]+-/, '').toUpperCase();
-  const x = body(a);
-  const y = body(b);
-  if (x === y || x.length < 10 || y.length < 10) return false;
-  return x.slice(0, 6) === y.slice(0, 6) && x.slice(-4) === y.slice(-4);
+  return lookalikeMatch(a, b) !== null;
+}
+
+/**
+ * 고유부 가운데 8자. start·end는 화면 안내용 1부터 세는 위치(양 끝 포함).
+ * 앞·뒤만 맞춘 가짜 주소는 가운데가 다르므로, 원본을 보고 이 부분을 다시 입력하게 한다.
+ */
+export function middleSegment(address: string): { text: string; start: number; end: number } {
+  const body = address.trim().replace(/^MOCK-[A-Z]+-/, '');
+  const len = Math.min(CONFIRM_MIDDLE_LENGTH, body.length);
+  const from = Math.max(0, Math.floor((body.length - CONFIRM_MIDDLE_LENGTH) / 2));
+  return { text: body.slice(from, from + len), start: from + 1, end: from + len };
 }
 
 /** 육안 대조용으로 4자씩 묶는다. */
