@@ -2,12 +2,13 @@
 //
 // 사용:
 //   VERCEL_AUTOMATION_BYPASS_SECRET=<자동화 우회 값> node scripts/smoke-deploy.mjs https://<보호된 미리보기 주소>
-//   node scripts/smoke-deploy.mjs https://<공개 운영 주소> --public   # 보호할 수 없는 운영 별칭을 공개로 두기로 한 경우
+//   node scripts/smoke-deploy.mjs https://<보호 없는 주소> --public   # 보호 없는 공개가 decisions.md에 결정으로 기록된 경우에만.
+//                                                                    # 보호 없음은 WARN으로 남고 통과로 세지 않는다(배포 확인 기준 7 통과 아님).
 //   node scripts/smoke-deploy.mjs --local [포트]   # 먼저 `npm run build:vercel`. 빌드된 함수(api/index.mjs)를
 //                                                  # VERCEL=1 DEMO_PUBLIC=1로 127.0.0.1:<포트>(기본 4418)에 띄워 검사한 뒤 닫는다.
 //                                                  # DEMO_SESSION_SECRET이 없으면 이번 실행에만 쓰는 무작위 값을 만든다.
 //
-// 원격 검사는 먼저 보호(Vercel Authentication)가 켜져 있는지 확인하고, 꺼져 있으면(200) 바로 중단한다.
+// 원격 검사는 먼저 보호(Vercel Authentication)가 켜져 있는지 확인하고, 꺼져 있으면(200) 바로 중단한다(--public이면 WARN을 남기고 계속).
 // 마지막 검사는 개발용 로그인 한도(1분 30회)를 소진하므로 끝난 뒤 1분 동안 같은 IP에서 로그인이 막힌다.
 // 검사 중 만든 출금 요청은 끝에서 취소한다. 우회 값과 세션 서명 값은 출력하거나 저장하지 않는다.
 import http from 'node:http';
@@ -101,6 +102,14 @@ async function toPending(s, amount, purpose) {
   return sub.json;
 }
 
+/**
+ * 검사 결과가 통과가 아니지만 실행을 멈추지 않는 경우(예: --public으로 보호 없는 배포를 검사함).
+ * 결과는 WARN으로 남고 통과로 세지 않는다. name을 주면 검사 이름 대신 그 이름으로 기록한다(결과를 이름에 드러내기 위해).
+ */
+class Warn extends Error {
+  constructor(message, name) { super(message); this.label = name; }
+}
+
 async function check(name, fn, skip) {
   if (skip) {
     results.push({ name, status: 'SKIP', detail: skip });
@@ -112,6 +121,12 @@ async function check(name, fn, skip) {
     results.push({ name, status: 'PASS', detail });
     console.log(`PASS  ${name}${detail ? ` — ${detail}` : ''}`);
   } catch (e) {
+    if (e instanceof Warn) {
+      const label = e.label ?? name;
+      results.push({ name: label, status: 'WARN', detail: e.message });
+      console.log(`WARN  ${label}${e.message ? ` — ${e.message}` : ''}`);
+      return;
+    }
     results.push({ name, status: 'FAIL', detail: e.message });
     console.log(`FAIL  ${name} — ${e.message}`);
   }
@@ -122,8 +137,12 @@ async function finish(code) {
     server.closeAllConnections?.();
     await new Promise((r) => server.close(r));
   }
-  const fails = results.filter((r) => r.status === 'FAIL').length;
-  console.log(`\n${results.length}개 검사: 통과 ${results.filter((r) => r.status === 'PASS').length}, 실패 ${fails}, 건너뜀 ${results.filter((r) => r.status === 'SKIP').length} (${BASE})`);
+  const count = (s) => results.filter((r) => r.status === s).length;
+  const fails = count('FAIL');
+  const warns = count('WARN');
+  // 경고(WARN)는 통과로 세지 않는다. 실패가 없어도 경고가 있으면 요약에 따로 남긴다.
+  console.log(`\n${results.length}개 검사: 통과 ${count('PASS')}, 실패 ${fails}, 경고 ${warns}, 건너뜀 ${count('SKIP')} (${BASE})`);
+  if (warns) console.log(`경고 항목: ${results.filter((r) => r.status === 'WARN').map((r) => r.name).join(', ')}`);
   process.exit(code ?? (fails ? 1 : 0));
 }
 
@@ -131,14 +150,13 @@ const CDN_ONLY = LOCAL ? 'CDN(vercel.json) 동작이라 로컬 함수 검사에�
 console.log(`배포 확인 대상: ${BASE}${LOCAL ? ' (로컬 함수)' : ''}\n`);
 
 // 1. 보호가 켜져 있어야 한다. 꺼져 있으면 더 진행하지 않는다.
-//    --public: 보호할 수 없는 운영 별칭(Hobby 요금제의 production 도메인)을 공개 상태로 둔다는 결정을 한 경우에만 쓴다.
-//    이때 보호 여부는 실패 대신 경고로 기록하고 나머지 안전 검사를 계속한다.
+//    --public: 보호 없는 주소를 공개로 둔다는 결정이 docs/decisions.md에 기록된 경우에만 쓴다(DEC-001은 보호 없는 공개를 허용하지 않는다).
+//    이때 보호 없음은 통과가 아니라 경고(WARN)로 기록하고 나머지 안전 검사를 계속한다. 요약의 '통과'에 세지 않는다.
 const PUBLIC_OK = args.includes('--public');
 await check('배포 보호 켜짐(우회 헤더 없이 401 또는 로그인 이동)', async () => {
   const r = await call('GET', '/', { bypass: false, headers: { accept: 'text/html' } });
   if (r.status === 200 && PUBLIC_OK) {
-    console.log('WARN  배포 보호 없음 — --public으로 공개 배포임을 확인하고 검사를 계속합니다.');
-    return '공개 배포(보호 없음, --public)';
+    throw new Warn('우회 헤더 없이 200 응답. 누구나 열 수 있는 주소입니다. --public으로 나머지 검사를 계속합니다.', '배포 보호 없음(--public)');
   }
   if (r.status === 200) {
     results.push({ name: '중단', status: 'FAIL', detail: '보호 없이 200 응답' });
@@ -252,14 +270,37 @@ await check('80,000 USDC는 승인 2명 필요', async () => {
   expect(p.requiredApprovals === 2, `requiredApprovals=${p.requiredApprovals}`);
 });
 
-await check('MOCK- 형식이 아닌 주소 거부', async () => {
+// 등록 본문은 입력 형식 검사(VALIDATION)를 모두 통과하는 완전한 값으로 보낸다. 그래야 422가 주소 규칙에서 나왔는지 알 수 있다.
+// 가운데 8자리는 서버와 같은 규칙(shared/address-rules.ts middleSegment)으로 고른다.
+const middleOf = (address) => {
+  const body = address.replace(/^MOCK-[A-Z]+-/, '');
+  const from = Math.max(0, Math.floor((body.length - 8) / 2));
+  return body.slice(from, from + 8);
+};
+const registrationBody = (address, overrides = {}) => ({
+  label: '배포 확인', counterparty: '배포 확인', assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '',
+  confirmTail: address.slice(-6), confirmMiddle: middleOf(address),
+  receivedVia: 'email', verifiedVia: 'registered_phone', verifiedWith: '배포 확인용 모의 연락처',
+  ackNotVerified: true, ackOutOfBandConfirmed: true, ...overrides,
+});
+const ADDRESS_RULE_CODES = new Set(['ADDRESS_NETWORK_MISMATCH', 'ADDRESS_REQUIRED', 'ADDRESS_WHITESPACE']);
+
+await check('MOCK- 형식이 아닌 주소 거부(점검·등록 모두 주소 규칙으로)', async () => {
   han ??= await login('u-a-han');
   const address = `0x${'ab'.repeat(20)}`;
   const chk = await call('POST', '/api/addresses/check', { ...han, body: { assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '' } });
-  expect(chk.status === 200 && chk.json?.findings?.some((f) => f.level === 'error'), `점검 결과 ${chk.status}`);
-  const cr = await call('POST', '/api/addresses', { ...han, body: { label: '배포 확인', counterparty: '배포 확인', assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '', confirmTail: address.slice(-6), ackNotVerified: true, ackOutOfBandConfirmed: true } });
-  expect(cr.status === 422, `등록 ${cr.status}`);
-  return `점검 ${chk.json.findings.find((f) => f.level === 'error').code}, 등록 ${cr.json?.error?.code}`;
+  const chkErr = chk.json?.findings?.find((f) => f.level === 'error');
+  expect(chk.status === 200 && chkErr && ADDRESS_RULE_CODES.has(chkErr.code), `점검 결과 ${chk.status} ${chkErr?.code ?? '오류 없음'}`);
+  const cr = await call('POST', '/api/addresses', { ...han, body: registrationBody(address) });
+  const code = cr.json?.error?.code;
+  expect(cr.status === 422 && ADDRESS_RULE_CODES.has(code), `등록 ${cr.status} ${code ?? ''} — 주소 규칙 오류가 아닙니다${code === 'VALIDATION' ? '(본문 형식 오류로 거부됨)' : ''}`);
+  // 대조: 같은 본문에 올바른 MOCK 주소를 넣으면 주소 규칙은 통과하고, 일부러 틀린 끝자리에서 거부되어야 한다(아무것도 만들지 않음).
+  const valid = `MOCK-EVM-${randomBytes(20).toString('hex').toUpperCase()}`;
+  const wrongTail = valid.slice(-6) === '000000' ? '111111' : '000000';
+  const ok = await call('POST', '/api/addresses', { ...han, body: registrationBody(valid, { confirmTail: wrongTail }) });
+  const okCode = ok.json?.error?.code;
+  expect(ok.status === 422 && okCode === 'CONFIRM_TAIL_MISMATCH', `대조(올바른 MOCK 주소) ${ok.status} ${okCode ?? ''} — 끝자리 불일치(CONFIRM_TAIL_MISMATCH)여야 합니다`);
+  return `점검 ${chkErr.code}, 등록 ${code}, 대조 ${okCode}`;
 });
 
 let op = null;

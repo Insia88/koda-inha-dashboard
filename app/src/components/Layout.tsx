@@ -54,6 +54,41 @@ export function useDemoSwitch(): [boolean, () => void] {
 /** 안내를 닫아 버튼이 사라진 뒤 포커스가 문서 맨 앞으로 떨어지지 않도록 화면 제목으로 옮긴다. */
 const focusPageTitle = () => requestAnimationFrame(() => document.getElementById('page-title')?.focus({ preventScroll: true }));
 
+/** 화면 제목이 늦게 나타날 때 기다리는 최대 시간. 이보다 늦으면 포커스를 옮기지 않는다. */
+const TITLE_WAIT_MS = 10_000;
+
+/**
+ * 화면을 옮긴 뒤 새 화면의 제목(#page-title)으로 포커스를 옮긴다.
+ * 상세 화면은 먼저 '불러오는 중'을 보이고 조회가 끝난 뒤에 제목을 그린다. 그 사이 누른 링크는 사라져 포커스가
+ * 문서 맨 앞(body)으로 떨어지므로, 제목이 아직 없으면 본문(main)을 지켜보다가 제목이 생기는 순간 옮긴다.
+ * 기다리는 동안 사용자가 다른 곳으로 포커스를 옮겼으면(focusin) 건드리지 않는다. 다음 화면 이동이나 제한 시간이 지나면 그만 지켜본다.
+ * 돌려준 함수는 지켜보기를 멈춘다.
+ */
+function focusTitleWhenReady(): () => void {
+  const now = document.getElementById('page-title');
+  if (now) { now.focus({ preventScroll: false }); return () => {}; }
+  const main = document.getElementById('main');
+  if (!main) return () => {};
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    observer.disconnect();
+    document.removeEventListener('focusin', stop, true);
+    window.clearTimeout(timer);
+  };
+  const observer = new MutationObserver(() => {
+    const h = document.getElementById('page-title');
+    if (!h) return;
+    stop();
+    h.focus({ preventScroll: false });
+  });
+  observer.observe(main, { childList: true, subtree: true });
+  document.addEventListener('focusin', stop, true);
+  const timer = window.setTimeout(stop, TITLE_WAIT_MS);
+  return stop;
+}
+
 function EnvRibbon({ env }: { env: Me['environment'] }) {
   const narrow = useNarrow();
   if (env.mode !== 'public-demo') {
@@ -75,7 +110,7 @@ export function Layout() {
   const [open, setOpen] = useState(false);
   const [demoSwitch, acknowledgeSwitch] = useDemoSwitch();
   const env = me.environment;
-  const firstRender = useRef(true);
+  const lastPath = useRef<string | null>(null);
   const startOver = useRef(false);
   const can = (p: string) => me.permissions.includes(p);
   const dash = useQuery({ queryKey: ['dashboard'], queryFn: () => api('/api/dashboard'), enabled: can('dashboard.read'), refetchInterval: 15_000 });
@@ -86,9 +121,12 @@ export function Layout() {
   useEffect(() => {
     setOpen(false);
     // 첫 화면에서는 포커스를 옮기지 않아 '본문으로 건너뛰기'가 첫 Tab 대상이 되게 하고, 이후 화면 전환 때만 제목으로 옮긴다.
-    if (firstRender.current) { firstRender.current = false; return; }
-    const h = document.getElementById('page-title');
-    if (h) h.focus({ preventScroll: false });
+    // 경로로 비교하므로 개발 모드(StrictMode)에서 효과가 두 번 실행돼도 첫 화면을 화면 전환으로 보지 않는다.
+    const first = lastPath.current === null;
+    const same = lastPath.current === loc.pathname;
+    lastPath.current = loc.pathname;
+    if (first || same) return;
+    return focusTitleWhenReady();
   }, [loc.pathname]);
 
   // 「처음 화면으로」는 홈에 실제로 도착한 뒤에만 조회 결과를 비운다. 작성 중인 화면에서 이동 확인을 받고

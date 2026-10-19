@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Route } from '@playwright/test';
 import { loginAs } from './helpers.ts';
 
 // 검수 review-20261019-0130 대응: 앱 대화상자, 작성 중 보호, 필드 오류·입력 유지, 공통 검색, 소유권(native select/date), 전역 계약.
@@ -72,6 +72,62 @@ test('요청 취소: 앱 대화상자 초기 포커스·Tab 순환·Escape·포�
   expect(nativeDialogs).toBe(0);
 });
 
+test('목록에서 상세로 이동: 불러오기가 끝난 뒤 화면 제목으로 포커스(클릭·키보드), 그 사이 사용자가 옮긴 포커스는 그대로 둔다', async ({ page }) => {
+  await loginAs(page, '오민재');
+  // 상세 조회를 늦춰 '불러오는 중' 화면(제목 없음)을 반드시 거치게 한다. 클릭한 링크는 이때 사라진다.
+  let delay = 400;
+  const slow = async (r: Route) => { await new Promise((res) => setTimeout(res, delay)); await r.continue().catch(() => {}); };
+  await page.route(/\/api\/(addresses|requests)\/[^/?]+$/, slow);
+  const title = page.locator('#page-title');
+  const loading = page.locator('main .state-loading');
+
+  // 주소록 → 주소 상세(클릭)
+  await page.goto('/addresses');
+  await expect(page.getByRole('heading', { name: '주소록 관리' })).toBeVisible();
+  await page.getByRole('link', { name: '모의 거래소 A 입금 (USDC)' }).click();
+  await expect(page).toHaveURL(/\/addresses\/ab-01$/);
+  await expect(title).toHaveText('모의 거래소 A 입금 (USDC)');
+  await expect(title).toBeFocused();
+
+  // 주소록 → 주소 상세(키보드 Enter)
+  await page.goto('/addresses');
+  const link = page.getByRole('link', { name: '모의 거래소 A 입금 (XRP)' });
+  await link.focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/addresses\/ab-04$/);
+  await expect(title).toHaveText('모의 거래소 A 입금 (XRP)');
+  await expect(title).toBeFocused();
+
+  // 결재 및 요청 → 요청 상세(클릭)
+  await page.goto('/requests');
+  const req = page.locator('a.req-item').first();
+  const reqHref = (await req.getAttribute('href'))!;
+  await req.click();
+  await expect(page).toHaveURL(new RegExp(`${reqHref}$`));
+  await expect(title).toHaveText(/^출금 요청 WR-/);
+  await expect(title).toBeFocused();
+
+  // 홈 → 진행 중 요청 상세(키보드 Enter)
+  await page.goto('/');
+  const progress = page.locator('a.progress-item').first();
+  await progress.focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/requests\/[^/]+$/);
+  await expect(title).toHaveText(/^출금 요청 WR-/);
+  await expect(title).toBeFocused();
+
+  // 불러오는 동안 사용자가 다른 곳으로 포커스를 옮겼다면, 제목이 나타나도 포커스를 빼앗지 않는다.
+  delay = 1500;
+  await page.goto('/addresses');
+  await page.getByRole('link', { name: '모의 거래소 A 입금 (USDC)' }).click();
+  await expect(loading).toBeVisible();
+  const home = page.getByRole('link', { name: '홈' });
+  await home.focus();
+  await expect(title).toHaveText('모의 거래소 A 입금 (USDC)');
+  await expect(home).toBeFocused();
+  await page.unroute(/\/api\/(addresses|requests)\/[^/?]+$/, slow);
+});
+
 test('주소 사용 중지: 대상·되돌릴 수 없음 표시, 취소 시 변경 없음, 확정 시 상태 변경', async ({ page }) => {
   await loginAs(page, '윤가람');
   await page.goto('/addresses/ab-12');
@@ -122,6 +178,8 @@ test('작성 중 이탈: 인앱 이동 확인(계속 작성/버리기), 깨끗�
   await page.getByRole('button', { name: '초안 저장 후 검토하기' }).click();
   await expect(page.getByText('초안을 저장했습니다')).toBeVisible();
   await expect(activeDialog(page)).toHaveCount(0);
+  // 저장 버튼은 화면과 함께 사라진다. 포커스는 문서 맨 앞이 아니라 새 화면의 제목에 있다.
+  await expect(page.locator('#page-title')).toBeFocused();
   // 같은 화면 안의 수정 취소: 바꾼 내용이 있을 때만 확인
   await page.getByRole('button', { name: '내용 수정' }).click();
   await page.getByRole('button', { name: '수정 취소' }).click();

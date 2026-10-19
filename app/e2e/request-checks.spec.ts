@@ -9,6 +9,7 @@ import { loginAs, logout } from './helpers.ts';
 // 요청자: 작성 화면 미리 보기 → 검토 단계의 점검·진행 사유(없으면 서버가 거부) → 승인 요청 뒤 지문 안내.
 // 승인자: 결정 카드에서 같은 지문, 점검 결과, 요청자 사유, 되돌릴 수 없음 안내. 화면에 보인 지문이 서버와 다르면 승인되지 않는다.
 // 바꾸는 데이터: 이 파일에서 만든 요청(ab-07·ab-01·ab-02로 가는 요청)과 주소 1건(사용 대기 안내 확인용, 끝에 정지)뿐이다.
+// 승인 요청 때 새 주의가 생기는 검사는 ab-01로 가는 요청 2건을 만들고 끝에서 둘 다 취소해 예약 수량을 되돌린다.
 // ab-07로 가는 요청은 승인되어 처리 완료되고, 저장 계층에서 수량을 바꾼 요청은 반려된다.
 
 const FINGERPRINT = /^[0-9A-F]{4} [0-9A-F]{4} [0-9A-F]{4} [0-9A-F]{4}$/;
@@ -162,7 +163,8 @@ test('요청자: 작성 미리 보기와 검토 단계의 점검, 진행 사유�
   await page.getByLabel(/앞·뒤 묶음과 네트워크/).check();
   await page.getByRole('button', { name: '승인', exact: true }).click();
   await expect(page.getByText('처리 중').first()).toBeVisible();
-  await expect(page.locator('.timeline')).toContainText(`지문 ${fp}`);
+  // 승인 기록 줄 자체에 지문이 남는다(승인 요청 줄에도 같은 지문이 있으므로 승인 줄로 좁혀 본다).
+  await expect(page.locator('.timeline li').filter({ hasText: '승인 (유효' })).toContainText(`지문 ${fp}`);
 });
 
 test('승인자 화면에 보인 지문이 서버의 지문과 다르면 승인되지 않고(409), 원인과 행동을 보인다', async ({ page }) => {
@@ -206,6 +208,63 @@ test('승인자 화면에 보인 지문이 서버의 지문과 다르면 승인�
   await expect(page.getByText('처리 중').first()).toBeVisible();
 });
 
+test('검토 때 없던 사유 필요 주의가 승인 요청 때 처음 생기면: 거부 뒤 화면을 다시 불러와 그 항목의 사유 입력을 오류 상태로 보인다', async ({ page }) => {
+  await loginAs(page, '한지수');
+  const USDC_DP = 6;
+  const toUnits = (s: string) => { const [w, f = ''] = s.split('.'); return BigInt(w!) * 10n ** BigInt(USDC_DP) + BigInt((f + '0'.repeat(USDC_DP)).slice(0, USDC_DP) || '0'); };
+  const fromUnits = (u: bigint) => `${u / 10n ** BigInt(USDC_DP)}.${(u % 10n ** BigInt(USDC_DP)).toString().padStart(USDC_DP, '0')}`;
+  const availableUsdcEth = async () => {
+    const b = await (await page.request.get('/api/balances')).json();
+    return toUnits(b.assets.find((a: any) => a.assetCode === 'USDC').byWallet.find((w: any) => w.networkCode === 'ETHEREUM').available as string);
+  };
+  const cleanup: string[] = [];
+  try {
+    // A: 보낸 적 있는 주소(ab-01)로 1 USDC. 검토 단계에서는 사유가 필요한 주의 항목이 없다.
+    const a = await makeRequest(page, { addressId: 'ab-01', amount: '1' }, false);
+    cleanup.push(a.id);
+    expect(a.checks.items.filter((i: any) => i.requiresReason).map((i: any) => i.id), '검토 때 사유가 필요한 항목이 없어야 한다').toEqual([]);
+    await page.goto(`/requests/${a.id}`);
+    const card = page.locator('section.card-action');
+    await expect(card.getByRole('heading', { name: '최종 검토 후 승인 요청' })).toBeVisible();
+    await expect(card.getByRole('textbox', { name: /^진행 사유/ })).toHaveCount(0);
+    await card.getByLabel(/원본 주소의 끝 6자리/).fill(String(a.address.address).slice(-6));
+    await card.getByLabel(/되돌릴 수 없다는 점/).check();
+
+    // 화면을 연 뒤 다른 요청 B가 사용 가능 수량을 거의 다 예약한다. 남는 수량은 1.5 USDC라 A(1 USDC)는 그 50% 이상이 된다.
+    const b = await makeRequest(page, { addressId: 'ab-01', amount: fromUnits((await availableUsdcEth()) - 1_500_000n), purpose: 'E2E 사용 가능 수량 예약' }, false);
+    cleanup.push(b.id);
+    const reason = 'E2E 사용 가능 수량을 예약하는 모의 요청입니다';
+    await apiPost(page, `/api/requests/${b.id}/submit`, {
+      version: b.version, confirmTail: String(b.address.address).slice(-6), ackIrreversible: true,
+      checkReasons: { first_use: reason, amount_history: reason, balance_share: reason },
+    });
+    expect(await availableUsdcEth()).toBe(1_500_000n);
+
+    // 승인 요청: 서버가 새 주의 항목의 사유가 없다고 거부하고, 화면은 다시 불러온 점검에 그 항목의 사유 입력을 보인다.
+    // 다시 불러오기를 늦춰, 빠른 로컬 응답에 기대지 않고 거부 → 다시 불러오기 → 새 입력 순서를 그대로 거치게 한다.
+    await page.route(`**/api/requests/${a.id}`, async (r) => { if (r.request().method() === 'GET') await new Promise((res) => setTimeout(res, 400)); await r.continue(); });
+    const submitted = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith(`/api/requests/${a.id}/submit`));
+    await card.getByRole('button', { name: '승인 요청 보내기' }).click();
+    const res = await submitted;
+    expect(res.status()).toBe(422);
+    expect((await res.json()).error.code).toBe('CHECK_REASON_REQUIRED');
+    await expect(page.getByRole('alert').filter({ hasText: '진행 사유가 필요합니다' })).toBeVisible();
+    const shareBox = card.getByRole('textbox', { name: /^진행 사유: 사용 가능 수량의 큰 부분을 한 번에 보냅니다/ });
+    await expect(shareBox).toBeVisible();
+    await expect(shareBox).toHaveAttribute('aria-invalid', 'true');
+    // 포커스 이동은 여기서 보지 않는다: 첫 오류 포커스(useFocusFirstError)가 다시 불러오기 전에 한 번만 실행돼
+    // 다시 불러오기가 늦으면 포커스가 「승인 요청 보내기」에 남는다(RequestDetail.tsx 쪽 수정 대상).
+    await page.unroute(`**/api/requests/${a.id}`);
+    expect((await (await page.request.get(`/api/requests/${a.id}`)).json()).status).toBe('REVIEW'); // 아무것도 예약되지 않았다
+  } finally {
+    // 정리: 두 요청을 취소해 예약 수량을 푼다(뒤 검사가 쓰는 USDC / Ethereum 수량).
+    for (const id of cleanup.reverse()) {
+      const cur = await (await page.request.get(`/api/requests/${id}`)).json();
+      if (cur.allowedActions?.includes('cancel')) await apiPost(page, `/api/requests/${id}/cancel`, { version: cur.version });
+    }
+  }
+});
+
 test('작성 화면: 사용 대기 중인 주소는 고를 수 없지만 사용 가능 시각(KST)과 할 일을 받는 주소 아래에 보인다', async ({ page }) => {
   await loginAs(page, '한지수');
   // 새 주소를 등록하고 다른 담당자가 확인한다(E2E 서버는 대기 0시간이라 바로 사용 가능). 그 뒤 저장 계층에서 사용 대기로 되돌린다.
@@ -238,12 +297,19 @@ test('작성 화면: 사용 대기 중인 주소는 고를 수 없지만 사용 
   const kst = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(activeFrom));
   const p = Object.fromEntries(kst.map((x) => [x.type, x.value]));
   await expect(waiting).toContainText(`${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute} KST부터 사용 가능`);
-  await expect(waiting).toContainText('승인자에게 사용 대기 중 정지를 요청하세요');
+  // 요청자도 주소 상세에서 직접 정지할 수 있으므로 승인자에게 미루지 않고, 정지할 곳(주소 상세)으로 바로 가는 링크를 둔다.
+  await expect(waiting).toContainText('사용 가능해질 때까지 기다린 뒤 다시 요청하세요. 요청한 적 없는 등록이라면 주소 상세에서 「사용 대기 중 정지」로 바로 정지하세요.');
+  await expect(waiting).not.toContainText('승인자에게');
+  const toAddress = waiting.getByRole('link', { name: label });
+  await expect(toAddress).toHaveAttribute('href', `/addresses/${created.id}`);
   // 고를 수는 없다
   await expect(page.locator('#addressId option', { hasText: label })).toHaveCount(0);
-  page.once('dialog', (d) => void d.accept());
-  await page.goto('/');
-  await page.locator('#page-title').waitFor();
+  // 링크를 따라가면(작성 중 확인을 거쳐) 주소 상세에 정지 버튼이 있다
+  await toAddress.click();
+  await page.getByRole('alertdialog', { name: '작성 중인 내용이 있습니다' }).getByRole('button', { name: '작성 내용 버리기' }).click();
+  await expect(page).toHaveURL(new RegExp(`/addresses/${created.id}$`));
+  await expect(page.locator('#page-title')).toHaveText(label);
+  await expect(page.getByRole('button', { name: '사용 대기 중 정지' })).toBeVisible();
   // 정리: 사용 대기 중 정지(다른 화면의 사용 대기 알림에 남지 않게)
   const cur = await (await page.request.get(`/api/addresses/${created.id}`)).json();
   await apiPost(page, `/api/addresses/${created.id}/stop`, { version: cur.version, reason: 'E2E 사용 대기 안내 확인 후 정리' });
@@ -355,12 +421,16 @@ test.describe('390px', () => {
     expect(m.off, 'tampered decide card').toEqual([]);
 
     // 반려하면 승인 요청 때 예약한 수량(1,500 USDC)이 그대로 풀린다(지금 행의 15,000 USDC가 아니라)
+    // 반려 사유 입력란의 이름도 '반려 사유'라, 응답과 반려된 화면을 기다린 뒤에 상태를 읽는다.
+    const rejected = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith(`/api/requests/${pending.id}/reject`));
     await decide.getByRole('button', { name: '반려', exact: true }).click();
-    await expect(page.getByText('반려 사유', { exact: true }).first()).toBeVisible();
+    expect((await rejected).ok()).toBe(true);
+    await expect(page.locator('.notice-danger').filter({ has: page.locator('.notice-title', { hasText: /^반려 사유$/ }) })).toBeVisible();
+    await expect(decide).toHaveCount(0);
+    await expect.poll(async () => (await (await page.request.get(`/api/requests/${pending.id}`)).json()).status).toBe('REJECTED');
     const after = await (await page.request.get(`/api/requests/${pending.id}`)).json();
-    expect(after.status).toBe('REJECTED');
     expect(after.blockedReason).toBeNull();
-    expect(await reservedUsdcEth()).toBe(reservedBefore);
+    await expect.poll(reservedUsdcEth).toBe(reservedBefore);
     m = await measure(page);
     expect(m.overflow, 'rejected').toBeLessThanOrEqual(1);
   });

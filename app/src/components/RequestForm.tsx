@@ -233,12 +233,13 @@ export function RequestForm({ value, onChange, error, requestId }: { value: Requ
             <ul className="rc-waiting">
               {waitingItems.map((a) => (
                 <li key={a.id}>
-                  <span className="rc-waiting-label">{a.label}</span> <span className="muted">· {a.counterparty}</span>
+                  {/* 정지 버튼이 있는 주소 상세로 바로 간다(요청자도 주소 등록 권한으로 사용 대기 중 정지를 할 수 있다). */}
+                  <Link to={`/addresses/${a.id}`} style={{ fontWeight: 700 }}>{a.label}</Link> <span className="muted">· {a.counterparty}</span>
                   <span className="rc-waiting-when">{a.activeFrom ? `${dateTime(a.activeFrom)} KST부터 사용 가능` : '사용 대기 중'}</span>
                 </li>
               ))}
             </ul>
-            사용 가능해질 때까지 기다린 뒤 요청하세요. 요청한 적 없는 등록이라면 승인자에게 사용 대기 중 정지를 요청하세요.
+            사용 가능해질 때까지 기다린 뒤 다시 요청하세요. 요청한 적 없는 등록이라면 주소 상세에서 「사용 대기 중 정지」로 바로 정지하세요.
           </Notice>
         )}
         {selected && <div className="verify-box"><div className="verify-label">선택한 주소</div><AddressStrip address={selected.address} memo={selected.memo} /></div>}
