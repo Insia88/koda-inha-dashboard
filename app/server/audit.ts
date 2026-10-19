@@ -47,30 +47,50 @@ export interface AuditHashFieldsV2 {
   created_at: string;
 }
 
+/** 짝 없는 UTF-16 서로게이트(상위 다음에 하위가 없거나, 하위 앞에 상위가 없는 것). 플래그 없이 코드 단위로 찾는다. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/**
+ * 저장소(SQLite)가 실제로 보관하는 문자열. 문자열은 UTF-8로 저장되므로 짝 없는 서로게이트는 U+FFFD로 바뀐다.
+ * String.prototype.toWellFormed와 같은 결과이며, 올바른 문자열(서로게이트 쌍 포함)은 그대로 돌려준다.
+ */
+function asStored(s: string): string {
+  return s.replace(LONE_SURROGATE, '�');
+}
+
 /**
  * 해시 v2. 수행자 이름(actor_name)을 포함하고, 필드를 고정 순서의 JSON 배열로 인코딩해 경계가 모호하지 않다.
  * 첫 원소 2는 방식 표시로, 같은 값을 다른 방식으로 해석해 맞추는 일을 막는다. actor_id가 없으면 null로 남는다.
+ * 문자열은 저장소가 보관하는 형태(asStored)로 바꾼 뒤 인코딩한다. 그래야 기록할 때와 저장된 행으로 검증할 때 해시가 같다
+ * (JSON.stringify는 짝 없는 서로게이트를 \uXXXX로 이스케이프하지만, 저장된 값은 이미 U+FFFD다).
+ * 올바른 문자열은 바뀌지 않으므로 이미 기록된 v2 행의 해시는 그대로다.
  */
 export function hashRowV2(r: AuditHashFieldsV2) {
+  const fields = [r.prev_hash, r.id, r.org_id, r.actor_id, r.actor_name, r.action, r.target_type, r.target_id, r.summary, r.detail, r.created_at];
   return createHash('sha256')
-    .update(JSON.stringify([2, r.prev_hash, r.id, r.org_id, r.actor_id, r.actor_name, r.action, r.target_type, r.target_id, r.summary, r.detail, r.created_at]))
+    .update(JSON.stringify([2, ...fields.map((v) => (typeof v === 'string' ? asStored(v) : v))]))
     .digest('hex');
 }
 
-/** 감사 기록 추가. 호출 측 트랜잭션 안에서 실행해 업무 변경과 원자적으로 남긴다. 항상 해시 v2로 기록한다. */
+/**
+ * 감사 기록 추가. 호출 측 트랜잭션 안에서 실행해 업무 변경과 원자적으로 남긴다. 항상 해시 v2로 기록한다.
+ * 문자열은 저장소가 보관하는 형태로 바꿔 넣는다. 해시한 값과 저장한 값이 글자 그대로 같다.
+ */
 export function writeAudit(db: DB, a: AuditInput): void {
-  const last = db.prepare('SELECT hash FROM audit_log WHERE org_id = ? ORDER BY seq DESC LIMIT 1').get(a.orgId) as { hash: string } | undefined;
+  const orgId = asStored(a.orgId);
+  const last = db.prepare('SELECT hash FROM audit_log WHERE org_id = ? ORDER BY seq DESC LIMIT 1').get(orgId) as { hash: string } | undefined;
   const row: AuditHashFieldsV2 = {
     id: randomUUID(),
-    org_id: a.orgId,
-    actor_id: a.actorId,
-    actor_name: a.actorName,
-    action: a.action,
-    target_type: a.targetType,
-    target_id: a.targetId,
-    summary: a.summary,
-    detail: JSON.stringify(a.detail ?? {}),
-    created_at: a.at ?? now(),
+    org_id: orgId,
+    actor_id: a.actorId === null ? null : asStored(a.actorId),
+    actor_name: asStored(a.actorName),
+    action: asStored(a.action),
+    target_type: asStored(a.targetType),
+    target_id: asStored(a.targetId),
+    summary: asStored(a.summary),
+    // JSON.stringify는 짝 없는 서로게이트를 \uXXXX로 이스케이프하므로 결과가 늘 올바른 문자열이다(원래 값도 그대로 담긴다).
+    detail: asStored(JSON.stringify(a.detail ?? {})),
+    created_at: asStored(a.at ?? now()),
     prev_hash: last?.hash ?? GENESIS,
   };
   const hash = hashRowV2(row);

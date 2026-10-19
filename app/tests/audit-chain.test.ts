@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import fc from 'fast-check';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -58,6 +59,23 @@ describe('해시 방식 고정값', () => {
     expect(hashRowV2({ ...fx, actor_name: '다른 사람' })).not.toBe(hashRowV2(fx));
     expect(hashRowV1({ ...fx, actor_id: '' })).toBe(hashRowV1(fx));
     expect(hashRowV2({ ...fx, actor_id: '' })).not.toBe(hashRowV2(fx));
+  });
+
+  it('hashes text as the database stores it: a lone surrogate counts as U+FFFD, well-formed text is unchanged', () => {
+    for (const lone of ['\ud800', '\udbff', '\udc00', '\udfff']) {
+      expect(hashRowV2({ ...fx, summary: `거래처${lone}` })).toBe(hashRowV2({ ...fx, summary: '거래처�' }));
+      expect(hashRowV2({ ...fx, actor_name: `${lone}x` })).toBe(hashRowV2({ ...fx, actor_name: '�x' }));
+      expect(hashRowV2({ ...fx, actor_id: `u-${lone}` })).toBe(hashRowV2({ ...fx, actor_id: 'u-�' }));
+      // v1은 UTF-8로 바꿔 해시하므로 처음부터 같은 결과였다(사실 확인용).
+      expect(hashRowV1({ ...fx, summary: `거래처${lone}` })).toBe(hashRowV1({ ...fx, summary: '거래처�' }));
+    }
+    // 순서가 뒤집힌 쌍(낮은 쪽이 먼저)은 둘 다 짝이 없다.
+    expect(hashRowV2({ ...fx, summary: '\ude00\ud83d' })).toBe(hashRowV2({ ...fx, summary: '��' }));
+    // 올바른 서로게이트 쌍(이모지 등)은 바꾸지 않고 그대로 해시한다.
+    const pair = { ...fx, summary: '메모 😀' };
+    const json = JSON.stringify([2, pair.prev_hash, pair.id, pair.org_id, pair.actor_id, pair.actor_name, pair.action, pair.target_type, pair.target_id, pair.summary, pair.detail, pair.created_at]);
+    expect(hashRowV2(pair)).toBe(createHash('sha256').update(json, 'utf8').digest('hex'));
+    expect(hashRowV2(pair)).not.toBe(hashRowV2({ ...fx, summary: '메모 ��' }));
   });
 });
 
@@ -225,7 +243,108 @@ describe('감사 체인 v2 (모의 데이터)', () => {
   });
 });
 
+/** 데이터베이스가 문자열을 UTF-8로 저장하면서 일어나는 변환(짝 없는 서로게이트 → U+FFFD). 구현과 별도로 쓰는 기준값이다. */
+const asStored = (s: string) => Buffer.from(s, 'utf8').toString('utf8');
+
+describe('짝 없는 서로게이트가 든 값 (모의 데이터)', () => {
+  // 주소 이름·리서치 제목 같은 사용자 입력에 짝 없는 UTF-16 서로게이트가 들어가도, 저장된 행으로 다시 계산한 해시가 같아야 한다.
+  // 다르면 평범한 입력 하나로 체인이 영구히 어긋남이 되고(추가 전용이라 고칠 수 없다), 그 뒤의 실제 변조가 가려진다.
+  let db: DB;
+  beforeEach(() => { db = openDb(':memory:'); migrate(db); seed(db); });
+  afterEach(() => { db.close(); });
+
+  it('a lone surrogate in summary, actor_name or target_id keeps the chain verifiable', () => {
+    writeAudit(db, event('org-a', { actorName: '\udc00문태호', targetId: 'ab-\ud800', summary: '주소 등록 요청: 거래처\ud800', detail: { label: '거래처\ud800' } }));
+    const r = head(db, 'org-a');
+    expect(r.hash_version).toBe(2);
+    expect(r.summary).toBe('주소 등록 요청: 거래처�');
+    expect(r.actor_name).toBe('�문태호');
+    expect(r.target_id).toBe('ab-�');
+    // detail은 JSON 이스케이프로 원래 값을 그대로 담는다.
+    expect(JSON.parse(r.detail)).toEqual({ label: '거래처\ud800' });
+    expect(r.hash).toBe(hashRowV2(r));
+    expect(verifyChain(db, 'org-a')).toEqual({ ok: true, count: rowsOf(db, 'org-a').length, brokenAtSeq: null, brokenAtNo: null, headHash: r.hash });
+  });
+
+  it('real tampering after such a record is still reported at the tampered row', () => {
+    writeAudit(db, event('org-a', { summary: '주소 등록 요청: 거래처\ud800' }));
+    writeAudit(db, event('org-a'));
+    const rows = rowsOf(db, 'org-a');
+    expect(verifyChain(db, 'org-a').ok).toBe(true);
+    dropUpdateGuard(db);
+    const last = rows[rows.length - 1]!;
+    db.prepare('UPDATE audit_log SET summary = ? WHERE seq = ?').run('바뀐 요약', last.seq);
+    expect(verifyChain(db, 'org-a')).toEqual({ ok: false, count: rows.length, brokenAtSeq: last.seq, brokenAtNo: rows.length, headHash: null });
+    // 서로게이트가 들어갔던 기록 자체를 바꿔도 찾는다.
+    db.prepare('UPDATE audit_log SET summary = ? WHERE seq = ?').run(last.summary, last.seq);
+    const marked = rows[rows.length - 2]!;
+    db.prepare('UPDATE audit_log SET summary = ? WHERE seq = ?').run('주소 등록 요청: 거래처?', marked.seq);
+    expect(verifyChain(db, 'org-a')).toMatchObject({ ok: false, brokenAtSeq: marked.seq, brokenAtNo: rows.length - 1 });
+  });
+
+  it('any UTF-16 input re-verifies from the stored row (property)', () => {
+    const unit = fc.oneof(
+      fc.integer({ min: 0xd800, max: 0xdfff }).map((c) => String.fromCharCode(c)),
+      fc.integer({ min: 0, max: 0xffff }).map((c) => String.fromCharCode(c)),
+      fc.constantFrom('가', '😀', '\u001f', '\u0000', '"', '\\'),
+    );
+    const text = fc.string({ unit, maxLength: 16 });
+    fc.assert(
+      fc.property(text, text, text, text, (actorName, targetId, summary, note) => {
+        writeAudit(db, event('org-b', { actorName, targetId, summary, detail: { note } }));
+        const r = head(db, 'org-b');
+        expect(r.actor_name).toBe(asStored(actorName));
+        expect(r.target_id).toBe(asStored(targetId));
+        expect(r.summary).toBe(asStored(summary));
+        expect(JSON.parse(r.detail)).toEqual({ note });
+        expect(r.hash).toBe(hashRowV2(r));
+        const v = verifyChain(db, 'org-b');
+        expect(v.ok).toBe(true);
+        expect(v.headHash).toBe(r.hash);
+      }),
+      { numRuns: 150 },
+    );
+  });
+});
+
 describe('GET /api/audit/verify', () => {
+  it('an address label with a lone surrogate does not break the chain (POST /api/addresses)', async () => {
+    const ctx = await makeApp();
+    try {
+      const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
+      const address = 'MOCK-EVM-' + '1234567890ABCDEF1234567890ABCDEF12345678';
+      const cr = await han.post('/api/addresses', { label: '거래처\ud800', counterparty: '테스트 상대방', assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '', confirmTail: address.slice(-6), ackNotVerified: true, ackOutOfBandConfirmed: true });
+      expect(cr.status).toBe(201);
+      const created = head(ctx.db, 'org-a');
+      expect(created.action).toBe('address.created');
+      expect(created.summary).toContain('거래처�');
+      expect(created.hash).toBe(hashRowV2(created));
+
+      const v = await api(ctx.app, await login(ctx.app, 'u-a-moon')).get('/api/audit/verify');
+      expect(v.status).toBe(200);
+      // 로그인 등으로 뒤에 기록이 더 붙을 수 있으므로 응답 이후의 최신 행과 비교한다.
+      expect(v.body).toEqual({ ok: true, count: rowsOf(ctx.db, 'org-a').length, brokenAtSeq: null, brokenAtNo: null, headHash: head(ctx.db, 'org-a').hash });
+    } finally {
+      await ctx.app.close();
+      ctx.db.close();
+    }
+  });
+
+  it('an insight title with a lone surrogate does not break the publisher org chain (POST /api/insights)', async () => {
+    const ctx = await makeApp();
+    try {
+      const op = api(ctx.app, await login(ctx.app, 'u-k-op'));
+      const r = await op.post('/api/insights', { title: '모의 자료\udc00', summary: '요약', language: 'ko', publishedAt: '2026-10-19', url: 'https://example.com/x', providerId: 'prov-a' });
+      expect(r.status).toBe(201);
+      const row = ctx.db.prepare("SELECT * FROM audit_log WHERE action = 'insight.published' ORDER BY seq DESC LIMIT 1").get() as unknown as Row;
+      expect(row.summary).toContain('모의 자료�');
+      expect(verifyChain(ctx.db, row.org_id)).toMatchObject({ ok: true, brokenAtSeq: null, headHash: head(ctx.db, row.org_id).hash });
+    } finally {
+      await ctx.app.close();
+      ctx.db.close();
+    }
+  });
+
   it('passes the verification result through, including brokenAtNo and headHash', async () => {
     const ctx = await makeApp();
     try {
