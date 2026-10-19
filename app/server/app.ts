@@ -16,8 +16,8 @@ import type { CustodyAdapter } from './adapters/custody.ts';
 import { getCatalog } from './domain/catalog.ts';
 import { assertCanStopCooling, checkAddress, createAddress, disableAddress, getAddressRow, listAddresses, reviewAddress, stopCoolingAddress, toAddressDto } from './domain/addresses.ts';
 import {
-  approveRequest, backToDraft, cancelRequest, createDraft, getRequest, IntentTamperedError, listRequests, moveToReview, previewChecks, recordIntentTampered, rejectRequest,
-  submitForApproval, updateDraft,
+  approveRequest, backToDraft, cancelRequest, createDraft, getRequest, IntentChangedError, IntentTamperedError, listRequests, moveToReview, previewChecks,
+  recordIntentMismatch, recordIntentTampered, rejectRequest, submitForApproval, updateDraft,
 } from './domain/requests.ts';
 import { checkThresholds } from './domain/checks.ts';
 import { readIdemKey, withIdempotency } from './domain/idempotency.ts';
@@ -282,7 +282,10 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
         out = tx(db, () => withIdempotency(db, a.user.id, `POST /api/requests/${id}/${name}`, key, req.body ?? null, () => ({ status: 200, body: fn(a, id, req.body) })));
       } catch (e) {
         // 승인 대상 지문 불일치: 승인 트랜잭션(승인 표 포함)은 이미 되돌려졌다. 그 뒤 별도 트랜잭션에서 감사 기록만 남기고 409를 그대로 보낸다.
+        // - INTENT_TAMPERED: 저장된 내용으로 다시 계산한 지문이 다르다(request.intent_tampered)
+        // - INTENT_CHANGED: 결정 본문의 지문이 제출 때 고정한 지문과 다르다(request.intent_mismatch). 결정하는 사람의 화면이 다른 내용을 보였다는 신호다.
         if (e instanceof IntentTamperedError) tx(db, () => recordIntentTampered(db, e));
+        else if (e instanceof IntentChangedError) tx(db, () => recordIntentMismatch(db, e));
         throw e;
       }
       if (out.replayed) reply.header('Idempotent-Replayed', 'true');
@@ -321,14 +324,15 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
   app.get('/api/audit/export.csv', async (req, reply) => {
     const a = requirePerm(req, 'audit.export', '감사 기록 내보내기');
     const q = parse(auditQuery, req.query);
-    const { w, args } = rm.auditWhere(a, q);
-    const rows = db.prepare(`SELECT seq, created_at, actor_name, action, target_type, target_id, summary, hash FROM audit_log WHERE ${w} ORDER BY seq ASC LIMIT 50000`).all(...args) as any[];
+    // 순번은 화면의 '번호'·검증 결과의 brokenAtNo와 같은 조직 안 순번(필터 적용 전)이다. 전체 공용 seq는 조직마다 빈 번호가 생겨
+    // 지운 기록처럼 읽히고 다른 조직의 기록량을 드러내므로 내보내지 않는다.
+    const rows = rm.auditOrgRows(db, a, q, 50000);
     tx(db, () => writeAudit(db, { orgId: a.org.id, actorId: a.user.id, actorName: a.user.name, action: 'audit.exported', targetType: 'audit', targetId: a.org.id, summary: `감사 기록 ${rows.length}건 내보내기`, detail: { filters: q } }));
     // 시각은 화면과 같은 한국 시간(초까지), 행동은 화면과 같은 이름(shared/terms.ts ACTION_LABEL)과 원래 코드를 함께 낸다.
     // 수식으로 실행될 수 있는 값은 toCsv가 무력화한다.
     const csv = toCsv(
       ['순번', '시각(한국 시간)', '수행자', '행동', '행동 코드', '대상 종류', '대상 ID', '내용', '해시'],
-      rows.map((r) => [r.seq, kstDateTime(r.created_at, { seconds: true }), r.actor_name, actionLabel(r.action), r.action, r.target_type, r.target_id, r.summary, r.hash]),
+      rows.map((r) => [r.orgSeq, kstDateTime(r.created_at, { seconds: true }), r.actor_name, actionLabel(r.action), r.action, r.target_type, r.target_id, r.summary, r.hash]),
     );
     reply.header('Content-Type', 'text/csv; charset=utf-8').header('Content-Disposition', `attachment; filename="koda-audit-${new Date().toISOString().slice(0, 10)}.csv"`);
     return csv;

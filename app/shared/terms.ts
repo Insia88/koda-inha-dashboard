@@ -99,6 +99,8 @@ export const ACTION_LABEL: Record<string, string> = {
   'request.processing': '처리 시작', 'request.completed': '처리 완료', 'request.failed': '처리 실패',
   // 승인 단계(approve)와 커스터디 전달 직전(handoff) 모두에 쓴다. 어느 단계였는지는 내용(summary)에 있다.
   'request.intent_tampered': '승인 대상 지문 불일치로 중단',
+  // 승인·반려 본문의 지문이 제출 때 고정한 지문과 달라 결정을 받지 않았다(409 INTENT_CHANGED). 승인인지 반려인지는 내용(summary)에 있다.
+  'request.intent_mismatch': '승인 대상 지문이 달라 결정 거부',
   'member.roles_changed': '역할 변경', 'audit.exported': '감사 기록 내보내기', 'insight.published': '리서치 게시', 'insight.hidden': '리서치 숨김',
 };
 export const actionLabel = (action: string) => ACTION_LABEL[action] ?? action;

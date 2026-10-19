@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ADDRESS_STATUS, GLOSSARY, GLOSSARY_LABEL, REQUEST_STATUS, ROLE_LABEL, type GlossaryKey } from '../shared/terms.ts';
+import { ACTION_LABEL, actionLabel, ADDRESS_STATUS, GLOSSARY, GLOSSARY_LABEL, REQUEST_STATUS, ROLE_LABEL, type GlossaryKey } from '../shared/terms.ts';
 
 // 용어·상태 설명의 단일 출처(shared/terms.ts)가 DASH-002 기준과 프로젝트 문구 규칙을 지키는지 확인한다.
 // 사람이 이해하는지는 이 테스트로 알 수 없다(사용자 검증 아님).
@@ -70,6 +70,24 @@ describe('용어 설명(GLOSSARY)', () => {
   it('carries no unverified regulatory dates', () => {
     for (const [k, t] of glossaryTexts) {
       expect(t, k).not.toMatch(/(?:19|20)\d{2}\s*(?:[-./]|년)/);
+    }
+  });
+});
+
+describe('감사 기록 행동 이름(ACTION_LABEL)', () => {
+  it('names every security-relevant request record, including a decision refused for a different fingerprint', () => {
+    for (const a of ['request.intent_tampered', 'request.intent_mismatch']) {
+      expect(ACTION_LABEL[a]?.trim().length ?? 0, a).toBeGreaterThan(0);
+      expect(actionLabel(a), a).not.toBe(a); // 화면과 CSV가 코드 대신 이름을 보인다
+    }
+    expect(ACTION_LABEL['request.intent_mismatch']).not.toBe(ACTION_LABEL['request.intent_tampered']);
+  });
+
+  it('makes no safety claim and uses no implementation terms in any action label', () => {
+    for (const [k, l] of Object.entries(ACTION_LABEL)) {
+      expect(l.trim(), k).not.toBe('');
+      expect(l, k).not.toMatch(POSITIVE_SAFETY_CLAIM);
+      expect(l, k).not.toMatch(/서버|config|\.json|API|hash|intent/i);
     }
   });
 });

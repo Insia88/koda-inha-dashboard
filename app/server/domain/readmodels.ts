@@ -7,7 +7,7 @@ import type { AppConfig } from '../config.ts';
 import { formatUnits, krwValue } from '../../shared/decimal.ts';
 import { ROLE_LABEL, type Role } from '../../shared/terms.ts';
 import { activateDueAddresses, canStopCooling, likePattern, poisonFlags } from './addresses.ts';
-import { validApprovals } from './requests.ts';
+import { displayAmount, validApprovals } from './requests.ts';
 
 export function priceState(db: DB, cfg: AppConfig) {
   const rows = db.prepare('SELECT asset_code, krw_price, as_of, source FROM prices').all() as any[];
@@ -115,7 +115,8 @@ export function dashboard(db: DB, cfg: AppConfig, auth: AuthContext) {
     holdings: holdings(db, cfg, org),
     tasks,
     // 승인 대기 중인 요청의 승인 수는 지금 유효한 표만 센다(요청 상세의 approvedCount와 같은 기준).
-    inProgress: inProgress.map((r) => ({ id: r.id, refNo: r.ref_no, status: r.status, assetCode: r.asset_code, amount: formatUnits(r.amount_units, r.precision), creatorName: r.creator_name, addressLabel: r.address_label, approved: r.status === 'PENDING_APPROVAL' ? validApprovals(db, r.id) : r.approved, requiredApprovals: r.required_approvals, updatedAt: r.updated_at })),
+    // 수량은 저장 값을 정수로 읽을 수 없으면 null(화면은 '—')이다. 요청 한 건 때문에 홈 전체가 실패하지 않게 한다.
+    inProgress: inProgress.map((r) => ({ id: r.id, refNo: r.ref_no, status: r.status, assetCode: r.asset_code, amount: displayAmount(r.amount_units, r.precision), creatorName: r.creator_name, addressLabel: r.address_label, approved: r.status === 'PENDING_APPROVAL' ? validApprovals(db, r.id) : r.approved, requiredApprovals: r.required_approvals, updatedAt: r.updated_at })),
     inProgressCount,
     // 소액(0원 포함) 입금에는 주소 오염 의심 표시를 붙인다. 보낸 주소는 홈에 보이지 않는다(활동 내역에서 복사 버튼 없이 보여 준다).
     recentActivity: recent.map((t) => ({ id: t.id, type: t.type, assetCode: t.asset_code, amount: formatUnits(t.amount_units, t.precision), status: t.status, occurredAt: t.occurred_at, counterparty: t.counterparty, networkName: t.network_name, poison: recentPoison.get(t.id) ?? null })),
@@ -207,14 +208,28 @@ export function updateRoles(db: DB, auth: AuthContext, userId: string, roles: Ro
 export function auditList(db: DB, auth: AuthContext, q: { action?: string; actor?: string; q?: string; from?: string; to?: string; page: number; pageSize: number }) {
   const { w, args } = auditWhere(auth, q);
   const total = (db.prepare(`SELECT COUNT(*) c FROM audit_log WHERE ${w}`).get(...args) as { c: number }).c;
-  // seq는 DB 전체 순번이라 조직별로 보면 빈 번호가 생긴다. 조직 안 순번(orgSeq)은 필터를 걸기 전에 매긴다.
+  // seq는 DB 전체(모든 조직) 공용 순번이라 조직별로 보면 빈 번호가 생기고, 그 간격으로 다른 조직의 기록량을 짐작할 수 있다.
+  // 그래서 응답에는 싣지 않고, 조직 안 순번(orgSeq, 필터를 걸기 전에 매김)만 준다. CSV 순번도 같은 번호다(auditOrgRows).
   const items = db.prepare(
-    `SELECT seq, org_seq orgSeq, id, actor_id actorId, actor_name actorName, action, target_type targetType, target_id targetId, summary, detail, created_at createdAt, hash
+    `SELECT org_seq orgSeq, id, actor_id actorId, actor_name actorName, action, target_type targetType, target_id targetId, summary, detail, created_at createdAt, hash
        FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY seq) org_seq FROM audit_log WHERE org_id = ?)
       WHERE ${w} ORDER BY seq DESC LIMIT ? OFFSET ?`,
   ).all(auth.org.id, ...args, q.pageSize, (q.page - 1) * q.pageSize) as any[];
   const actions = (db.prepare('SELECT DISTINCT action FROM audit_log WHERE org_id = ? ORDER BY action').all(auth.org.id) as any[]).map((r) => r.action);
   return { total, page: q.page, pageSize: q.pageSize, actions, items: items.map((i) => ({ ...i, detail: JSON.parse(i.detail) })) };
+}
+
+/**
+ * CSV 내보내기용 행(오래된 순, 최대 limit행). 순번(orgSeq)은 목록·화면의 '번호'·검증 결과의 brokenAtNo와 같은 조직 안 순번이며
+ * 필터를 걸기 전에 매긴다. 전체 공용 seq는 내보내지 않는다.
+ */
+export function auditOrgRows(db: DB, auth: AuthContext, q: { action?: string; actor?: string; q?: string; from?: string; to?: string }, limit: number) {
+  const { w, args } = auditWhere(auth, q);
+  return db.prepare(
+    `SELECT org_seq orgSeq, created_at, actor_name, action, target_type, target_id, summary, hash
+       FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY seq) org_seq FROM audit_log WHERE org_id = ?)
+      WHERE ${w} ORDER BY seq ASC LIMIT ?`,
+  ).all(auth.org.id, ...args, limit) as { orgSeq: number; created_at: string; actor_name: string; action: string; target_type: string; target_id: string; summary: string; hash: string }[];
 }
 
 export function auditWhere(auth: AuthContext, q: { action?: string; actor?: string; q?: string; from?: string; to?: string }) {

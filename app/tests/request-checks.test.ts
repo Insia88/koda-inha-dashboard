@@ -568,10 +568,31 @@ describe('진행 사유(CHECK_REASON_REQUIRED)와 저장', () => {
     expect(res.body.error.code).toBe('VALIDATION');
   });
 
-  it('shows live checks for draft and review requests and recomputes them at submit', async () => {
+  it('shows live, unstored checks for a review request', async () => {
     const { r } = await toReview('u-a-han', { addressId: 'ab-07' });
     expect(byId(r.checks.items, 'first_use').outcome).toBe('caution');
     expect(r.checks.stored).toBe(false);
+  });
+
+  it('recomputes the checks at submit: a reason becomes required when another request reserved most of the wallet after review', async () => {
+    // 검토 때는 100 USDC / 사용 가능 1,250,000 USDC → 사유가 필요한 항목이 없다.
+    const { a, r } = await toReview('u-a-han', { addressId: 'ab-01', amount: '100' });
+    expect(r.checks.items.filter((c: RequestCheck) => c.requiresReason)).toEqual([]);
+    expect(byId(r.checks.items, 'balance_share').outcome).toBe('pass');
+
+    // 다른 요청이 사용 가능 수량 대부분을 예약한다(남는 사용 가능 수량 150 USDC).
+    await toPending('u-a-kang', { addressId: 'ab-01', amount: '1249850' }, { balance_share: '분기 정산 대금이라 한 번에 보냅니다' });
+    const body = { version: r.version, confirmTail: tail(r.address.address), ackIrreversible: true };
+    const none = await a.post(`/api/requests/${r.id}/submit`, body);
+    expect(none.status, JSON.stringify(none.body)).toBe(422);
+    expect(none.body.error.code).toBe('CHECK_REASON_REQUIRED');
+    expect(none.body.error.fields.map((f: any) => f.field)).toEqual(['checkReasons.balance_share']);
+    expect((ctx.db.prepare('SELECT status FROM withdrawal_requests WHERE id = ?').get(r.id) as any).status).toBe('REVIEW');
+
+    const ok = await a.post(`/api/requests/${r.id}/submit`, { ...body, checkReasons: { balance_share: '남은 수량으로 먼저 보내야 하는 정산입니다' } });
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    expect(ok.body.checks.stored).toBe(true);
+    expect(byId(ok.body.checks.items, 'balance_share')).toMatchObject({ outcome: 'caution', requiresReason: true, reason: '남은 수량으로 먼저 보내야 하는 정산입니다' });
   });
 
   it('stores the seeded pending requests with a fingerprint, checks and the requester reasons', () => {
@@ -595,7 +616,7 @@ describe('진행 사유(CHECK_REASON_REQUIRED)와 저장', () => {
 });
 
 describe('사용 대기 주소로 요청(ADDRESS_NOT_ACTIVE)', () => {
-  it('says the address is in its waiting period, when it becomes usable in KST, and to wait or ask an approver to stop it', async () => {
+  it('says the address is in its waiting period, when it becomes usable in KST, and to wait or stop it from the address page', async () => {
     const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
     const ab14 = (await han.get('/api/addresses/ab-14')).body;
     expect(ab14.status).toBe('COOLING_DOWN');
@@ -607,8 +628,9 @@ describe('사용 대기 주소로 요청(ADDRESS_NOT_ACTIVE)', () => {
       expect(r.status).toBe(422);
       expect(r.body.error.code).toBe('ADDRESS_NOT_ACTIVE');
       expect(r.body.error.message).toBe(`'${ab14.label}' 주소는 사용 대기 중입니다. ${kstDateTime(ab14.activeFrom)} KST부터 출금 요청에 쓸 수 있습니다.`);
-      expect(r.body.error.action).toContain('기다린 뒤');
-      expect(r.body.error.action).toContain('승인자에게 사용 대기 중 정지를 요청');
+      // 요청자도 주소 등록 권한으로 직접 정지할 수 있다(A-31). 승인자를 찾아가라고 하지 않는다.
+      expect(r.body.error.action).toBe('사용 가능해질 때까지 기다린 뒤 다시 요청하세요. 요청한 적 없는 등록이라면 주소 상세에서 「사용 대기 중 정지」로 바로 정지하세요.');
+      expect(r.body.error.action).not.toContain('승인자에게');
       expect(r.body.error.fields).toEqual([{ field: 'addressId', message: '사용 대기 중인 주소입니다.' }]);
       expect(r.body.error.activeFrom).toBe(ab14.activeFrom);
     }
@@ -667,11 +689,15 @@ describe('감사 기록 CSV: 한국 시간·행동 이름', () => {
     const data = rows.slice(1);
     expect(data.length).toBeGreaterThan(10);
     const db = ctx.db;
+    // 순번은 조직 안 순번(화면의 '번호')이다. 모의법인 A의 기록을 오래된 순으로 세었을 때의 자리와 같다.
+    const orgRows = db.prepare("SELECT created_at, action, hash FROM audit_log WHERE org_id = 'org-a' ORDER BY seq").all() as any[];
+    expect(data.map((r) => Number(r[0]))).toEqual(Array.from({ length: data.length }, (_, i) => i + 1));
     for (const r of data) {
       expect(r).toHaveLength(9);
       expect(r[1]).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
       expect(r[3]).toBe(ACTION_LABEL[r[4]!] ?? r[4]);
-      const src = db.prepare('SELECT created_at, action FROM audit_log WHERE seq = ?').get(Number(r[0])) as any;
+      const src = orgRows[Number(r[0]) - 1];
+      expect(r[8]).toBe(src.hash);
       expect(r[1]).toBe(kstDateTime(src.created_at, { seconds: true }));
       expect(r[4]).toBe(src.action);
     }
@@ -685,6 +711,8 @@ describe('감사 기록 CSV: 한국 시간·행동 이름', () => {
   it('labels the fingerprint-mismatch action in the shared map used by the screen and the CSV', () => {
     // 승인 단계·커스터디 전달 직전 어느 쪽에도 맞는 이름(어느 단계였는지는 내용에 있다)
     expect(ACTION_LABEL['request.intent_tampered']).toBe('승인 대상 지문 불일치로 중단');
+    // 결정 본문의 지문이 달라 승인·반려를 받지 않은 기록(승인인지 반려인지는 내용에 있다)
+    expect(ACTION_LABEL['request.intent_mismatch']).toBe('승인 대상 지문이 달라 결정 거부');
     for (const a of ['request.submitted', 'request.approved', 'address.cooldown_stopped', 'address.activated']) expect(ACTION_LABEL[a], a).toBeTruthy();
   });
 });

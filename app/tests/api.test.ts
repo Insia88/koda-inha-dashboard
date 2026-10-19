@@ -370,11 +370,60 @@ describe('감사 기록', () => {
     const log = await api(ctx.app, aud).get('/api/audit?action=audit.exported');
     expect(log.body.total).toBe(1);
   });
+  it('numbers CSV rows with the on-screen 번호 (orgSeq): no gaps when other organizations write in between, same number under a filter', async () => {
+    // 다른 조직의 기록이 사이사이 끼어든다(전체 공용 seq에는 빈 번호가 생긴다).
+    for (const u of ['u-b-jo', 'u-a-han', 'u-b-bae', 'u-a-kang', 'u-b-jo']) await login(ctx.app, u);
+    const seqs = (ctx.db.prepare("SELECT seq FROM audit_log WHERE org_id = 'org-a' ORDER BY seq").all() as { seq: number }[]).map((r) => r.seq);
+    expect(seqs.some((s, i) => i > 0 && s !== seqs[i - 1]! + 1)).toBe(true);
+
+    const aud = await login(ctx.app, 'u-a-moon');
+    const screen = new Map<string, number>();
+    for (let page = 1; ; page++) {
+      const r = await api(ctx.app, aud).get(`/api/audit?pageSize=100&page=${page}`);
+      for (const i of r.body.items) screen.set(i.hash, i.orgSeq);
+      if (r.body.items.length < 100) break;
+    }
+    const exportRows = async (query = '') => {
+      const res = await ctx.app.inject({ method: 'GET', url: `/api/audit/export.csv${query}`, headers: { cookie: aud.cookie } });
+      expect(res.statusCode).toBe(200);
+      // 내용 열에는 쉼표가 없는 행만 비교한다(순번·해시는 첫 열과 마지막 열).
+      return res.body.replace(/^﻿/, '').split('\r\n').slice(1).filter(Boolean).map((line) => {
+        const cells = line.split(',');
+        return { no: Number(cells[0]), hash: cells[cells.length - 1]! };
+      });
+    };
+    const all = await exportRows();
+    expect(all.map((r) => r.no)).toEqual(Array.from({ length: all.length }, (_, i) => i + 1));
+    for (const r of all) expect(r.no, r.hash).toBe(screen.get(r.hash));
+    const logins = await exportRows('?action=auth.login');
+    expect(logins.length).toBeGreaterThan(1);
+    const byHash = new Map(all.map((r) => [r.hash, r.no]));
+    for (const r of logins) expect(r.no).toBe(byHash.get(r.hash));
+  });
   it('never stores session tokens or CSRF values in audit details', async () => {
     const s = await login(ctx.app, 'u-a-han');
     const rows = ctx.db.prepare('SELECT summary, detail FROM audit_log').all() as any[];
     const token = s.cookie.split('=')[1]!;
     expect(rows.some((r) => r.detail.includes(token) || r.detail.includes(s.csrf))).toBe(false);
+  });
+});
+
+describe('요청 번호는 조직마다 따로 매긴다', () => {
+  it("starts org B at WR-000001 while org A continues its own sequence, so one org's volume does not show in the other's numbers", async () => {
+    const b = await newDraft(ctx, 'u-b-bae', { addressId: 'ab-b1', amount: '10' });
+    expect(b.r.status, JSON.stringify(b.r.body)).toBe(201);
+    expect(b.r.body.refNo).toBe('WR-000001');
+    const b2 = await newDraft(ctx, 'u-b-bae', { addressId: 'ab-b1', amount: '11' });
+    expect(b2.r.body.refNo).toBe('WR-000002');
+    const a = await newDraft(ctx, 'u-a-han');
+    expect(a.r.body.refNo).toBe('WR-000007'); // 시드 WR-000001~000006 다음
+    // 같은 번호가 두 조직에 있어도 검색·목록은 자기 조직 것만 보인다.
+    const bList = await api(ctx.app, b.s).get('/api/requests?q=WR-000001');
+    expect(bList.body.items.map((x: any) => x.id)).toEqual([b.r.body.id]);
+    // 저장 계층의 고유 제약은 조직·번호 단위다.
+    const dup = () => ctx.db.prepare(`INSERT INTO withdrawal_requests (id, org_id, ref_no, wallet_id, asset_code, network_code, amount_units, address_id, purpose, status, created_by, created_at, updated_at)
+      VALUES ('dup-b', 'org-b', 'WR-000002', 'w-b-eth', 'USDC', 'ETHEREUM', '1', 'ab-b1', 'x', 'DRAFT', 'u-b-bae', 't', 't')`).run();
+    expect(dup).toThrow(/UNIQUE/);
   });
 });
 

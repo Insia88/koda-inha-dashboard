@@ -6,9 +6,9 @@
 ```json
 { "error": { "code": "ADDRESS_NETWORK_MISMATCH", "message": "원인(한국어)", "action": "복구 행동", "fields": [{ "field": "addressId", "message": "..." }] }, "requestId": "uuid" }
 ```
-상태 코드: 401 로그인 필요, 403 권한 없음·자기 승인(`SELF_APPROVAL_FORBIDDEN`)·자기 주소 확인(`SELF_REVIEW_FORBIDDEN`)·CSRF, 404 없음/타 조직, 409 상태 충돌(`INVALID_TRANSITION`, `VERSION_CONFLICT`, `ALREADY_DECIDED`, `LOOKALIKE_UPDATED`, `USE_COOLDOWN_STOP`, `NOT_COOLING_DOWN`, `INTENT_CHANGED`, `INTENT_MISSING`, `INTENT_TAMPERED`), 422 입력·업무 규칙 오류, 429 요청 한도, 500 내부 오류(변경 롤백).
+상태 코드: 400 중복 제출 방지 값 오류(`IDEMPOTENCY_KEY_REQUIRED`: `POST /api/requests`에 `Idempotency-Key`가 없음, `IDEMPOTENCY_KEY_INVALID`: 형식이 8~80자 영숫자·`_-`가 아님), 401 로그인 필요, 403 권한 없음·자기 승인(`SELF_APPROVAL_FORBIDDEN`)·자기 주소 확인(`SELF_REVIEW_FORBIDDEN`)·작성자가 아닌 사람의 요청 수정·검토 이동·되돌리기·제출·취소(`NOT_REQUEST_OWNER`)·CSRF, 404 없음/타 조직·꺼져 있는 실험 기능(`EXPERIMENT_DISABLED`, 예: `GET /insights?related=1`), 409 상태 충돌(`INVALID_TRANSITION`, `VERSION_CONFLICT`, `CONFLICT`, `ALREADY_DECIDED`, `LOOKALIKE_UPDATED`, `USE_COOLDOWN_STOP`, `NOT_COOLING_DOWN`, `INTENT_CHANGED`, `INTENT_MISSING`, `INTENT_TAMPERED`), 422 입력·업무 규칙 오류, 429 요청 한도, 500 내부 오류(변경 롤백). 409 `CONFLICT`는 주소 확인·사용 중지·정지의 상태·버전 충돌과 역할 변경의 `rolesVersion` 충돌이며 추가 필드가 없다.
 
-오류에 따라 `error` 안에 추가 필드가 붙는다(아래 오류 코드 표의 '추가 필드'). 409 `INVALID_TRANSITION`·`VERSION_CONFLICT`는 `status`(와 `version`), 주소 점검 오류는 `findings`를 준다.
+오류에 따라 `error` 안에 추가 필드가 붙는다(아래 오류 코드 표의 '추가 필드'). 409 `INVALID_TRANSITION`은 `status`를, 요청 행동 시작 때 검사한 `VERSION_CONFLICT`는 `status`와 `version`을 준다. 검사 뒤 저장하는 순간에 다른 변경과 겹쳐 난 `VERSION_CONFLICT`에는 `status`·`version`이 없다(요청을 다시 불러와 확인한다). 주소 점검 오류는 `findings`를 준다.
 
 ### 오류 코드 (2026-10-19 추가·변경분)
 
@@ -19,7 +19,7 @@
 | `REASON_REQUIRED` | 422 | 주소 등록 때 유사 주소가 있는데 `lookalikeReason`이 5자 미만 | `lookalikeReason` | `findings` |
 | `NOTE_REQUIRED` | 422 | 주소 확인(승인) 때 저장된 점검 결과에 유사 주소가 있는데 `note`가 5자 미만 | `note` | — |
 | `LOOKALIKE_UPDATED` | 409 | 주소 확인(승인) 때 다시 점검해 저장된 점검 결과에 없던 유사 주소를 찾음. 점검 결과(`findings`)와 `version`을 갱신해 저장하고 승인하지 않는다. 화면은 주소를 다시 불러와 비교를 보여 준 뒤 메모와 함께 다시 확인 | — | — |
-| `ADDRESS_NOT_ACTIVE` | 422 | 사용 가능 상태가 아닌 주소로 초안·수정·검토 이동·제출·점검 미리 보기(입력 오류), 또는 받는 주소가 사용 중지된 요청의 승인. **사용 대기(`COOLING_DOWN`) 주소**는 메시지에 사용 가능 시각(`YYYY-MM-DD HH:mm KST`)을, 행동에 '기다린 뒤 다시 요청, 요청한 적 없는 등록이면 승인자에게 사용 대기 중 정지 요청'을 담는다 | `addressId`(초안·제출) | 사용 대기일 때 `addressStatus: 'COOLING_DOWN'`, `activeFrom` |
+| `ADDRESS_NOT_ACTIVE` | 422 | 사용 가능 상태가 아닌 주소로 초안·수정·검토 이동·제출·점검 미리 보기(입력 오류), 또는 받는 주소가 사용 중지된 요청의 승인. **사용 대기(`COOLING_DOWN`) 주소**는 메시지에 사용 가능 시각(`YYYY-MM-DD HH:mm KST`)을, 행동에 '사용 가능해질 때까지 기다린 뒤 다시 요청하세요. 요청한 적 없는 등록이라면 주소 상세에서 「사용 대기 중 정지」로 바로 정지하세요.'를 담는다(요청자도 주소 등록 권한으로 정지할 수 있다, A-31). **사용 중지(`DISABLED`)·등록 거절(`REJECTED`) 주소**는 다시 쓸 수 없으므로 '…주소는 사용 중지되어 이 요청에 쓸 수 없습니다'(새 작성은 '출금 요청에')와 함께, 작성 중이면 '내용 수정에서 다른 주소를 고르거나 요청을 취소', 검토 중이면 '작성 단계로 되돌린 뒤 내용 수정에서 다른 주소를 고르거나 요청을 취소', 새 작성이면 '주소록에서 사용 가능한 다른 주소를 고르세요'를 안내한다. 확인 대기(`PENDING_REVIEW`)는 두 번째 담당자의 확인을 기다리라고 안내한다 | `addressId`(초안·제출) | 사용 대기일 때 `addressStatus: 'COOLING_DOWN'`, `activeFrom`. 사용 중지·등록 거절일 때 `addressStatus` |
 | `APPROVERS_INSUFFICIENT` | 422 | 승인 요청 제출 때, 작성자를 뺀 지금 승인할 수 있는 사람이 필요한 승인 수보다 적음. 아무것도 예약하지 않음 | — | `eligibleApprovers`, `requiredApprovals`, `approvalBasis` |
 | `SELF_ROLE_ESCALATION` | 422 | 역할 변경에서 자기 자신에게 승인자·자산 담당자 역할을 새로 부여 | — | — |
 | `PROVIDER_NOT_WHITELISTED` | 422 | 화이트리스트 밖 기관 자료 게시, **숨긴 자료를 다시 게시**(PATCH `published`)할 때도 | `providerId` | — |
@@ -42,23 +42,25 @@
 | 코드 | 상태 | 언제 | `fields[].field` | 추가 필드 |
 | --- | --- | --- | --- | --- |
 | `CHECK_REASON_REQUIRED` | 422 | 승인 요청(`/submit`) 때 사유가 필요한 주의 항목(이 대시보드로 처음 보내는 주소, 과거 출금 중앙값의 5배 초과, 사용 가능 수량의 50% 이상·초과)에 진행 사유가 없거나, 보이지 않는 서식 문자(`\p{Cf}`)를 지운 뒤 글자·숫자가 5자 미만(문장부호·공백만인 사유 포함). 빠진 항목마다 필드 오류. 아무것도 예약하지 않고 검토 중으로 남는다. 끝자리 검사(`CONFIRM_TAIL_MISMATCH`)·사용 가능 수량 검사 다음, 승인 가능 인원 검사(`APPROVERS_INSUFFICIENT`) 앞 | `checkReasons.<점검 id>` | `checkIds` |
-| `INTENT_CHANGED` | 409 | 승인·반려 본문의 `intentHash`가 제출 때 고정한 지문과 다름(대소문자 무시). 승인 표를 남기지 않는다 | — | `intentHashDisplay`(지금 지문) |
+| `INTENT_CHANGED` | 409 | 승인·반려 본문의 `intentHash`가 제출 때 고정한 지문과 다름(대소문자 무시, 지문이 있는 요청에 `null`을 보낸 경우 포함). 승인·반려 표를 남기지 않는다. 제출 뒤 지문은 바뀌지 않으므로 결정하는 사람의 화면이 다른 내용을 보였다는 신호로 보고, 결정 트랜잭션을 되돌린 뒤 별도 트랜잭션으로 감사 기록 `request.intent_mismatch`(수행자는 결정하려던 사람, 상세: `decision`(`approve`·`reject`), `storedHash`, `submittedHashPrefix`(보낸 지문의 앞 16자, 소문자. 안 보냈으면 null), `actor`, `voteRecorded: false`)를 남긴다(행동 이름 '승인 대상 지문이 달라 결정 거부'). 멱등 기록은 남기지 않는다 | — | `intentHashDisplay`(지금 지문) |
 | `INTENT_MISSING` | 409 | 지문 기록 전(이 기능 도입 전)에 제출된 승인 대기 요청의 승인. 대조할 지문이 없어 거부한다(fail closed). 반려는 `intentHash: null`로 할 수 있다 | — | — |
-| `INTENT_TAMPERED` | 409 | 승인할 때와 커스터디로 넘기기 직전에 저장된 행으로 지문을 다시 계산했더니 제출 때 지문과 다르거나, 정족수에 든 승인 표 중 같은 지문을 승인하지 않은 표가 있음. 승인 트랜잭션을 되돌려 처리 중으로 넘기지 않고 커스터디를 부르지 않는다. 별도 트랜잭션으로 감사 기록 `request.intent_tampered`(수행자 '시스템(승인 대상 지문 재확인)', 상세: `stage`(`approve`·`handoff`), `storedHash`, `recomputedHash`, `mismatchedApproverIds`, `attemptedBy`, 끝자리만 담은 `current`, `custodyCalled: false`)를 남긴다(행동 이름 '승인 대상 지문 불일치로 중단'). 조회 응답도 지문을 다시 계산해 `blockedReason: 'INTENT_TAMPERED'`로 알리고 `approve`를 내보이지 않는다. 반려·취소는 막지 않으며 승인 요청 때 예약한 수량을 푼다 | — | — |
+| `INTENT_TAMPERED` | 409 | 승인할 때와 커스터디로 넘기기 직전에 저장된 행으로 지문을 다시 계산했더니 제출 때 지문과 다르거나, 정족수에 든 승인 표 중 같은 지문을 승인하지 않은 표가 있음. 승인 트랜잭션을 되돌려 처리 중으로 넘기지 않고 커스터디를 부르지 않는다. 별도 트랜잭션으로 감사 기록 `request.intent_tampered`(수행자 '시스템(승인 대상 지문 재확인)', 상세: `stage`(`approve`·`handoff`), `storedHash`, `recomputedHash`(저장된 수량을 정수로 읽을 수 없어 다시 계산하지 못하면 null), `mismatchedApproverIds`, `attemptedBy`, 끝자리만 담은 `current`(`amount`는 읽을 수 없으면 null, `amountUnits`는 저장된 글자 그대로), `custodyCalled: false`)를 남긴다(행동 이름 '승인 대상 지문 불일치로 중단'). 조회 응답도 지문을 다시 계산해 `blockedReason: 'INTENT_TAMPERED'`로 알리고 `approve`를 내보이지 않는다. 저장된 수량을 정수로 읽을 수 없는 요청(예: `'0.5'`, `'abc'`)도 같고, 상세·목록·홈은 그대로 응답한다(`amount: null`). 반려·취소는 막지 않으며 승인 요청 때 예약한 수량을 푼다 | — | — |
 | `VALIDATION` | 422 | 승인·반려 본문에 `intentHash`가 없음 | `intentHash` | — |
 
 ## 멱등성
 `Idempotency-Key`(8~80자 영숫자·`_-`). `POST /api/requests`는 필수, 요청 행동(`/review`, `/submit`, `/approve`, `/reject`, `/cancel`, `/back-to-draft`)은 선택. 같은 사용자·경로·키 + 같은 본문이면 처음 응답을 재전송(`Idempotent-Replayed: true`), 다른 본문이면 422 `IDEMPOTENCY_KEY_REUSED`.
 
-커스터디 접수(서버 내부)는 요청 id를 멱등 키로 넘긴다. 같은 키로 다시 접수하면 같은 접수 참조(`custodyRef`)를 돌려받는다(설계 가정 A-18). 접수 입력에는 승인 대상 지문(`intentHash`)도 함께 넘기며, 모의 어댑터는 키별로 지문을 기록하고 같은 키에 다른 지문이 오면 받지 않는다(A-30).
+커스터디 접수(서버 내부)는 요청 id를 멱등 키로 넘긴다. 같은 키로 다시 접수하면 같은 접수 참조(`custodyRef`)를 돌려받는다(설계 가정 A-18). 접수 입력에는 승인 대상 지문(`intentHash`)도 함께 넘기며, 모의 어댑터는 키별로 지문을 기록하고 같은 키에 다른 지문이 오면 받지 않는다(A-30). 수량·주소·메모는 저장된 글자열이 아니라 지문에 묶은 정규화 값(10진 정수 수량, 네트워크 계열 규칙으로 정규화한 주소, 앞뒤 공백을 지운 메모)을 넘긴다. 숫자로는 같지만 표기가 다른 저장 값(16진수·앞자리 0·공백·대소문자)이 그대로 커스터디에 닿지 않게 하기 위함이다. 감사 기록 `request.processing`의 수량·주소 끝자리도 같은 값이다.
 
-`INTENT_TAMPERED`로 거부된 승인은 멱등 기록을 남기지 않는다(같은 키로 다시 보내면 다시 확인하고 다시 거부한다).
+`INTENT_TAMPERED`·`INTENT_CHANGED`로 거부된 결정은 멱등 기록을 남기지 않는다(같은 키로 다시 보내면 다시 확인하고 다시 거부한다).
 
 ## 동시성
 요청·주소·역할 변경은 `version`(역할은 `rolesVersion`)을 본문에 보내야 하며 다르면 409. 쓰기는 `BEGIN IMMEDIATE` 트랜잭션.
 
 ## 금액
-요청 본문의 `amount`는 10진 문자열(예 `"2500.25"`, 천 단위 쉼표 허용 `"1,000"`), 자산 자릿수 초과 시 422 `AMOUNT_PRECISION`. 응답은 `amount`(표시용 10진 문자열)와 `amountUnits`(최소 단위 정수 문자열)를 함께 준다. 원화 값은 원 단위 정수 문자열.
+요청 본문의 `amount`는 10진 문자열(예 `"2500.25"`, 천 단위 쉼표 허용 `"1,000"`), 자산 자릿수 초과 시 422 `AMOUNT_PRECISION`. 응답은 `amount`(표시용 10진 문자열)와 `amountUnits`(최소 단위 정수 문자열)를 함께 준다. 저장된 최소 단위 값을 정수로 읽을 수 없으면(앱을 거치지 않은 저장 계층 변경) 요청 응답·목록·홈 진행 중 요청의 `amount`는 null이고 `amountUnits`는 저장된 글자 그대로다. 원화 값은 원 단위 정수 문자열.
+
+요청 번호(`refNo`, `WR-000001` 형식)는 조직마다 1부터 매긴다. 다른 조직의 요청량이 번호에 드러나지 않으며, 같은 번호가 다른 조직에도 있을 수 있다(저장 계층 고유 제약은 조직·번호 단위, migrations/007).
 
 ## 출금 요청 응답 (`GET /requests/:id`, 행동 응답)
 
@@ -70,8 +72,8 @@
 | `approvalBasis` | 필요 승인 수의 근거: `value_below_threshold`, `value_at_or_above_threshold`, `price_missing`(시세 없음), `price_stale`(30분 초과·읽을 수 없음·5분 넘게 미래). 뒤의 둘은 고액 기준 적용. 제출 전이거나 이 필드 도입 전 요청은 null |
 | `priceAsOfAtSubmit` | 제출 때 쓴 시세 기준 시각(ISO). 시세가 없었으면 null |
 | `krwValueAtSubmit` | 제출 때 원화 평가액(원 단위 정수 문자열) 또는 null |
-| `blockedReason` | 승인 대기 요청을 승인할 수 없는 이유. `INTENT_TAMPERED`: 조회할 때 지금 저장된 요청·주소록 행으로 다시 계산한 지문이 `intentHash`와 다름(승인 요청 뒤 내용이 바뀜, 먼저 본다). `ADDRESS_NOT_ACTIVE`: 받는 주소가 사용 가능 상태가 아님. 이때 `allowedActions`에는 `approve`가 없고 `reject`만 남는다(승인자, 요청자는 `cancel`). 서버의 승인 거부(409 `INTENT_TAMPERED`·422 `ADDRESS_NOT_ACTIVE`)는 그대로다. 그 밖에는 null. 목록 응답에도 있다 |
-| `allowedActions` | 지금 사용자에게 허용된 행동(서버 계산). 목록 응답에서는 빈 배열. 지문이 없는 이전 승인 대기 요청에는 `approve`가 없다 |
+| `blockedReason` | 승인 대기 요청을 승인할 수 없는 이유. `INTENT_TAMPERED`: 조회할 때 지금 저장된 요청·주소록 행으로 다시 계산한 지문이 `intentHash`와 다름(승인 요청 뒤 내용이 바뀜, 먼저 본다). `ADDRESS_NOT_ACTIVE`: 받는 주소가 사용 가능 상태가 아님. 이때 `allowedActions`에는 `approve`가 없고 `reject`만 남는다(승인자, 요청자는 `cancel`). 서버의 승인 거부(409 `INTENT_TAMPERED`·422 `ADDRESS_NOT_ACTIVE`)는 그대로다. 그 밖에는 null이며, 작성·검토 중 요청은 받는 주소가 사용 중지되어도 null이다(예약이 없다. 대신 `allowedActions`에서 `review`·`submit`이 빠진다). 목록 응답에도 있다 |
+| `allowedActions` | 지금 사용자에게 허용된 행동(서버 계산). 목록 응답에서는 빈 배열. 지문이 없는 이전 승인 대기 요청에는 `approve`가 없다. 작성·검토 중 요청의 받는 주소가 사용 가능 상태가 아니면 `review`·`submit`이 없고 `edit`·`back_to_draft`·`cancel`은 남는다 |
 | `custodyRef` | 커스터디 접수 참조(모의) |
 | `intentHash` | 승인 대상 지문(16진수 소문자 64자). 승인 요청(제출) 때 정규화 JSON `{v:1, requestId, orgId, assetCode, networkCode, amountUnits, addressId, address(네트워크 계열 규칙으로 정규화), memo, requiredApprovals}`(키 정렬, 공백 없음)의 SHA-256으로 정하고 바꾸지 않는다. 제출 전·이 기능 도입 전 요청은 null. 목록 응답에도 있다 |
 | `intentHashDisplay` | 화면 표시용 지문: 앞 16자를 대문자 4자 묶음으로(예 `7F3A 91C2 0B4E 55D1`). 없으면 null |
@@ -105,17 +107,17 @@
 ```json
 { "ok": true, "count": 51, "brokenAtSeq": null, "brokenAtNo": null, "headHash": "64자 16진수" }
 ```
-- `count`: 이 조직의 감사 기록 수. `brokenAtSeq`: 처음 어긋난 기록의 전체 공용 순번. `brokenAtNo`: 그 기록이 조직 체인에서 몇 번째인지(1부터). 화면은 `brokenAtNo`와 목록의 `orgSeq`를 쓴다.
+- `count`: 이 조직의 감사 기록 수. `brokenAtNo`: 처음 어긋난 기록이 조직 체인에서 몇 번째인지(1부터). 목록의 `orgSeq`, 화면의 '번호', CSV의 `순번`과 같은 번호다. `brokenAtSeq`: 같은 기록의 전체(모든 조직) 공용 순번. 이전 응답과의 호환을 위해 남아 있으며 화면·CSV는 쓰지 않는다. 조직 안 번호로는 `brokenAtNo`를 쓴다.
 - `headHash`: 체인이 맞을 때만 가장 최근 기록의 해시. 어긋났거나 기록이 없으면 null.
 - 체인 중간의 수정·삭제는 찾지만 **가장 최근 기록을 지운 경우는 `ok:true`로 나온다**. 감사 담당자가 `headHash`·`count`를 앱 밖에 보관해 두고 다음 검증 결과와 대조해야 알 수 있다.
 - 새 기록은 해시 v2(수행자 이름 포함)로 쓴다. 기존 v1 기록은 v1으로 검증하며, v2 뒤의 v1 기록과 알 수 없는 방식은 어긋남으로 본다(A-24).
-- `GET /audit` 목록 항목에는 `orgSeq`(필터 적용 전 조직 안 순번, 1부터)가 있다.
+- `GET /audit` 목록 항목에는 `orgSeq`(필터 적용 전 조직 안 순번, 1부터)가 있다. 전체 공용 순번 `seq`는 조직마다 빈 번호가 생기고 다른 조직의 기록량을 드러내므로 싣지 않는다. 항목은 `id`로 구분한다.
 
 ## 감사 기록 CSV (`GET /audit/export.csv`)
 
 UTF-8(BOM) CSV, 줄바꿈 CRLF. 목록과 같은 필터(`action`, `actor`, `q`, `from`, `to`)를 받고 최대 50,000행, 오래된 순. 열:
 
-`순번`(전체 공용 순번 `seq`), `시각(한국 시간)`(`YYYY-MM-DD HH:mm:ss`, KST), `수행자`, `행동`(화면과 같은 한국어 이름, `shared/terms.ts` `ACTION_LABEL`, 없는 코드는 코드 그대로), `행동 코드`(원래 코드, 예 `request.approved`), `대상 종류`, `대상 ID`, `내용`, `해시`.
+`순번`(목록의 `orgSeq`·화면의 '번호'·검증 결과의 `brokenAtNo`와 같은 조직 안 순번. 필터를 걸기 전에 매기므로 필터를 걸어도 같은 기록은 같은 순번이고, 필터 없이 내보내면 1부터 빈 번호 없이 이어진다), `시각(한국 시간)`(`YYYY-MM-DD HH:mm:ss`, KST), `수행자`, `행동`(화면과 같은 한국어 이름, `shared/terms.ts` `ACTION_LABEL`, 없는 코드는 코드 그대로), `행동 코드`(원래 코드, 예 `request.approved`), `대상 종류`, `대상 ID`, `내용`, `해시`.
 
 `=`·`+`·`-`·`@`·탭·CR로 시작하는 값은 앞에 작은따옴표를 붙여 스프레드시트에서 수식으로 실행되지 않게 한다. 내보내기 자체도 감사 기록(`audit.exported`)에 남는다.
 
@@ -136,7 +138,7 @@ UTF-8(BOM) CSV, 줄바꿈 CRLF. 목록과 같은 필터(`action`, `actor`, `q`, 
 | GET /healthz | 공개 | 상태(위 형식) |
 | GET /auth/dev-users, POST /auth/dev-login, POST /auth/logout | 개발 모드 | 모의 로그인 |
 | GET /me | 로그인 | 사용자·조직·역할·권한·CSRF·환경·정책 |
-| GET /dashboard | dashboard.read | 보유 자산, 할 일, 진행 요청, 최근 활동. 할 일 `kind`: `approve_requests`(받는 주소가 사용 가능한 요청만), `blocked_requests`(승인자, 받는 주소가 사용 중지되어 승인할 수 없는 요청), `review_addresses`, `cooling_addresses`(사용 대기 중인 주소, 주소 등록·확인·사용 중지 권한자에게 경고), `my_drafts`, `my_rejected`, `my_blocked_requests`(요청자 본인), `my_pending_addresses`, `audit_recent`. 진행 중 요청의 `approved`는 승인 대기면 지금 유효한 표 수. 최근 활동 행에는 `poison`(위 거래 내역 응답) |
+| GET /dashboard | dashboard.read | 보유 자산, 할 일, 진행 요청, 최근 활동. 할 일 `kind`: `approve_requests`(받는 주소가 사용 가능한 요청만), `blocked_requests`(승인자, 받는 주소가 사용 중지되어 승인할 수 없는 요청), `review_addresses`, `cooling_addresses`(사용 대기 중인 주소, 주소 등록·확인·사용 중지 권한자에게 경고), `my_drafts`, `my_rejected`, `my_blocked_requests`(요청자 본인), `my_pending_addresses`, `audit_recent`. 진행 중 요청의 `approved`는 승인 대기면 지금 유효한 표 수, `amount`는 저장 값을 읽을 수 없으면 null. 최근 활동 행에는 `poison`(위 거래 내역 응답) |
 | GET /balances, /wallets, /staking, /catalog | 각 read | 잔고·지갑·스테이킹·지원 자산 |
 | GET /activity?type&assetCode&status&q&from&to&order&page&pageSize | activity.read | 거래 내역(페이지 10/25/50/100) |
 | GET /addresses?status&assetCode&networkCode&q&sort, GET /addresses/:id | address.read | 주소록, 상세+이력(위 주소 응답) |
@@ -146,7 +148,7 @@ UTF-8(BOM) CSV, 줄바꿈 CRLF. 목록과 같은 필터(`action`, `actor`, `q`, 
 | POST /addresses/:id/disable `{version}` | address.disable | 사용 중지(사용 가능·확인 대기). 사용 대기 중이면 409 `USE_COOLDOWN_STOP`. 이 주소를 쓰는 승인 대기 요청은 승인할 수 없게 되며(`blockedReason`), 반려·취소 때까지 예약 유지 |
 | POST /addresses/:id/stop `{version, reason}` | address.create·address.review·address.disable 중 하나 | 사용 대기 중 정지: 사용 대기 주소를 바로 `DISABLED`로 바꾸고 사유(5~300자)를 남긴다(감사 기록 `address.cooldown_stopped`). 사용 대기가 아니면 409 `NOT_COOLING_DOWN` |
 | GET /requests?view(mine\|to_approve\|blocked)&status(csv)&q&order&page&pageSize, GET /requests/:id | request.read | 목록(상태별 건수 `counts`는 보기·검색 조건을 따르고 상태 필터만 무시), 상세(허용 행동·처리 기록·사용 가능 수량). `to_approve`는 받는 주소가 사용 가능한 요청만, `blocked`는 받는 주소가 사용 가능하지 않은 승인 대기 요청(조직 전체) |
-| POST /requests, PUT /requests/:id | request.create | 초안 작성·수정. 공개 데모는 `DEMO_LIMIT`(작성) |
+| POST /requests, PUT /requests/:id | request.create | 초안 작성·수정. 작성에는 `Idempotency-Key`가 필요하다(없으면 400 `IDEMPOTENCY_KEY_REQUIRED`). 요청 번호는 조직 안 번호. 수정은 작성자만(403 `NOT_REQUEST_OWNER`). 공개 데모는 `DEMO_LIMIT`(작성) |
 | POST /requests/checks-preview `{assetCode, networkCode, addressId, amount, requestId?}` | request.create | 작성 화면의 출금 전 점검 미리 보기 `{evaluatedAt, items}`(저장 안 함). 초안과 같은 입력 검증(`ADDRESS_NOT_ACTIVE` 등). `requestId`는 고치는 중인 초안을 과거 기록·건수에서 뺀다 |
 | POST /requests/:id/review \| back-to-draft \| submit \| cancel | request.create(작성자) | 상태 전이. submit 본문 `{version, confirmTail, ackIrreversible, checkReasons?}`: `checkReasons`는 점검 id → 진행 사유(300자 이내, 알 수 없는 id는 422). 서버가 제출 시점 기준으로 점검을 다시 계산하고, 사유가 필요한 주의 항목에 글자·숫자 5자 이상 사유가 없으면 `CHECK_REASON_REQUIRED`(저장하는 사유에서는 보이지 않는 서식 문자를 지운다). 통과하면 지문(`intentHash`)과 점검 결과·사유, 실제로 예약한 지갑·자산·수량을 바꿀 수 없는 기록으로 저장하고 감사 기록 `request.submitted`에 지문·점검 결과·사유를 남긴다. 승인 가능 인원 부족 시 `APPROVERS_INSUFFICIENT` |
 | POST /requests/:id/approve `{version, intentHash}` \| reject `{version, reason, intentHash}` | request.approve(작성자 제외) | 승인 / 반려(`reason` 5~500자). `intentHash`는 요청 응답의 값을 그대로 보낸다(없으면 422, 다르면 409 `INTENT_CHANGED`, 지문 없는 이전 요청의 승인은 409 `INTENT_MISSING`, 반려는 `null`). 검사 순서: 권한 → 요청(404) → 자기 승인 → 이미 결정 → 상태·버전 → 지문 → 저장 내용 재계산(`INTENT_TAMPERED`) → 받는 주소(`ADDRESS_NOT_ACTIVE`). 승인 표마다 지문을 남기고, 정족수가 차면 커스터디로 넘기기 직전에 다시 계산·대조한 뒤 지문과 함께 넘긴다. 반려·취소(승인 대기)는 지금 행의 수량이 아니라 승인 요청 때 예약 기록으로 예약을 풀고, 감사 기록 상세에 `released`(푼 수량)·`releasedAssetCode`와 지문이 있는 요청이면 `contentMatchesIntent`(지금 내용이 지문과 같은지)를 남긴다 |
