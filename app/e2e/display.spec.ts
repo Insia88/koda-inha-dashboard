@@ -161,3 +161,38 @@ test('주소 확인 중 비슷한 주소가 새로 확인되면 점검 결과를
     expect(r.status, JSON.stringify(r.body)).toBe(200);
   }
 });
+
+test('상세·작성 화면은 넓은 화면에서도 목록 화면과 왼쪽 기준선이 같고, 내용 폭은 820px까지', async ({ page }) => {
+  await loginAs(page, '오민재');
+  const left = async (path: string) => {
+    await page.goto(path);
+    await page.locator('#page-title').waitFor();
+    await page.waitForLoadState('networkidle');
+    return page.evaluate(() => {
+      const p = document.querySelector('.page')!;
+      const widest = Math.max(...[...p.children].filter((c) => c.tagName !== 'DIALOG' && c.getClientRects().length > 0).map((c) => c.getBoundingClientRect().width));
+      return { left: Math.round(p.getBoundingClientRect().left), widest: Math.round(widest), narrow: p.classList.contains('page-narrow') };
+    });
+  };
+  for (const width of [1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const [list, detail] of [['/addresses', '/addresses/ab-08'], ['/requests', '/requests/wr-3']] as const) {
+      const a = await left(list);
+      const b = await left(detail);
+      expect(b.narrow, detail).toBe(true);
+      expect(b.left, `${width}px ${list} → ${detail}`).toBe(a.left);
+      expect(b.widest, `${width}px ${detail}`).toBeLessThanOrEqual(820);
+    }
+  }
+});
+
+test('감사 기록: 무결성 확인의 범위를 넘겨 말하지 않고 보관용 값을 보여 준다', async ({ page }) => {
+  await loginAs(page, '문태호');
+  await page.goto('/audit');
+  await expect(page.getByText('무결성 확인됨')).toBeVisible();
+  const scope = page.locator('.audit-scope');
+  await expect(scope).toContainText('바로 앞 기록의 해시와 맞게 이어지는지를 봅니다');
+  await expect(scope).toContainText('기록을 고친 뒤 그 뒤 기록의 해시를 모두 다시 계산한 경우는 이 확인만으로 찾을 수 없습니다');
+  await expect(scope).not.toContainText('수정·삭제를 찾아냅니다');
+  await expect(scope.locator('.audit-anchor')).toContainText(/보관용 값: 기록 \d+건 · 마지막 기록 해시 [0-9a-f]{64}/);
+});

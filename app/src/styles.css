@@ -78,8 +78,13 @@ hr { border: 0; border-top: 1px solid var(--line); margin: var(--s4) 0; }
 .nav-scrim { display: none; }
 .main { grid-area: main; padding: var(--s5) var(--s6) var(--s7); min-width: 0; }
 .page { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--s4); }
-.page-narrow { max-width: 820px; margin-left: 0; } /* 상세·작성 화면도 목록 화면과 같은 왼쪽 기준선 */
+/* 상세·작성 화면도 목록 화면과 같은 1240px 상자(가운데 정렬)를 쓰고 내용만 820px로 줄인다. 어느 폭에서도 왼쪽 기준선이 같다 */
+.page-narrow { max-width: 1240px; }
+.page-narrow > :not(dialog) { max-width: 820px; }
 .page-header { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--s4); flex-wrap: wrap; margin-bottom: var(--s1); }
+/* 띄어쓰기 없는 긴 이름(keep-all에서는 한 단어)도 화면 안에서 줄을 바꾼다: 제목 칸이 줄어들 수 있게 하고, 제목·설명은 글자 단위로 끊는다 */
+.page-header > div { min-width: 0; }
+.page-header h1, .page-desc { overflow-wrap: anywhere; }
 .page-desc { margin: var(--s1) 0 0; color: var(--ink-2); max-width: 72ch; }
 .page-actions { display: flex; gap: var(--s2); }
 .eyebrow { font-size: 14px; margin-bottom: var(--s1); }
@@ -291,7 +296,8 @@ body:has(dialog[open]) { overflow: hidden; }
 .req-main { grid-area: main; display: flex; align-items: center; gap: var(--s2); min-width: 0; }
 .req-purpose { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .req-amt { grid-area: amt; font-weight: 800; font-size: 16px; align-self: center; }
-.req-meta { grid-area: meta; display: flex; gap: var(--s3); flex-wrap: wrap; color: var(--ink-2); }
+.req-meta { grid-area: meta; display: flex; gap: var(--s3); flex-wrap: wrap; color: var(--ink-2); min-width: 0; overflow-wrap: anywhere; }
+.req-meta > span { min-width: 0; }
 .req-item .rail { grid-area: rail; max-width: 420px; margin-top: 4px; }
 
 /* 폼 */
@@ -320,7 +326,7 @@ body:has(dialog[open]) { overflow: hidden; }
 .steps-text { margin: 0; padding-left: 20px; color: var(--ink-2); font-size: 14px; }
 .dl { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: var(--s2) var(--s4); margin: 0; }
 .dl dt { color: var(--ink-2); font-size: 14px; font-weight: 600; }
-.dl dd { margin: 0; }
+.dl dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .big-amount { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .timeline li { padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 14px; }
 .timeline li:last-child { border-bottom: 0; }
@@ -334,6 +340,11 @@ body:has(dialog[open]) { overflow: hidden; }
 .bal-value { text-align: right; font-variant-numeric: tabular-nums; }
 .bal-value strong { font-size: 17px; }
 .bal-price { margin: 0; }
+/* 좁은 화면 용어 설명: 넓은 표 머리글의 Term 설명과 같은 문장(GLOSSARY)을 덩어리 위에 펼친다 */
+.bal-legend { margin: 0; display: flex; flex-direction: column; gap: 2px; color: var(--ink-2); }
+.bal-legend > div { display: flex; gap: var(--s2); }
+.bal-legend dt { flex: none; min-width: 4.5em; font-weight: 700; color: var(--ink); }
+.bal-legend dd { margin: 0; min-width: 0; }
 
 /* 지갑·인사이트 */
 .wallet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: var(--s4); }
@@ -380,7 +391,7 @@ body:has(dialog[open]) { overflow: hidden; }
   .user-roles, .topbar-user .user-name { display: none; }
   .topbar { padding: 0 var(--s3); gap: var(--s2); }
   .org-name { padding-left: var(--s2); font-size: 14px; }
-  .dl { grid-template-columns: 1fr; gap: 2px; }
+  .dl { grid-template-columns: minmax(0, 1fr); gap: 2px; } /* 1fr(=minmax(auto, 1fr))이면 긴 값이 열을 화면 밖으로 민다 */
   .dl dd { margin-bottom: var(--s2); }
   .wallet-grid { grid-template-columns: 1fr; }
 }
@@ -390,7 +401,7 @@ body:has(dialog[open]) { overflow: hidden; }
   .main { padding: var(--s4) var(--s3) var(--s7); }
   .card { padding: var(--s4); }
   .total-value { font-size: 28px; }
-  .req-item { grid-template-columns: 1fr; grid-template-areas: 'main' 'amt' 'meta' 'rail'; }
+  .req-item { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'main' 'amt' 'meta' 'rail'; }
   .req-amt { align-self: start; }
   .recent-list li { grid-template-columns: 64px minmax(0, 1fr) auto; }
   .recent-list li .badge { display: none; }

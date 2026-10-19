@@ -18,6 +18,21 @@ test('로그인 화면 접근성 자동 검사', async ({ page }) => {
   expect(r.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
 });
 
+// 좁은 화면(390px)에서만 보이는 구성(잔고 자산별 덩어리·용어 설명, 쌓인 표)도 같은 자동 검사를 받는다.
+test.describe('390px', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+  for (const [user, path] of [['한지수', '/balances'], ['한지수', '/activity'], ['한지수', '/requests']] as const) {
+    test(`접근성 자동 검사 390px ${path} (${user})`, async ({ page }) => {
+      await loginAs(page, user);
+      await page.goto(path);
+      await page.locator('h1').first().waitFor();
+      await page.waitForLoadState('networkidle');
+      const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+      expect(r.violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(' | ')}`)).toEqual([]);
+    });
+  }
+});
+
 for (const [user, path] of pages) {
   test(`접근성 자동 검사 ${path} (${user})`, async ({ page }) => {
     await loginAs(page, user);

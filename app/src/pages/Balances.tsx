@@ -43,6 +43,11 @@ export function BalancesPage() {
             </table>
           </div>
           <div className="bal-blocks">
+            {/* 좁은 화면에서는 넓은 표의 머리글 용어 설명(Term)이 보이지 않으므로, 같은 설명을 덩어리 위에 펼쳐 둔다. */}
+            <dl className="bal-legend small">
+              <div><dt>사용 가능</dt><dd>{GLOSSARY.available}</dd></div>
+              <div><dt>예약</dt><dd>{GLOSSARY.reserved}</dd></div>
+            </dl>
             {h.assets.map((a: any) => (
               <section key={a.assetCode} className="card" aria-labelledby={`bal-${a.assetCode}`}>
                 <div className="bal-head">
