@@ -102,22 +102,34 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
 });
 
 test('반려 사유 필수와 반려 결과 표시', async ({ page }) => {
+  const serverStatus = async () => (await (await page.request.get('/api/requests/wr-4')).json()).status as string;
   await loginAs(page, '서예린');
   await page.goto('/requests?view=to_approve');
   await page.getByRole('link', { name: /WR-000004/ }).click();
-  await page.getByRole('button', { name: '반려' }).click();
+  await expect(page).toHaveURL(/\/requests\/wr-4$/);
+  const rejectButton = page.getByRole('button', { name: '반려', exact: true });
+  await rejectButton.click();
   await expect(page.getByText('반려 사유를 5자 이상').first()).toBeVisible();
-  await page.getByLabel('반려 사유').fill('그룹사 이전 승인 문서가 첨부되지 않았습니다');
-  await page.getByRole('button', { name: '반려' }).click();
-  await expect(page.getByText('반려', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('그룹사 이전 승인 문서가 첨부되지 않았습니다').first()).toBeVisible();
+  expect(await serverStatus()).toBe('PENDING_APPROVAL');
+
+  const reason = '그룹사 이전 승인 문서가 첨부되지 않았습니다';
+  await page.getByLabel('반려 사유').fill(reason);
+  await rejectButton.click();
+  // 반려가 실제로 처리된 뒤에만 생기는 표시를 본다. '반려' 글자와 사유 문구는 결정 전에도
+  // 반려 버튼과 방금 채운 입력란에 있으므로 그것만으로는 반려가 실패해도 통과한다.
+  const rejectedNotice = page.locator('.notice-danger').filter({ has: page.locator('.notice-title', { hasText: /^반려 사유$/ }) });
+  await expect(rejectedNotice).toContainText(reason);
+  await expect(page.locator('.page-header .badge')).toHaveText('반려');
+  await expect(page.getByRole('button', { name: '반려', exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('반려 사유')).toHaveCount(0);
+  await expect.poll(serverStatus).toBe('REJECTED');
 });
 
 test('목록: 필터·빈 결과·마지막 페이지·상세 복귀 시 상태 유지', async ({ page }) => {
   await loginAs(page, '한지수');
-  // 시드는 137건이며, 앞선 테스트에서 처리 완료된 출금이 추가될 수 있어 서버 값으로 기대치를 계산한다.
+  // 시드는 138건(0원 입금 예시 1건 포함)이며, 앞선 테스트에서 처리 완료된 출금이 추가될 수 있어 서버 값으로 기대치를 계산한다.
   const total: number = (await (await page.request.get('/api/activity?pageSize=25')).json()).total;
-  expect(total).toBeGreaterThanOrEqual(137);
+  expect(total).toBeGreaterThanOrEqual(138);
   const lastFrom = Math.floor((total - 1) / 25) * 25 + 1;
   await page.goto('/activity');
   await expect(page.getByText(`전체 ${total}건 중 1–25`)).toBeVisible();

@@ -14,7 +14,7 @@
 | CRUD | 라우트 `목록 → 상세(state.back으로 목록 URL 복귀) / 작성 → 상세(replace)`; 파괴적 행동은 `ConfirmDialog`(src/components/Dialog.tsx) | 이 문서 · docs/api.md | return-to-list(뒤로) / stay(상세에서 상태 전이) | e2e/flow.spec.ts 수직 흐름·필터 복귀, e2e/interaction.spec.ts 대화상자 취소/확정/포커스 |
 
 ### 적용하지 않는 항목
-- **Table Selection**: 다건 선택·일괄 처리를 두지 않는다. 출금 승인·주소 확인은 건별 대조가 안전 장치이므로 일괄 승인은 설계 가정상 제외(docs/assumptions.md). 행은 상세로 이동하는 링크다.
+- **Table Selection**: 다건 선택·일괄 처리를 두지 않는다. 출금 승인·주소 확인은 건별 대조가 안전 장치이므로 일괄 승인은 설계 가정상 제외(docs/assumptions.md A-34). 행은 상세로 이동하는 링크다.
 
 ## 소유권 결정 근거
 

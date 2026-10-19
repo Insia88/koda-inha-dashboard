@@ -10,7 +10,7 @@ export type Permission =
 
 const CUSTOMER_READ: Permission[] = ['dashboard.read', 'asset.read', 'activity.read', 'wallet.read', 'staking.read', 'catalog.read', 'address.read', 'request.read', 'org.read', 'insight.read'];
 
-// 설계 가정: 실제 KODA 역할·권한 매핑이 확인되지 않아 변경 가능한 기본값으로 둔다 (docs/assumptions.md A-04).
+// 설계 가정: 실제 KODA 역할·권한 매핑이 확인되지 않아 변경 가능한 기본값으로 둔다 (docs/assumptions.md A-01).
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   requester: [...CUSTOMER_READ, 'address.create', 'request.create'],
   approver: [...CUSTOMER_READ, 'address.review', 'request.approve'],

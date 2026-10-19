@@ -1,6 +1,9 @@
 # 제3자 구성요소 고지
 
-이 앱은 아래 오픈소스 패키지를 정확한 버전으로 고정해 사용한다(`package.json`, `package-lock.json`). 각 패키지의 저작권·라이선스 원문은 `node_modules/<패키지>/LICENSE`에 포함되어 배포된다. 빌드 결과물(`dist/`)에는 런타임 의존성 중 React, React DOM, React Router, TanStack Query, Zod, Tabler Icons(사용한 아이콘만)가 번들되고, Pretendard 글꼴 파일(가변 글꼴 동적 서브셋 woff2)과 그 라이선스 원문이 함께 들어간다.
+이 앱은 아래 오픈소스 패키지를 정확한 버전으로 고정해 사용한다(`package.json`, `package-lock.json`). 배포물은 두 갈래이고, 고지 방식이 다르다.
+
+- **화면(`dist/`, Vercel이 정적 파일로 제공):** `node_modules` 없이 `dist/`만 배포된다. 화면 스크립트 `dist/assets/index-*.js`에는 React·React DOM(함께 묶이는 scheduler 포함), React Router, TanStack Query(함께 묶이는 `@tanstack/query-core` 포함), Tabler Icons(사용한 아이콘만)와 Vite가 넣는 모듈 미리 불러오기 보조 코드가 번들된다. 압축 과정에서 패키지의 저작권 주석이 빠지므로, 이 구성요소들의 저작권 표시와 MIT 라이선스 원문은 `public/THIRD_PARTY_LICENSES.txt`에 모아 두었고 빌드 때 **`dist/THIRD_PARTY_LICENSES.txt`**로 함께 배포된다. 번들 구성이 바뀌거나 버전을 올려 원문이 달라지면 `tests/third-party-licenses.test.ts`가 실패하므로 이 파일을 새 원문으로 고친다. Pretendard 글꼴 파일(가변 글꼴 동적 서브셋 woff2)과 그 라이선스 원문(`dist/fonts/PRETENDARD-LICENSE.txt`)도 함께 들어간다(아래).
+- **서버 함수(`.vercel-server/handler.mjs`):** 앱 서버 코드만 묶고 패키지는 묶지 않는다(`build:api`의 `--packages=external`). Fastify·Zod 등은 실행 때 `node_modules`에서 불러오며, 각 패키지의 저작권·라이선스 원문은 그 패키지의 `node_modules/<패키지>/` LICENSE 파일에 있다. 서버 코드는 이용자 브라우저로 전달되지 않는다. Zod는 서버 입력 검증에만 쓰여 화면 번들에는 들어가지 않는다.
 
 | 패키지 | 버전 | 라이선스 | 도입 이유 |
 | --- | --- | --- | --- |
@@ -12,9 +15,9 @@
 | react / react-dom | 19.3.1 | MIT | 화면 |
 | react-router | 8.4.0 | MIT | 라우팅, URL 검색 파라미터로 목록 상태 유지 |
 | @tanstack/react-query | 5.104.4 | MIT | 서버 상태 캐시·재시도·무한 목록 |
-| zod | 4.6.7 | MIT | 서버·화면 공용 입력 검증 스키마 |
-| @tabler/icons-react | 3.49.0 | MIT | 아이콘 (Copyright (c) 2020-2024 Paweł Kuna) |
-| vite / @vitejs/plugin-react | 8.3.4 / 6.1.2 | MIT | 빌드(개발 도구) |
+| zod | 4.6.7 | MIT | 서버 입력 검증 스키마(`shared/schemas.ts`, 화면 번들에는 들어가지 않음) |
+| @tabler/icons-react | 3.49.0 | MIT | 아이콘 (Copyright (c) 2020-2026 Paweł Kuna) |
+| vite / @vitejs/plugin-react | 8.3.4 / 6.1.2 | MIT | 빌드(개발 도구). Vite가 화면 스크립트에 넣는 모듈 미리 불러오기 보조 코드의 고지는 `dist/THIRD_PARTY_LICENSES.txt`에 있다 |
 | typescript | 7.0.2 | Apache-2.0 | 타입 검사(개발 도구) |
 | tsx | 4.23.15 | MIT | TypeScript 서버 실행 |
 | vitest | 5.0.5 | MIT | 단위·API 테스트(개발 도구) |

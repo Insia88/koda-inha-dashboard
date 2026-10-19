@@ -19,6 +19,8 @@ npm start              # http://127.0.0.1:4300 — API + 빌드된 화면
 
 환경변수는 `.env.example` 참조. `MOCK_PRICE_FEED=off`로 실행하면 30분 뒤 평가액에 '시세 지연' 상태가 표시된다.
 
+새로 등록한 주소는 다른 사람이 확인한 뒤에도 기본 24시간 '사용 대기'라 그동안 출금 요청에 쓸 수 없다(설계 가정 A-31, 대기 중 정지는 주소 상세에서). 주소 등록 → 확인 → 출금 요청을 한 번에 시연하려면 `ADDRESS_COOLDOWN_HOURS=0 npm start`처럼 환경변수를 주고 서버를 띄운다(서버는 `.env` 파일을 읽지 않는다). E2E도 이 값으로 돌며, 사용 대기 자체는 시드의 사용 대기 주소로 따로 검사한다(`e2e/address-lifecycle.spec.ts`).
+
 ## 검증
 
 ```bash
@@ -58,7 +60,7 @@ VERCEL_AUTOMATION_BYPASS_SECRET=<값> node scripts/smoke-deploy.mjs https://<pre
 | Fastify + TypeScript | 서버 권한 검사·오류 형식을 한곳에서 통제, `inject`로 네트워크 없이 API 테스트 |
 | node:sqlite (SQLite) | 별도 DB 서버·네이티브 빌드 없이 트랜잭션·트리거·부분 고유 인덱스로 데이터 일관성과 감사 불변성을 저장 계층에서 검증. 운영에서는 PostgreSQL 등으로 교체 전제(`docs/operations.md`) |
 | React + React Router + TanStack Query | 목록 상태를 URL에 보관, 서버 상태 캐시·재시도, 무한 목록 |
-| Zod (공용 스키마) | 화면과 서버가 같은 검증 규칙과 한국어 메시지를 사용 |
+| Zod (서버 입력 스키마) | 입력 검증 규칙과 한국어 메시지를 `shared/schemas.ts` 한곳에 두고, 화면은 서버가 돌려준 필드 오류를 그대로 보인다(화면 번들에는 들어가지 않음) |
 | Vitest / Playwright / axe | API·권한 회귀 테스트, 실제 브라우저 흐름·반응형·접근성 자동 검사 |
 
 ## 구조

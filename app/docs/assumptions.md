@@ -39,6 +39,7 @@
 | A-31 | 설계 가정 | **신규 주소 사용 대기**(wave 3A): 두 번째 사람이 확인한 주소는 `addressBook.cooldownHours`(기본 24시간) 동안 '사용 대기'이고 그 뒤 '사용 가능'이 된다(0이면 확인 즉시). 대기 중에는 출금 요청에 쓸 수 없고(422 `ADDRESS_NOT_ACTIVE`, 사용 가능 시각을 KST로 안내), 주소 등록·확인·사용 중지 권한 중 하나가 있으면 누구나 사유와 함께 바로 정지할 수 있다(위험을 줄이는 행동이라 두 번째 확인 없음). 대기 중인 주소는 해당 권한자 모두의 홈 할 일에 경고로 보인다. 읽을 수 없는 대기 시간 값은 24시간으로 본다. 은행 지연이체·Casa 48시간을 참고한 값이며 KODA의 실제 대기 시간은 아니다 | `server/domain/addresses.ts` `cooldownMs`·`activateDueAddresses`·`stopCoolingAddress`, `config/policy.json`, `migrations/005_address_lifecycle.sql` | DASH-003, DASH-004 |
 | A-32 | 설계 가정 | **다른 경로 확인 기록**(wave 3A): 주소 등록 때 주소를 받은 경로·다시 확인한 경로·확인한 상대(연락처)를 남기고, 두 경로가 같으면 거부한다(422 `OUT_OF_BAND_SAME_CHANNEL`, 저장 계층 CHECK도 같음). 경로 선택지는 설계 가정이며 KODA가 정한 확인 절차가 아니다. 기록은 사람이 쓴 내용이라 실제로 확인했다는 증명은 아니다 | `shared/terms.ts` `RECEIVED_VIA`·`VERIFIED_VIA`, `addresses.ts` `assertDifferentChannel` | DASH-003, DASH-006 |
 | A-33 | 설계 가정 | **0원·소액 입금 주소 오염 점검**(wave 3A): 최근 90일 안에 0이거나 자산별 소액 기준(`DUST_THRESHOLD`: BTC·ETH 0.00001, USDC·KAIA·XRP 0.01) 미만인 입금을 보낸 주소와 같으면 등록·확인을 거부하고(422 `ADDRESS_POISON_SUSPECTED`), 앞·뒤만 같으면 경고한다(`ADDRESS_POISON_LOOKALIKE`, lookalike-v2 기준). 활동 내역·홈 최근 활동의 해당 입금에 위험 표시를 붙이고 보낸 주소에는 복사 버튼을 두지 않는다. 기준값과 기간은 KODA 정책이 아니다 | `shared/address-rules.ts` `DUST_THRESHOLD`·`POISON_LOOKBACK_DAYS`, `addresses.ts` `poisonFindings`·`poisonFlags` | DASH-003 |
+| A-34 | 설계 가정 | **일괄 처리 없음:** 출금 승인·반려와 주소 확인은 건마다 받는 주소·수량·지문을 대조하는 것이 안전 장치이므로, 목록에서 여러 건을 골라 한 번에 처리하는 선택·일괄 승인을 두지 않는다. 목록의 행은 상세로 가는 링크다. 처리할 건이 많은 조직에 일괄 처리가 필요한지는 KODA 운영 자료로 다시 판단한다 | `src/pages/Requests.tsx`·`src/pages/Addresses.tsx`(선택 칸 없음), `UX-CONTRACT.md` '적용하지 않는 항목' | DASH-004, DASH-005 |
 
 메뉴 구성(잔고·자산 활동 내역·결재 및 요청·스테이킹·지갑 관리·주소록 관리·토큰 목록·조직 관리·감사·마켓 인사이트)은 기존 화면 캡처의 메뉴에서 가져왔다. 메뉴가 존재한다는 사실만으로 각 메뉴의 실제 기능·권한·운영 정책이 확인된 것은 아니다.
 
@@ -73,4 +74,4 @@
 | WP-11 | 점검 결과(기준 이내·주의·확인 불가), 사유가 필요한 주의, 제출 때 저장 | A-28 |
 | WP-11 | 승인 대상 지문 범위·표시·승인/반려 대조·이전 요청 처리 | A-29 |
 | WP-11 | 커스터디 전달 직전 재확인과 지문 불일치 감사 기록 | A-30 |
-| WP-11 | 사용 대기 주소로 요청할 때 사용 가능 시각(KST)·정지 요청 안내, 감사 기록 CSV의 한국 시간·행동 이름 | A-31, A-24 |
+| WP-11 | 사용 대기 주소로 요청할 때 사용 가능 시각(KST)·기다리거나 주소 상세에서 정지하라는 안내, 감사 기록 CSV의 한국 시간·행동 이름 | A-31, A-24 |
