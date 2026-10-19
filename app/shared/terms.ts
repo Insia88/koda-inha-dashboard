@@ -70,14 +70,14 @@ export type CheckOutcome = 'pass' | 'caution' | 'unknown';
 export type CheckId = 'first_use' | 'amount_history' | 'balance_share' | 'recent_burst' | 'price';
 export interface RequestCheck {
   id: CheckId;
-  /** 한 줄 판정 문장(예: '처음 보내는 주소입니다') */
+  /** 한 줄 판정 문장(예: '이 대시보드로 처음 보내는 주소입니다') */
   label: string;
   outcome: CheckOutcome;
   /** 이번 요청에서 본 값과 권하는 행동 */
   detail: string;
   /** 판정 기준과 자료 범위. 기준값은 설계 가정이다 */
   basis: string;
-  /** 주의일 때 요청자의 진행 사유(5자 이상)가 있어야 승인 요청을 보낼 수 있는지 */
+  /** 주의일 때 요청자의 진행 사유(글자·숫자 5자 이상)가 있어야 승인 요청을 보낼 수 있는지 */
   requiresReason: boolean;
   /** 제출 때 저장한 요청자 사유. 제출 전이거나 남기지 않았으면 null */
   reason?: string | null;
@@ -87,7 +87,7 @@ export const CHECK_OUTCOME: Record<CheckOutcome, { label: string; tone: Tone }> 
   caution: { label: '주의', tone: 'warning' },
   unknown: { label: '확인 불가', tone: 'warning' },
 };
-/** 진행 사유 최소 글자 수(주소 등록 사유·정지 사유와 같은 기준) */
+/** 진행 사유 최소 글자 수. 보이지 않는 서식 문자를 빼고 글자·숫자만 센다(shared/schemas.ts letterDigitCount). */
 export const CHECK_REASON_MIN_LENGTH = 5;
 
 /** 감사 기록의 행동 이름. 감사 기록 화면과 CSV 내보내기가 함께 쓴다. 없는 코드는 코드 그대로 보인다. */
@@ -97,7 +97,8 @@ export const ACTION_LABEL: Record<string, string> = {
   'request.created': '요청 작성', 'request.updated': '요청 수정', 'request.reviewing': '검토 이동', 'request.back_to_draft': '작성으로 되돌림',
   'request.submitted': '승인 요청', 'request.approved': '승인', 'request.rejected': '반려', 'request.cancelled': '취소',
   'request.processing': '처리 시작', 'request.completed': '처리 완료', 'request.failed': '처리 실패',
-  'request.intent_tampered': '지문 불일치로 전달 중단',
+  // 승인 단계(approve)와 커스터디 전달 직전(handoff) 모두에 쓴다. 어느 단계였는지는 내용(summary)에 있다.
+  'request.intent_tampered': '승인 대상 지문 불일치로 중단',
   'member.roles_changed': '역할 변경', 'audit.exported': '감사 기록 내보내기', 'insight.published': '리서치 게시', 'insight.hidden': '리서치 숨김',
 };
 export const actionLabel = (action: string) => ACTION_LABEL[action] ?? action;

@@ -71,8 +71,8 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await expect(page.getByText('검토 중').first()).toBeVisible();
   await page.getByLabel(/원본 주소의 끝 6자리/).fill('CD9876');
   await page.getByLabel(/되돌릴 수 없다는 점/).check();
-  // 방금 등록한 주소라 '처음 보내는 주소입니다' 주의 항목의 진행 사유가 필요하다(WP-11).
-  await page.getByRole('textbox', { name: /^진행 사유: 처음 보내는 주소입니다/ }).fill('E2E 거래처 재무팀과 전화로 주소를 대조했습니다');
+  // 방금 등록한 주소라 '이 대시보드로 처음 보내는 주소입니다' 주의 항목의 진행 사유가 필요하다(WP-11).
+  await page.getByRole('textbox', { name: /^진행 사유: 이 대시보드로 처음 보내는 주소입니다/ }).fill('E2E 거래처 재무팀과 전화로 주소를 대조했습니다');
   await page.getByRole('button', { name: '승인 요청 보내기' }).click();
   await expect(page.getByText('승인 대기').first()).toBeVisible();
   await expect(page.getByText('본인이 작성한 요청은 승인할 수 없습니다')).toBeVisible();

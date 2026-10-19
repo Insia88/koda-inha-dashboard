@@ -41,10 +41,10 @@
 
 | 코드 | 상태 | 언제 | `fields[].field` | 추가 필드 |
 | --- | --- | --- | --- | --- |
-| `CHECK_REASON_REQUIRED` | 422 | 승인 요청(`/submit`) 때 사유가 필요한 주의 항목(처음 보내는 주소, 과거 출금 중앙값의 5배 초과, 사용 가능 수량의 50% 이상)에 5자 이상 진행 사유가 없음. 빠진 항목마다 필드 오류. 아무것도 예약하지 않고 검토 중으로 남는다. 끝자리 검사(`CONFIRM_TAIL_MISMATCH`)·사용 가능 수량 검사 다음, 승인 가능 인원 검사(`APPROVERS_INSUFFICIENT`) 앞 | `checkReasons.<점검 id>` | `checkIds` |
+| `CHECK_REASON_REQUIRED` | 422 | 승인 요청(`/submit`) 때 사유가 필요한 주의 항목(이 대시보드로 처음 보내는 주소, 과거 출금 중앙값의 5배 초과, 사용 가능 수량의 50% 이상·초과)에 진행 사유가 없거나, 보이지 않는 서식 문자(`\p{Cf}`)를 지운 뒤 글자·숫자가 5자 미만(문장부호·공백만인 사유 포함). 빠진 항목마다 필드 오류. 아무것도 예약하지 않고 검토 중으로 남는다. 끝자리 검사(`CONFIRM_TAIL_MISMATCH`)·사용 가능 수량 검사 다음, 승인 가능 인원 검사(`APPROVERS_INSUFFICIENT`) 앞 | `checkReasons.<점검 id>` | `checkIds` |
 | `INTENT_CHANGED` | 409 | 승인·반려 본문의 `intentHash`가 제출 때 고정한 지문과 다름(대소문자 무시). 승인 표를 남기지 않는다 | — | `intentHashDisplay`(지금 지문) |
 | `INTENT_MISSING` | 409 | 지문 기록 전(이 기능 도입 전)에 제출된 승인 대기 요청의 승인. 대조할 지문이 없어 거부한다(fail closed). 반려는 `intentHash: null`로 할 수 있다 | — | — |
-| `INTENT_TAMPERED` | 409 | 승인할 때와 커스터디로 넘기기 직전에 저장된 행으로 지문을 다시 계산했더니 제출 때 지문과 다르거나, 정족수에 든 승인 표 중 같은 지문을 승인하지 않은 표가 있음. 승인 트랜잭션을 되돌려 처리 중으로 넘기지 않고 커스터디를 부르지 않는다. 별도 트랜잭션으로 감사 기록 `request.intent_tampered`(수행자 '시스템(승인 대상 지문 재확인)', 상세: `stage`(`approve`·`handoff`), `storedHash`, `recomputedHash`, `mismatchedApproverIds`, `attemptedBy`, 끝자리만 담은 `current`, `custodyCalled: false`)를 남긴다. 반려는 막지 않는다 | — | — |
+| `INTENT_TAMPERED` | 409 | 승인할 때와 커스터디로 넘기기 직전에 저장된 행으로 지문을 다시 계산했더니 제출 때 지문과 다르거나, 정족수에 든 승인 표 중 같은 지문을 승인하지 않은 표가 있음. 승인 트랜잭션을 되돌려 처리 중으로 넘기지 않고 커스터디를 부르지 않는다. 별도 트랜잭션으로 감사 기록 `request.intent_tampered`(수행자 '시스템(승인 대상 지문 재확인)', 상세: `stage`(`approve`·`handoff`), `storedHash`, `recomputedHash`, `mismatchedApproverIds`, `attemptedBy`, 끝자리만 담은 `current`, `custodyCalled: false`)를 남긴다(행동 이름 '승인 대상 지문 불일치로 중단'). 조회 응답도 지문을 다시 계산해 `blockedReason: 'INTENT_TAMPERED'`로 알리고 `approve`를 내보이지 않는다. 반려·취소는 막지 않으며 승인 요청 때 예약한 수량을 푼다 | — | — |
 | `VALIDATION` | 422 | 승인·반려 본문에 `intentHash`가 없음 | `intentHash` | — |
 
 ## 멱등성
@@ -70,14 +70,14 @@
 | `approvalBasis` | 필요 승인 수의 근거: `value_below_threshold`, `value_at_or_above_threshold`, `price_missing`(시세 없음), `price_stale`(30분 초과·읽을 수 없음·5분 넘게 미래). 뒤의 둘은 고액 기준 적용. 제출 전이거나 이 필드 도입 전 요청은 null |
 | `priceAsOfAtSubmit` | 제출 때 쓴 시세 기준 시각(ISO). 시세가 없었으면 null |
 | `krwValueAtSubmit` | 제출 때 원화 평가액(원 단위 정수 문자열) 또는 null |
-| `blockedReason` | 승인 대기 요청을 승인할 수 없는 이유. 지금은 받는 주소가 사용 가능 상태가 아닐 때의 `ADDRESS_NOT_ACTIVE`뿐이며, 이때 `allowedActions`에는 `approve`가 없고 `reject`만 남는다(승인자). 그 밖에는 null |
+| `blockedReason` | 승인 대기 요청을 승인할 수 없는 이유. `INTENT_TAMPERED`: 조회할 때 지금 저장된 요청·주소록 행으로 다시 계산한 지문이 `intentHash`와 다름(승인 요청 뒤 내용이 바뀜, 먼저 본다). `ADDRESS_NOT_ACTIVE`: 받는 주소가 사용 가능 상태가 아님. 이때 `allowedActions`에는 `approve`가 없고 `reject`만 남는다(승인자, 요청자는 `cancel`). 서버의 승인 거부(409 `INTENT_TAMPERED`·422 `ADDRESS_NOT_ACTIVE`)는 그대로다. 그 밖에는 null. 목록 응답에도 있다 |
 | `allowedActions` | 지금 사용자에게 허용된 행동(서버 계산). 목록 응답에서는 빈 배열. 지문이 없는 이전 승인 대기 요청에는 `approve`가 없다 |
 | `custodyRef` | 커스터디 접수 참조(모의) |
 | `intentHash` | 승인 대상 지문(16진수 소문자 64자). 승인 요청(제출) 때 정규화 JSON `{v:1, requestId, orgId, assetCode, networkCode, amountUnits, addressId, address(네트워크 계열 규칙으로 정규화), memo, requiredApprovals}`(키 정렬, 공백 없음)의 SHA-256으로 정하고 바꾸지 않는다. 제출 전·이 기능 도입 전 요청은 null. 목록 응답에도 있다 |
 | `intentHashDisplay` | 화면 표시용 지문: 앞 16자를 대문자 4자 묶음으로(예 `7F3A 91C2 0B4E 55D1`). 없으면 null |
 | `approvals[].intentHash`, `approvals[].intentHashDisplay` | 그 사람이 승인·반려할 때 본 지문. 이 기능 도입 전 표는 null |
 | `checks` | 상세 응답에만. 출금 전 점검 `{evaluatedAt, stored, items[]}`. 작성·검토 중이면 볼 때마다 다시 계산(`stored: false`), 승인 요청 뒤에는 제출 때 저장한 결과와 요청자 사유(`stored: true`). 점검 기록 전에 제출된 요청은 null |
-| `checks.items[]` | `{id, label, outcome, detail, basis, requiresReason, reason?}`. `id`: `first_use`·`amount_history`·`balance_share`·`recent_burst`·`price`(이 순서). `outcome`: `pass`(기준 이내)·`caution`(주의)·`unknown`(확인 불가, 기준 이내로 보이지 않음). `requiresReason`은 주의이면서 진행 사유가 필요한 항목. `reason`은 제출 때 저장한 사유(제출 전·사유 없음은 null). 기준값은 `GET /org/policy`의 `withdrawalChecks`(설계 가정 A-27) |
+| `checks.items[]` | `{id, label, outcome, detail, basis, requiresReason, reason?}`. `id`: `first_use`·`amount_history`·`balance_share`·`recent_burst`·`price`(이 순서). `outcome`: `pass`(기준 이내)·`caution`(주의)·`unknown`(확인 불가, 기준 이내로 보이지 않음). `requiresReason`은 주의이면서 진행 사유가 필요한 항목. `first_use`·`amount_history`는 이 대시보드에서 처리 완료된 출금 요청만 세며(자산 활동 내역의 출금 행은 받는 주소가 없어 제외), 문구에 그 범위를 함께 쓴다(A-27). `reason`은 제출 때 저장한 사유(제출 전·사유 없음은 null). 기준값은 `GET /org/policy`의 `withdrawalChecks`(설계 가정 A-27) |
 
 ## 주소 응답 (`GET /addresses`, `GET /addresses/:id`)
 
@@ -148,8 +148,8 @@ UTF-8(BOM) CSV, 줄바꿈 CRLF. 목록과 같은 필터(`action`, `actor`, `q`, 
 | GET /requests?view(mine\|to_approve\|blocked)&status(csv)&q&order&page&pageSize, GET /requests/:id | request.read | 목록(상태별 건수 `counts`는 보기·검색 조건을 따르고 상태 필터만 무시), 상세(허용 행동·처리 기록·사용 가능 수량). `to_approve`는 받는 주소가 사용 가능한 요청만, `blocked`는 받는 주소가 사용 가능하지 않은 승인 대기 요청(조직 전체) |
 | POST /requests, PUT /requests/:id | request.create | 초안 작성·수정. 공개 데모는 `DEMO_LIMIT`(작성) |
 | POST /requests/checks-preview `{assetCode, networkCode, addressId, amount, requestId?}` | request.create | 작성 화면의 출금 전 점검 미리 보기 `{evaluatedAt, items}`(저장 안 함). 초안과 같은 입력 검증(`ADDRESS_NOT_ACTIVE` 등). `requestId`는 고치는 중인 초안을 과거 기록·건수에서 뺀다 |
-| POST /requests/:id/review \| back-to-draft \| submit \| cancel | request.create(작성자) | 상태 전이. submit 본문 `{version, confirmTail, ackIrreversible, checkReasons?}`: `checkReasons`는 점검 id → 진행 사유(300자 이내, 알 수 없는 id는 422). 서버가 제출 시점 기준으로 점검을 다시 계산하고, 사유가 필요한 주의 항목에 5자 이상 사유가 없으면 `CHECK_REASON_REQUIRED`. 통과하면 지문(`intentHash`)과 점검 결과·사유를 바꿀 수 없는 기록으로 저장하고 감사 기록 `request.submitted`에 지문·점검 결과·사유를 남긴다. 승인 가능 인원 부족 시 `APPROVERS_INSUFFICIENT` |
-| POST /requests/:id/approve `{version, intentHash}` \| reject `{version, reason, intentHash}` | request.approve(작성자 제외) | 승인 / 반려(`reason` 5~500자). `intentHash`는 요청 응답의 값을 그대로 보낸다(없으면 422, 다르면 409 `INTENT_CHANGED`, 지문 없는 이전 요청의 승인은 409 `INTENT_MISSING`, 반려는 `null`). 검사 순서: 권한 → 요청(404) → 자기 승인 → 이미 결정 → 상태·버전 → 지문 → 저장 내용 재계산(`INTENT_TAMPERED`) → 받는 주소(`ADDRESS_NOT_ACTIVE`). 승인 표마다 지문을 남기고, 정족수가 차면 커스터디로 넘기기 직전에 다시 계산·대조한 뒤 지문과 함께 넘긴다 |
+| POST /requests/:id/review \| back-to-draft \| submit \| cancel | request.create(작성자) | 상태 전이. submit 본문 `{version, confirmTail, ackIrreversible, checkReasons?}`: `checkReasons`는 점검 id → 진행 사유(300자 이내, 알 수 없는 id는 422). 서버가 제출 시점 기준으로 점검을 다시 계산하고, 사유가 필요한 주의 항목에 글자·숫자 5자 이상 사유가 없으면 `CHECK_REASON_REQUIRED`(저장하는 사유에서는 보이지 않는 서식 문자를 지운다). 통과하면 지문(`intentHash`)과 점검 결과·사유, 실제로 예약한 지갑·자산·수량을 바꿀 수 없는 기록으로 저장하고 감사 기록 `request.submitted`에 지문·점검 결과·사유를 남긴다. 승인 가능 인원 부족 시 `APPROVERS_INSUFFICIENT` |
+| POST /requests/:id/approve `{version, intentHash}` \| reject `{version, reason, intentHash}` | request.approve(작성자 제외) | 승인 / 반려(`reason` 5~500자). `intentHash`는 요청 응답의 값을 그대로 보낸다(없으면 422, 다르면 409 `INTENT_CHANGED`, 지문 없는 이전 요청의 승인은 409 `INTENT_MISSING`, 반려는 `null`). 검사 순서: 권한 → 요청(404) → 자기 승인 → 이미 결정 → 상태·버전 → 지문 → 저장 내용 재계산(`INTENT_TAMPERED`) → 받는 주소(`ADDRESS_NOT_ACTIVE`). 승인 표마다 지문을 남기고, 정족수가 차면 커스터디로 넘기기 직전에 다시 계산·대조한 뒤 지문과 함께 넘긴다. 반려·취소(승인 대기)는 지금 행의 수량이 아니라 승인 요청 때 예약 기록으로 예약을 풀고, 감사 기록 상세에 `released`(푼 수량)·`releasedAssetCode`와 지문이 있는 요청이면 `contentMatchesIntent`(지금 내용이 지문과 같은지)를 남긴다 |
 | GET /org/members, GET /org/policy | org.read | 구성원·정책(`approval`, `addressBook`, `withdrawalChecks`, `isDesignAssumption: true`) |
 | PUT /org/members/:id/roles `{roles, rolesVersion}` | org.manage | 역할 변경(감사 기록). 본인 관리자 해제·마지막 관리자 해제·본인에게 승인자/자산 담당자 부여 금지 |
 | GET /audit, GET /audit/verify, GET /audit/export.csv | audit.read / audit.export | 감사 기록(`orgSeq`), 해시 체인 검증(위 형식), CSV |

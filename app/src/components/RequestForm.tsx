@@ -28,7 +28,8 @@ export function checkSummary(items: RequestCheck[]): string {
  * 출금 전 점검 목록(F8·F13·F14). 항목마다 아이콘과 결과 글자를 함께 둔다(색만으로 구분하지 않음).
  * - onReason을 주면 사유가 필요한 주의 항목 아래에 진행 사유 입력을 둔다(검토 단계).
  * - showReasons면 제출 때 저장한 요청자 사유를 보인다(승인 화면).
- * - compact(작성 화면 미리 보기)는 기준 이내 항목을 한 줄로 줄이고 기준 문장을 생략한다.
+ * - 둘 다 아니면(작성 화면 미리 보기·작성 중 상세) 사유가 필요한 주의 항목에 「사유 필요」 표시를 붙인다(어느 항목에 사유를 적어야 하는지 미리 알 수 있게).
+ * - compact(작성 화면 미리 보기)는 기준 이내 항목을 한 줄로 줄이고 그 기준 문장을 생략한다. 주의·확인 불가 항목은 기준(자료 범위)까지 보인다.
  */
 export function CheckList({ items, title, intro, reasons, onReason, reasonError, showReasons, compact, footnote, level = 3 }: {
   items: RequestCheck[]; title: string; level?: 2 | 3; intro?: string; reasons?: Record<string, string>; onReason?: (id: string, value: string) => void;
@@ -53,12 +54,15 @@ export function CheckList({ items, title, intro, reasons, onReason, reasonError,
             <li key={c.id} className={`rc-item rc-${c.outcome}`}>
               <Icon size={18} aria-hidden="true" className="rc-icon" />
               <div className="rc-body">
-                <p className="rc-line"><span className="rc-outcome">{outcomeLabel}</span><span className="rc-label">{shown}</span></p>
+                <p className="rc-line">
+                  <span className="rc-outcome">{outcomeLabel}</span><span className="rc-label">{shown}</span>
+                  {c.requiresReason && !onReason && !showReasons && <span className="rc-need">사유 필요</span>}
+                </p>
                 {(!compact || c.outcome !== 'pass') && <p className="rc-detail">{c.detail}</p>}
-                {!compact && <p className="rc-basis">기준: {c.basis}</p>}
+                {(!compact || c.outcome !== 'pass') && <p className="rc-basis">기준: {c.basis}</p>}
                 {showReasons && c.reason && <div className="rc-reason"><b>요청자 진행 사유</b><p>{c.reason}</p></div>}
                 {onReason && c.requiresReason && (
-                  <Field label={`진행 사유: ${c.label}`} htmlFor={fieldId} required error={reasonError?.(c.id)} hint={`그대로 진행하는 이유를 ${CHECK_REASON_MIN_LENGTH}자 이상 적어 주세요. 승인자에게 함께 보입니다.`}>
+                  <Field label={`진행 사유: ${c.label}`} htmlFor={fieldId} required error={reasonError?.(c.id)} hint={`그대로 진행하는 이유를 글자·숫자 ${CHECK_REASON_MIN_LENGTH}자 이상으로 적어 주세요. 승인자에게 함께 보입니다.`}>
                     <TextareaAuto id={fieldId} rows={2} maxRows={6} maxLength={300} value={reasons?.[c.id] ?? ''} onChange={(e) => onReason(c.id, e.target.value)} />
                   </Field>
                 )}
@@ -72,15 +76,23 @@ export function CheckList({ items, title, intro, reasons, onReason, reasonError,
   );
 }
 
-/** 승인 대상 지문(F10): 승인 요청 때 고정한 내용의 지문과 한 줄 설명. 요청자·승인자 화면에 같은 값이 보인다. */
-export function IntentFingerprint({ display }: { display: string | null }) {
+/**
+ * 승인 대상 지문(F10): 승인 요청 때 고정한 내용의 지문과 한 줄 설명. 요청자·승인자 화면에 같은 값이 보인다.
+ * mismatch: 서버가 지금 저장된 내용으로 다시 계산한 지문이 이 값과 다르다(blockedReason INTENT_TAMPERED). 화면의 내용이 승인 요청 때와 다르다는 것을 지문 옆에 알린다.
+ */
+export function IntentFingerprint({ display, mismatch = false }: { display: string | null; mismatch?: boolean }) {
   const labelId = useId();
   return (
-    <div className="rc-intent" role="group" aria-labelledby={labelId}>
+    <div className={`rc-intent${mismatch ? ' rc-intent-bad' : ''}`} role="group" aria-labelledby={labelId}>
       <span className="rc-intent-label" id={labelId}>승인 대상 지문</span>
       {display
         ? <span className="rc-intent-value">{display}</span>
         : <span className="rc-intent-missing">기록 없음 · 지문을 기록하기 전에 승인 요청된 요청이라 승인할 수 없습니다</span>}
+      {mismatch && (
+        <p className="rc-intent-mismatch">
+          <IconAlertTriangle size={16} aria-hidden="true" /> 지금 요청 내용으로 다시 계산한 지문과 다릅니다. 승인 요청 뒤 내용이 바뀌었으므로 화면의 수량·받는 주소를 승인 근거로 쓰지 마세요.
+        </p>
+      )}
       <p className="rc-intent-note">자산·수량·받는 주소·네트워크·메모·필요 승인 수를 묶어 만든 값으로, 승인 요청 뒤 이 중 하나라도 바뀌면 지문이 달라져 승인되지 않습니다.</p>
     </div>
   );
@@ -144,7 +156,7 @@ function ChecksPreview({ value, requestId, amountReadable }: { value: RequestFor
   const needsReason = q.data.items.some((c) => c.requiresReason);
   return (
     <CheckList compact title="출금 전 점검 미리 보기" items={q.data.items}
-      intro={needsReason ? '주의 항목은 검토 단계에서 진행 사유를 적어야 승인 요청을 보낼 수 있습니다. 처음 보내는 주소라면 소액 시험 전송을 먼저 요청하는 방법도 있습니다.' : undefined}
+      intro={needsReason ? '「사유 필요」 표시가 있는 주의 항목은 검토 단계에서 진행 사유를 적어야 승인 요청을 보낼 수 있습니다. 이 대시보드로 처음 보내는 주소라면 소액 시험 전송을 먼저 요청하는 방법도 있습니다.' : undefined}
       footnote="점검 기준은 설계 가정이며, 검토 단계에서 기준과 함께 다시 보여 드립니다." />
   );
 }
@@ -154,6 +166,9 @@ export function RequestForm({ value, onChange, error, requestId }: { value: Requ
   const cat = useCatalog();
   const bal = useQuery({ queryKey: ['balances'], queryFn: () => api('/api/balances') });
   const addrs = useQuery({ queryKey: ['addresses', 'for-request', value.assetCode, value.networkCode], queryFn: () => api(`/api/addresses?status=ACTIVE&assetCode=${value.assetCode}&networkCode=${value.networkCode}&sort=label`), enabled: !!value.assetCode && !!value.networkCode });
+  // 같은 자산·네트워크의 사용 대기 주소: 고를 수는 없지만, 언제부터 쓸 수 있는지와 할 일을 선택 상자 아래에 알린다.
+  const waiting = useQuery({ queryKey: ['addresses', 'for-request-waiting', value.assetCode, value.networkCode], queryFn: () => api(`/api/addresses?status=COOLING_DOWN&assetCode=${value.assetCode}&networkCode=${value.networkCode}&sort=label`), enabled: !!value.assetCode && !!value.networkCode });
+  const waitingItems: any[] = waiting.data?.items ?? [];
   const set = (p: Partial<RequestFormValue>) => onChange({ ...value, ...p });
   const err = error instanceof ApiError ? error : null;
   // 필드 오류는 지금 입력할 수 있는 단계에만 표시한다(잠긴 단계의 오류는 앞 단계를 마친 뒤 다시 확인된다).
@@ -206,9 +221,24 @@ export function RequestForm({ value, onChange, error, requestId }: { value: Requ
             {addrs.data?.items.map((a: any) => <option key={a.id} value={a.id}>{a.label} — {a.counterparty}</option>)}
           </select>
         </Field>
-        {value.networkCode && addrs.data && addrs.data.items.length === 0 && (
+        {value.networkCode && addrs.data && addrs.data.items.length === 0 && !waiting.isPending && waitingItems.length === 0 && (
           <Notice tone="info" title={`${value.assetCode} / ${networks.find((n) => n.code === value.networkCode)?.name}로 쓸 수 있는 주소가 없습니다`}>
             <Link to="/addresses/new">주소록에 먼저 등록</Link>하고 다른 담당자의 확인을 받으세요.
+          </Notice>
+        )}
+        {value.networkCode && addrs.data && waitingItems.length > 0 && (
+          <Notice tone="info" title={addrs.data.items.length === 0
+            ? `${value.assetCode} / ${networks.find((n) => n.code === value.networkCode)?.name}로 지금 쓸 수 있는 주소가 없습니다`
+            : `사용 대기 중인 주소 ${waitingItems.length}건은 아직 고를 수 없습니다`}>
+            <ul className="rc-waiting">
+              {waitingItems.map((a) => (
+                <li key={a.id}>
+                  <span className="rc-waiting-label">{a.label}</span> <span className="muted">· {a.counterparty}</span>
+                  <span className="rc-waiting-when">{a.activeFrom ? `${dateTime(a.activeFrom)} KST부터 사용 가능` : '사용 대기 중'}</span>
+                </li>
+              ))}
+            </ul>
+            사용 가능해질 때까지 기다린 뒤 요청하세요. 요청한 적 없는 등록이라면 승인자에게 사용 대기 중 정지를 요청하세요.
           </Notice>
         )}
         {selected && <div className="verify-box"><div className="verify-label">선택한 주소</div><AddressStrip address={selected.address} memo={selected.memo} /></div>}

@@ -20,6 +20,19 @@ export function isWellFormedText(s: string): boolean {
   return true;
 }
 
+/**
+ * 보이지 않는 서식 문자(\p{Cf}: 폭 없는 공백 U+200B, 방향 제어 문자 U+202E, BOM 등)를 지운다.
+ * 사람이 읽고 판단하는 글(출금 전 점검의 진행 사유)에 보이지 않거나 뒤집혀 보이는 글자가 섞이지 않게 한다.
+ */
+export function stripFormatChars(s: string): string {
+  return s.replace(/\p{Cf}/gu, '');
+}
+
+/** 글자(\p{L})와 숫자(\p{N})의 개수. 공백·문장부호·기호·보이지 않는 문자는 세지 않는다. */
+export function letterDigitCount(s: string): number {
+  return (s.match(/[\p{L}\p{N}]/gu) ?? []).length;
+}
+
 /** 깨진 문자(짝 없는 서로게이트)가 든 입력에 붙이는 항목 오류 문구 */
 export const brokenTextMessage = (label: string) => `${label}에 깨진 문자(잘린 이모지 등)가 들어 있습니다. 그 부분을 지우고 다시 입력하세요.`;
 
@@ -84,7 +97,8 @@ export const requestSubmitSchema = z.object({
   version: z.number().int().positive(),
   confirmTail: z.string().trim().min(1, '받는 주소 끝자리를 입력하세요.').max(20),
   ackIrreversible: z.literal(true, { message: '전송 후에는 되돌릴 수 없다는 점을 확인하세요.' }),
-  // 사유가 필요한 주의 항목마다 진행 사유(5자 이상). 빠지면 서버가 422 CHECK_REASON_REQUIRED(항목별 필드 checkReasons.<id>)로 거부한다.
+  // 사유가 필요한 주의 항목마다 진행 사유(보이지 않는 서식 문자를 뺀 글자·숫자 5자 이상, server/domain/checks.ts attachCheckReasons).
+  // 빠지거나 모자라면 서버가 422 CHECK_REASON_REQUIRED(항목별 필드 checkReasons.<id>)로 거부한다.
   checkReasons: z.partialRecord(z.enum(CHECK_IDS), text(z.string().trim().max(300, '진행 사유는 300자 이내로 입력하세요.'), '진행 사유')).optional().default({}),
 });
 

@@ -18,6 +18,12 @@ type ChecksView = { evaluatedAt: string; stored: boolean; items: RequestCheck[] 
 /** 지문·점검 관련 409 오류는 화면을 새로 고치는 것만으로 풀리지 않으므로 서버가 준 행동 안내를 그대로 보인다. */
 const INTENT_CODES = new Set(['INTENT_CHANGED', 'INTENT_TAMPERED', 'INTENT_MISSING']);
 
+/** 저장된 출금 전 점검이 없는 요청(점검 기록 도입 전 요청, 시드의 처리 완료·반려 요청)에 보이는 문장 */
+const NO_STORED_CHECKS = '이 요청에는 저장된 출금 전 점검 결과가 없습니다.';
+
+/** 승인 전 확인 세 항목의 처음 상태(모두 확인 안 함). 409를 받으면 이 상태로 되돌린다. */
+const NO_CHECKS = { counterparty: false, amount: false, address: false };
+
 type RoleKey = 'requester' | 'approver' | 'other';
 
 const NEXT_FOR_ROLE: Record<string, Record<RoleKey, string>> = {
@@ -34,6 +40,11 @@ const NEXT_FOR_ROLE: Record<string, Record<RoleKey, string>> = {
 
 function nextAction(r: any, role: RoleKey, tailLength: number, canReject: boolean, reasonPrefilled: boolean): string {
   // 승인할 수 없는 이유는 아래 안내에 쓰고, 여기에는 할 일만 쓴다(안내 제목과 같은 문장을 되풀이하지 않는다).
+  if (r.blockedReason === 'INTENT_TAMPERED') {
+    if (role === 'requester') return '이 요청을 취소하고 보안 담당자에게 알리세요. 같은 출금이 필요하면 내용을 확인해 새 요청을 작성하세요.';
+    if (role === 'approver' && canReject) return reasonPrefilled ? '미리 채운 반려 사유를 확인하고 반려한 뒤 보안 담당자에게 알리세요.' : '사유와 함께 반려한 뒤 보안 담당자에게 알리세요.';
+    return '요청자의 취소나 승인자의 반려를 기다리는 중입니다.';
+  }
   if (r.blockedReason === 'ADDRESS_NOT_ACTIVE') {
     if (role === 'requester') return '이 요청을 취소하세요. 같은 출금이 필요하면 사용 가능한 주소로 새 요청을 작성하세요.';
     if (role === 'approver' && canReject) return reasonPrefilled ? '미리 채운 반려 사유를 확인하고 반려하세요.' : '반려 사유를 확인하고 반려하세요.';
@@ -86,10 +97,14 @@ export function RequestDetailPage() {
   const [tail, setTail] = useState('');
   const [ack, setAck] = useState(false);
   const [reason, setReason] = useState('');
-  // 승인할 수 없는 요청(받는 주소 사용 중지)에는 반려 사유를 미리 채워 둔다. 제안 그대로면 작성 중으로 보지 않는다.
-  const suggestedReason = q.data?.blockedReason === 'ADDRESS_NOT_ACTIVE' && q.data.allowedActions.includes('reject')
-    ? `받는 곳 '${q.data.address.label}'의 주소가 사용 중지되어 승인할 수 없으므로 반려합니다. 사용 가능한 주소로 새 요청을 작성해 주세요.`
-    : '';
+  // 승인할 수 없는 요청(승인 요청 뒤 내용이 바뀜, 받는 주소 사용 중지)에는 반려 사유를 미리 채워 둔다. 제안 그대로면 작성 중으로 보지 않는다.
+  const suggestion = !q.data?.allowedActions.includes('reject') ? null
+    : q.data.blockedReason === 'INTENT_TAMPERED'
+      ? { text: `승인 요청 뒤 요청 내용이 승인 대상 지문(${q.data.intentHashDisplay ?? '기록'})과 맞지 않아 승인할 수 없으므로 반려합니다. 요청 내용을 확인하고 필요하면 새 요청을 작성해 주세요.`, button: '지문 불일치 사유로 바꾸기' }
+      : q.data.blockedReason === 'ADDRESS_NOT_ACTIVE'
+        ? { text: `받는 곳 '${q.data.address.label}'의 주소가 사용 중지되어 승인할 수 없으므로 반려합니다. 사용 가능한 주소로 새 요청을 작성해 주세요.`, button: '주소 사용 중지 사유로 바꾸기' }
+        : null;
+  const suggestedReason = suggestion?.text ?? '';
   // reasonSeed: 입력란에 넣은 제안(사용자가 고치지 않았으면 reason과 같다). reasonOffered: 마지막으로 처리한 제안.
   const [reasonSeed, setReasonSeed] = useState('');
   const [reasonOffered, setReasonOffered] = useState('');
@@ -100,7 +115,7 @@ export function RequestDetailPage() {
     if (reason.trim() === '' || reason === reasonSeed) { setReason(suggestedReason); setReasonSeed(suggestedReason); }
   }, [suggestedReason, reasonOffered, reason, reasonSeed]);
   const reasonPrefilled = !!suggestedReason && reason === suggestedReason;
-  const [checked, setChecked] = useState({ counterparty: false, amount: false, address: false });
+  const [checked, setChecked] = useState(NO_CHECKS);
   // 출금 전 점검의 진행 사유(점검 항목 id → 사유). 승인 요청을 보내면 비운다.
   const [checkReasons, setCheckReasons] = useState<Record<string, string>>({});
   // 방금 승인 요청을 보냈는지: 요청자에게 승인 대상 지문을 알려 주는 안내를 한 번 보인다.
@@ -117,8 +132,10 @@ export function RequestDetailPage() {
     qc.invalidateQueries({ queryKey: ['balances'] });
   };
   // 409(먼저 바뀜·지문 불일치)나 받는 주소 상태 변경(ADDRESS_NOT_ACTIVE), 제출 때 새로 생긴 주의 항목(CHECK_REASON_REQUIRED)이면
-  // 최신 상태를 다시 불러와 화면을 맞춘다. 오류 안내와 입력은 그대로 둔다.
+  // 최신 상태를 다시 불러와 화면을 맞춘다. 오류 안내와 입력은 그대로 두되, 409이면 승인 전 확인 표시는 지운다
+  // (다시 불러온 내용을 보고 다시 확인해야 승인할 수 있게. 확인 표시가 남아 있으면 바뀐 내용을 보지 않고 한 번에 승인될 수 있다).
   const reloadOnStale = (e: unknown) => {
+    if (e instanceof ApiError && e.status === 409) setChecked(NO_CHECKS);
     if (e instanceof ApiError && (e.status === 409 || e.code === 'ADDRESS_NOT_ACTIVE' || e.code === 'CHECK_REASON_REQUIRED')) qc.invalidateQueries({ queryKey: ['request', id] });
   };
   const act = useMutation({
@@ -141,6 +158,30 @@ export function RequestDetailPage() {
   });
   useFocusFirstError(editRef, save.error);
   useFocusFirstError(actionRef, act.error);
+  // 409(지문 불일치·먼저 바뀜)는 입력 필드 오류가 없어 위 포커스 이동이 일어나지 않는다. 안내 자체로 포커스를 옮기고 화면 안으로 가져온다.
+  // 안내는 확인 카드가 있으면 카드 안 결정 버튼 바로 위에, 카드가 사라지면(다른 사람이 먼저 처리) 화면 위쪽에 보이므로 위치가 바뀔 때도 다시 옮긴다.
+  const conflictRef = useRef<HTMLDivElement>(null);
+  const conflictErr = act.error instanceof ApiError && act.error.status === 409 ? act.error : null;
+  const actionCardNow = !!q.data && ['submit', 'approve', 'reject'].some((a) => q.data.allowedActions.includes(a));
+  useEffect(() => {
+    if (!conflictErr) return;
+    const raf = requestAnimationFrame(() => {
+      const el = conflictRef.current;
+      if (el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: 'center' }); }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [conflictErr, actionCardNow]);
+  // 승인 요청을 보낸 직후: 확인 카드가 사라진 자리에서 화면 위쪽의 지문 안내로 포커스를 옮긴다(요청자가 지문을 보고 승인자와 대조할 수 있게).
+  const submittedRef = useRef<HTMLDivElement>(null);
+  const showSubmitted = justSubmitted && !!q.data && q.data.createdBy.id === me.user.id && q.data.status === 'PENDING_APPROVAL' && !!q.data.intentHashDisplay;
+  useEffect(() => {
+    if (!showSubmitted) return;
+    const raf = requestAnimationFrame(() => {
+      const el = submittedRef.current;
+      if (el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: 'center' }); }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [showSubmitted]);
   const editDirty = editing && !!form && !!original && JSON.stringify(form) !== JSON.stringify(original);
   const reasonDirty = reason.trim() !== '' && reason !== reasonSeed;
   const checkReasonDirty = Object.values(checkReasons).some((v) => v.trim() !== '');
@@ -157,10 +198,12 @@ export function RequestDetailPage() {
   const n = me.policy.confirmTailLength;
   const actErr = act.error instanceof ApiError ? act.error : null;
   const blocked = r.blockedReason === 'ADDRESS_NOT_ACTIVE';
+  // 지금 저장된 내용이 승인 요청 때 고정한 지문과 맞지 않는다(서버가 조회 때마다 다시 계산). 승인은 내보이지 않고 반려·취소만 남는다.
+  const tampered = r.blockedReason === 'INTENT_TAMPERED';
   const decideCard = can('approve') || can('reject');
   const allChecked = checked.counterparty && checked.amount && checked.address;
   const actNotice = act.error && !(act.error instanceof ApiError && act.error.status === 409) ? act.error : null;
-  const conflict = act.error instanceof ApiError && act.error.status === 409 ? act.error : null;
+  const conflict = conflictErr;
   const checks = (r.checks ?? null) as ChecksView;
   const submitted = !!r.submittedAt;
   // 승인 요청 때 보낼 진행 사유: 지금 보이는 점검 항목 id만 보낸다.
@@ -182,6 +225,17 @@ export function RequestDetailPage() {
   const cancelButton = can('cancel') && <button type="button" className="btn btn-danger-outline" onClick={() => { cancelM.reset(); setConfirmCancel(true); }} disabled={act.isPending}>요청 취소</button>;
   const reviewButton = can('review') && <button className="btn btn-primary" onClick={() => act.mutate({ action: 'review', body: {} })} disabled={act.isPending}>검토로 이동</button>;
 
+  // 409 안내(지문 불일치·먼저 바뀜): 확인 카드가 있으면 카드 안 결정 버튼 바로 위에, 없으면 화면 위쪽에 한 번만 보인다.
+  // 안내로 포커스를 옮기므로(conflictRef) 버튼을 누른 자리에서 원인과 행동을 바로 읽을 수 있다.
+  const conflictNotice = conflict && (
+    <div ref={conflictRef} tabIndex={-1} className="rc-focus-target">
+      <Notice tone={conflict.code === 'INTENT_TAMPERED' ? 'danger' : 'warning'} role="alert" title={conflict.body.message}>
+        {INTENT_CODES.has(conflict.code) ? conflict.body.action : '최신 상태를 다시 불러왔습니다. 내용을 확인한 뒤 다시 진행하세요.'}
+        {can('approve') && ' 승인 전 확인 세 항목은 다시 확인해 선택해야 합니다.'}
+      </Notice>
+    </div>
+  );
+
   return (
     <div className="page page-narrow">
       <PageHeader title={`출금 요청 ${r.refNo}`} eyebrow={<Link to={back}>← 결재 및 요청</Link>} description={<><Badge tone={st.tone}>{st.label}</Badge> <span className="muted">{st.description}</span></>} />
@@ -195,6 +249,16 @@ export function RequestDetailPage() {
       </section>
 
       {loc.state?.created && r.status === 'DRAFT' && <Notice tone="success" role="status" title="초안을 저장했습니다">아직 승인자에게 전달되지 않았습니다. 아래 내용을 확인하고 검토로 이동하세요.</Notice>}
+      {tampered && roleKey === 'requester' && (
+        <Notice tone="danger" title="승인 요청 뒤 요청 내용이 바뀌어 이 요청은 승인될 수 없습니다">
+          지금 내용이 승인 요청 때 고정한 승인 대상 지문과 맞지 않습니다. 요청을 취소하면 승인 요청 때 예약한 수량이 풀립니다. 보안 담당자에게 알리세요.
+        </Notice>
+      )}
+      {tampered && !decideCard && roleKey !== 'requester' && (
+        <Notice tone="warning" title="요청 내용이 승인 대상 지문과 맞지 않아 승인할 수 없는 요청입니다">
+          요청이 취소되거나 반려되면 승인 요청 때 예약한 수량이 풀립니다.
+        </Notice>
+      )}
       {blocked && roleKey === 'requester' && (
         <Notice tone="danger" title="받는 주소가 사용 중지되어 이 요청은 승인될 수 없습니다">
           요청을 취소하면 예약 수량이 풀립니다. 승인자가 반려해도 예약 수량이 풀립니다.
@@ -205,18 +269,16 @@ export function RequestDetailPage() {
           요청이 취소되거나 반려되면 예약 수량이 풀립니다.
         </Notice>
       )}
-      {justSubmitted && mine && r.status === 'PENDING_APPROVAL' && r.intentHashDisplay && (
-        <Notice tone="success" role="status" title="승인 요청을 보냈습니다">
-          승인 대상 지문은 <b className="rc-intent-inline">{r.intentHashDisplay}</b>입니다. 승인자 화면에도 같은 지문이 보이므로, 필요하면 다른 연락 수단으로 승인자와 지문을 대조하세요.
-        </Notice>
+      {showSubmitted && (
+        <div ref={submittedRef} tabIndex={-1} className="rc-focus-target">
+          <Notice tone="success" role="status" title="승인 요청을 보냈습니다">
+            승인 대상 지문은 <b className="rc-intent-inline">{r.intentHashDisplay}</b>입니다. 승인자 화면에도 같은 지문이 보이므로, 필요하면 다른 연락 수단으로 승인자와 지문을 대조하세요.
+          </Notice>
+        </div>
       )}
       {r.status === 'REJECTED' && <Notice tone="danger" title="반려 사유">{r.rejectReason}</Notice>}
       {r.status === 'FAILED' && <Notice tone="danger" title="실패 사유">{r.failureReason}</Notice>}
-      {conflict && (
-        <Notice tone={conflict.code === 'INTENT_TAMPERED' ? 'danger' : 'warning'} role="alert" title={conflict.body.message}>
-          {INTENT_CODES.has(conflict.code) ? conflict.body.action : '최신 상태를 다시 불러왔습니다. 내용을 확인한 뒤 다시 진행하세요.'}
-        </Notice>
-      )}
+      {!hasActionCard && conflictNotice}
 
       {editing && form ? (
         <form ref={editRef} className="form card" noValidate onSubmit={(e) => { e.preventDefault(); if (!save.isPending) save.mutate(); }}>
@@ -257,6 +319,7 @@ export function RequestDetailPage() {
                 <dd>
                   {r.intentHashDisplay ? <span className="rc-intent-inline">{r.intentHashDisplay}</span> : <span className="muted">기록 없음(지문 기록 전 승인 요청)</span>}
                   <div className="small" style={{ color: 'var(--ink-2)' }}>승인 요청 때 고정한 내용의 지문입니다. 승인자 화면의 지문과 같아야 합니다.</div>
+                  {tampered && <div className="small rc-intent-mismatch">지금 요청 내용으로 다시 계산한 지문과 다릅니다. 승인 요청 뒤 내용이 바뀌었습니다.</div>}
                 </dd>
               </>
             )}
@@ -269,7 +332,7 @@ export function RequestDetailPage() {
       {preSubmit && !editing && !can('submit') && checks && (
         <section className="card">
           <CheckList level={2} title="출금 전 점검" items={checks.items}
-            intro={mine && checks.items.some((c) => c.requiresReason) ? '검토로 이동한 뒤 주의 항목마다 진행 사유를 적어야 승인 요청을 보낼 수 있습니다.' : '지금 기준으로 점검한 결과입니다. 승인 요청 때 다시 점검해 그 결과를 승인자에게 보입니다.'} />
+            intro={mine && checks.items.some((c) => c.requiresReason) ? '「사유 필요」 표시가 있는 주의 항목은 검토로 이동한 뒤 진행 사유를 적어야 승인 요청을 보낼 수 있습니다.' : '지금 기준으로 점검한 결과입니다. 승인 요청 때 다시 점검해 그 결과를 승인자에게 보입니다.'} />
         </section>
       )}
 
@@ -278,7 +341,7 @@ export function RequestDetailPage() {
         <section className="card">
           {checks
             ? <CheckList level={2} title="출금 전 점검 결과" items={checks.items} showReasons footnote={`승인 요청 때(${dateTime(checks.evaluatedAt)} KST) 점검한 결과입니다. 기준은 설계 가정입니다.`} />
-            : <><h2>출금 전 점검 결과</h2><p className="muted small" style={{ margin: 0 }}>이 요청은 출금 전 점검을 기록하기 전에 승인 요청되어 점검 결과가 없습니다.</p></>}
+            : <><h2>출금 전 점검 결과</h2><p className="muted small" style={{ margin: 0 }}>{NO_STORED_CHECKS}</p></>}
         </section>
       )}
 
@@ -300,7 +363,7 @@ export function RequestDetailPage() {
             <CheckList title="출금 전 점검" items={checks.items} reasons={checkReasons}
               onReason={(cid, v) => setCheckReasons((prev) => ({ ...prev, [cid]: v }))}
               reasonError={(cid) => actErr?.fieldError(`checkReasons.${cid}`)}
-              intro={checks.items.some((c) => c.requiresReason) ? '주의 항목마다 그대로 진행하는 이유를 적어 주세요. 사유와 점검 결과는 승인 요청과 함께 승인자에게 전달됩니다.' : '승인 요청을 보낼 때 다시 점검해 그 결과를 승인자에게 함께 보입니다.'}
+              intro={checks.items.some((c) => c.requiresReason) ? '진행 사유 입력란이 있는 주의 항목마다 그대로 진행하는 이유를 적어 주세요. 사유와 점검 결과는 승인 요청과 함께 승인자에게 전달됩니다.' : '승인 요청을 보낼 때 다시 점검해 그 결과를 승인자에게 함께 보입니다.'}
               footnote="점검 기준은 설계 가정이며, 기준 이내라는 결과도 받는 곳이나 전송을 보증하지 않습니다." />
           )}
           <Field label={`받는 곳이 보낸 원본 주소의 끝 ${n}자리`} htmlFor="tail" required error={actErr?.fieldError('confirmTail')} hint="화면을 복사하지 말고 원본 문서를 보고 입력하세요. 끝자리만 같은 비슷한 주소가 있을 수 있으니 가운데 묶음까지 대조하세요.">
@@ -308,6 +371,7 @@ export function RequestDetailPage() {
           </Field>
           <label className="check"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} aria-invalid={actErr?.fieldError('ackIrreversible') ? true : undefined} aria-describedby={actErr?.fieldError('ackIrreversible') ? 'ack-error' : undefined} />자산·네트워크·주소·수량을 확인했으며, 전송 후에는 되돌릴 수 없다는 점을 이해했습니다.</label>
           {actErr?.fieldError('ackIrreversible') && <p className="field-error" id="ack-error">{actErr.fieldError('ackIrreversible')}</p>}
+          {conflictNotice}
           <ApiErrorNotice error={actNotice} />
           <div className="form-actions">
             <button className="btn btn-primary" onClick={() => act.mutate({ action: 'submit', body: { confirmTail: tail, ackIrreversible: ack, checkReasons: reasonsToSend } })} disabled={act.isPending || !tail || !ack}>승인 요청 보내기</button>
@@ -318,6 +382,13 @@ export function RequestDetailPage() {
       {decideCard && (
         <section className="card card-action" aria-labelledby="approve-h">
           <h2 id="approve-h">{can('approve') ? '승인 또는 반려' : '반려'}</h2>
+          {/* 같은 내용의 409 안내(지문 불일치)가 바로 아래에 있으면 되풀이하지 않는다. */}
+          {tampered && conflict?.code !== 'INTENT_TAMPERED' && (
+            <Notice tone="danger" title="요청 내용이 승인 대상 지문과 맞지 않아 승인할 수 없습니다. 사유와 함께 반려하세요">
+              승인 요청 뒤 수량·받는 주소 등 지문에 묶인 내용이 바뀌었습니다. 반려하면 승인 요청 때 예약한 수량이 풀리고 요청자에게 사유가 전달됩니다. 보안 담당자에게 알리세요.
+              {reasonPrefilled && ' 아래에 미리 채운 사유는 필요하면 고쳐 쓸 수 있습니다.'}
+            </Notice>
+          )}
           {blocked && (
             <Notice tone="danger" title="받는 주소가 사용 중지되어 승인할 수 없습니다. 사유와 함께 반려하세요">
               반려하면 예약된 수량이 풀리고 요청자에게 사유가 전달됩니다.
@@ -325,10 +396,12 @@ export function RequestDetailPage() {
             </Notice>
           )}
           {/* 무엇을 승인하는지(지문)와 승인 요청 때의 점검 결과·요청자 사유를 결정 버튼보다 먼저 읽게 한다. */}
-          <IntentFingerprint display={r.intentHashDisplay} />
+          <IntentFingerprint display={r.intentHashDisplay} mismatch={tampered} />
           {checks
             ? <CheckList title="출금 전 점검 결과" items={checks.items} showReasons footnote={`승인 요청 때(${dateTime(checks.evaluatedAt)} KST) 점검한 결과입니다. 기준은 설계 가정이며, 기준 이내라는 결과도 받는 곳이나 전송을 보증하지 않습니다.`} />
-            : <p className="muted small" style={{ margin: 0 }}>이 요청은 출금 전 점검을 기록하기 전에 승인 요청되어 점검 결과가 없습니다.</p>}
+            : <p className="muted small" style={{ margin: 0 }}>{NO_STORED_CHECKS}</p>}
+          {/* 409 안내는 결정 버튼 바로 위(승인 전 확인보다 앞)에 둔다. 다시 불러와 승인이 사라져도 반려 바로 위에 남는다. */}
+          {conflictNotice}
           {can('approve') && (
             <>
               <p className="rc-irreversible">필요한 승인 수가 채워지면 바로 처리가 시작되며, 블록체인 전송은 처리 후 되돌릴 수 없습니다. 은행 착오송금처럼 되돌려 받는 절차도 없습니다.</p>
@@ -348,10 +421,10 @@ export function RequestDetailPage() {
           <Field label="반려 사유" htmlFor="reason" error={actErr?.fieldError('reason')} hint="요청자가 무엇을 고쳐야 하는지 알 수 있게 5자 이상 적어 주세요.">
             <TextareaAuto id="reason" rows={2} maxRows={8} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />
           </Field>
-          {/* 직접 적은 사유를 지키되, 주소 사용 중지에 맞춘 사유를 원하면 한 번에 넣을 수 있게 한다. */}
-          {suggestedReason && reason !== suggestedReason && (
+          {/* 직접 적은 사유를 지키되, 승인할 수 없는 이유(지문 불일치·주소 사용 중지)에 맞춘 사유를 원하면 한 번에 넣을 수 있게 한다. */}
+          {suggestion && reason !== suggestedReason && (
             <div className="form-actions form-actions-left" style={{ marginTop: -4 }}>
-              <button type="button" className="btn btn-sm" onClick={() => { setReason(suggestedReason); setReasonSeed(suggestedReason); }}>주소 사용 중지 사유로 바꾸기</button>
+              <button type="button" className="btn btn-sm" onClick={() => { setReason(suggestedReason); setReasonSeed(suggestedReason); }}>{suggestion.button}</button>
             </div>
           )}
           <ApiErrorNotice error={actNotice} />

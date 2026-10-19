@@ -268,6 +268,106 @@ describe('커스터디 전달 직전 재확인(지문 변조)', () => {
   });
 });
 
+describe('내용이 바뀐 요청: 조회 표시와 반려·취소 때의 예약 해제', () => {
+  const reservedOf = (wallet = 'w-a-eth', asset = 'USDC') =>
+    (ctx.db.prepare('SELECT reserved_units FROM balances WHERE wallet_id = ? AND asset_code = ?').get(wallet, asset) as any).reserved_units as string;
+  const tamper = (id: string, set: string, value: string) => ctx.db.prepare(`UPDATE withdrawal_requests SET ${set} = ? WHERE id = ?`).run(value, id);
+
+  it('records the reservation (wallet, asset, quantity) with the fingerprint at submit', async () => {
+    const p = await toPending();
+    const row = ctx.db.prepare('SELECT reserved_wallet_id, reserved_asset_code, reserved_units FROM request_intents WHERE request_id = ?').get(p.id) as any;
+    expect(row).toEqual({ reserved_wallet_id: 'w-a-eth', reserved_asset_code: 'USDC', reserved_units: '100000000' });
+    // 시드의 승인 대기 요청도 예약 기록이 있고, 지갑 예약 합계와 같다
+    const seeded = ctx.db.prepare("SELECT ri.reserved_units, r.amount_units FROM request_intents ri JOIN withdrawal_requests r ON r.id = ri.request_id WHERE r.id IN ('wr-3', 'wr-4')").all() as any[];
+    expect(seeded).toHaveLength(2);
+    for (const s of seeded) expect(s.reserved_units).toBe(s.amount_units);
+  });
+
+  it('shows INTENT_TAMPERED on the request and drops approve when the stored content no longer matches the fingerprint', async () => {
+    const p = await toPending();
+    tamper(p.id, 'amount_units', '15000000000');
+    const oh = api(ctx.app, await login(ctx.app, 'u-a-oh'));
+    const seen = (await oh.get(`/api/requests/${p.id}`)).body;
+    expect(seen.blockedReason).toBe('INTENT_TAMPERED');
+    expect(seen.allowedActions).toEqual(['reject']);
+    expect(seen.intentHash).toBe(p.intentHash); // 제출 때 지문은 그대로 보인다(무엇이 고정되었는지)
+    const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
+    const mine = (await han.get(`/api/requests/${p.id}`)).body;
+    expect(mine.blockedReason).toBe('INTENT_TAMPERED');
+    expect(mine.allowedActions).toEqual(['cancel']);
+    const list = (await oh.get('/api/requests?status=PENDING_APPROVAL&pageSize=100')).body.items.find((x: any) => x.id === p.id);
+    expect(list.blockedReason).toBe('INTENT_TAMPERED');
+    // 지문 불일치가 받는 주소 상태보다 먼저 보인다
+    ctx.db.prepare("UPDATE address_book SET status = 'DISABLED' WHERE id = 'ab-01'").run();
+    expect((await oh.get(`/api/requests/${p.id}`)).body.blockedReason).toBe('INTENT_TAMPERED');
+    // 화면이 승인을 내보이지 않아도 서버의 거부는 그대로다
+    const ap = await oh.post(`/api/requests/${p.id}/approve`, { version: p.version, intentHash: p.intentHash });
+    expect(ap.status).toBe(409);
+    expect(ap.body.error.code).toBe('INTENT_TAMPERED');
+    expect(ctx.custody.calls).toBe(0);
+  });
+
+  it('keeps an untouched request free of blockedReason (fingerprint recomputed on read matches)', async () => {
+    const p = await toPending();
+    const oh = api(ctx.app, await login(ctx.app, 'u-a-oh'));
+    const seen = (await oh.get(`/api/requests/${p.id}`)).body;
+    expect(seen.blockedReason).toBeNull();
+    expect(seen.allowedActions).toEqual(['approve', 'reject']);
+  });
+
+  for (const [mode, changed] of [['reject', '1000000'], ['reject', '900000000'], ['cancel', '1000000'], ['cancel', '900000000']] as const) {
+    it(`${mode}: releases exactly the quantity reserved at submit after the stored amount was changed to ${changed}`, async () => {
+      const before = reservedOf();
+      const p = await toPending(); // 100 USDC 예약
+      expect(BigInt(reservedOf())).toBe(BigInt(before) + 100_000_000n);
+      tamper(p.id, 'amount_units', changed);
+      let res;
+      if (mode === 'reject') {
+        const oh = api(ctx.app, await login(ctx.app, 'u-a-oh'));
+        res = await oh.post(`/api/requests/${p.id}/reject`, { version: p.version, reason: '승인 요청 뒤 수량이 바뀌어 반려합니다', intentHash: p.intentHash });
+      } else {
+        const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
+        res = await han.post(`/api/requests/${p.id}/cancel`, { version: p.version });
+      }
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(res.body.status).toBe(mode === 'reject' ? 'REJECTED' : 'CANCELLED');
+      expect(reservedOf()).toBe(before);
+      const detail = JSON.parse(auditRows(ctx.db, p.id, mode === 'reject' ? 'request.rejected' : 'request.cancelled')[0]!.detail);
+      expect(detail).toMatchObject({ released: '100', releasedAssetCode: 'USDC', contentMatchesIntent: false });
+      expect(verifyChain(ctx.db, 'org-a').ok).toBe(true);
+    });
+  }
+
+  it('leaves other pending reservations alone when a changed request is rejected', async () => {
+    const before = reservedOf();
+    const first = await toPending('u-a-han', { amount: '100' });
+    const second = await toPending('u-a-han', { amount: '200' });
+    expect(BigInt(reservedOf())).toBe(BigInt(before) + 300_000_000n);
+    tamper(first.id, 'amount_units', '300000000'); // 두 요청의 예약 합계와 같은 값으로 바꾼다
+    const oh = api(ctx.app, await login(ctx.app, 'u-a-oh'));
+    const rj = await oh.post(`/api/requests/${first.id}/reject`, { version: first.version, reason: '승인 요청 뒤 수량이 바뀌어 반려합니다', intentHash: first.intentHash });
+    expect(rj.status).toBe(200);
+    // 200 USDC 요청의 예약은 그대로 남는다(사용 가능 수량이 부풀지 않는다)
+    expect(BigInt(reservedOf())).toBe(BigInt(before) + 200_000_000n);
+    const rj2 = await oh.post(`/api/requests/${second.id}/reject`, { version: second.version, reason: '정리를 위해 반려합니다', intentHash: second.intentHash });
+    expect(rj2.status).toBe(200);
+    expect(reservedOf()).toBe(before);
+  });
+
+  it('releases the reservation on the wallet and asset that were reserved, even when the stored asset was changed', async () => {
+    const usdcBefore = reservedOf('w-a-eth', 'USDC');
+    const ethBefore = reservedOf('w-a-eth', 'ETH');
+    const p = await toPending();
+    tamper(p.id, 'asset_code', 'ETH');
+    const oh = api(ctx.app, await login(ctx.app, 'u-a-oh'));
+    expect((await oh.get(`/api/requests/${p.id}`)).body.blockedReason).toBe('INTENT_TAMPERED');
+    const rj = await oh.post(`/api/requests/${p.id}/reject`, { version: p.version, reason: '승인 요청 뒤 자산이 바뀌어 반려합니다', intentHash: p.intentHash });
+    expect(rj.status, JSON.stringify(rj.body)).toBe(200);
+    expect(reservedOf('w-a-eth', 'USDC')).toBe(usdcBefore);
+    expect(reservedOf('w-a-eth', 'ETH')).toBe(ethBefore);
+  });
+});
+
 describe('출금 전 점검 규칙', () => {
   const preview = async (body: Record<string, unknown>, userId = 'u-a-han') => {
     const a = api(ctx.app, await login(ctx.app, userId));
@@ -294,10 +394,14 @@ describe('출금 전 점검 규칙', () => {
 
   it('first use: caution with a small test transfer suggestion and a required reason; an address with a completed withdrawal is within the criterion', async () => {
     const first = byId(await preview({ addressId: 'ab-07' }), 'first_use');
-    expect(first).toMatchObject({ outcome: 'caution', label: '처음 보내는 주소입니다', requiresReason: true });
+    expect(first).toMatchObject({ outcome: 'caution', label: '이 대시보드로 처음 보내는 주소입니다', requiresReason: true });
     expect(first.detail).toContain('소액을 시험 전송');
+    // 무엇을 세었는지(이 대시보드의 출금 요청)와 세지 않은 것(자산 활동 내역의 출금)을 함께 밝힌다. 다른 화면과 어긋나는 단정을 하지 않는다.
+    expect(first.detail).toContain('이 대시보드의 출금 요청으로');
+    expect(first.detail).toContain('자산 활동 내역의 이전 출금은 받는 주소가 기록되지 않아 세지 않았습니다');
+    expect(first.basis).toContain('이 대시보드');
     const known = byId(await preview({ addressId: 'ab-01' }), 'first_use'); // 시드 WR-000001이 ab-01로 처리 완료
-    expect(known).toMatchObject({ outcome: 'pass', requiresReason: false });
+    expect(known).toMatchObject({ outcome: 'pass', label: '이 대시보드로 보낸 적이 있는 주소입니다', requiresReason: false });
     expect(known.detail).toContain('1건');
   });
 
@@ -325,6 +429,20 @@ describe('출금 전 점검 규칙', () => {
     expect(at).toMatchObject({ outcome: 'caution', requiresReason: true });
     expect(at.detail).toContain('50%');
     expect(at.detail).toContain('1,250,000 USDC');
+  });
+
+  it('balance share: more than the available quantity is called out as a shortage, not as a large share to split', async () => {
+    const over = byId(await preview({ amount: '2000000' }), 'balance_share');
+    expect(over).toMatchObject({ outcome: 'caution', label: '사용 가능 수량보다 많이 보내려고 합니다', requiresReason: true });
+    expect(over.detail).toContain('1,250,000 USDC');
+    expect(over.detail).toContain('2,000,000 USDC');
+    expect(over.detail).toContain('예약된 수량');
+    expect(over.detail).not.toContain('나누어');
+    expect(over.detail).not.toMatch(/%/);
+    // 사용 가능 수량과 같으면 아직 비율 문장이다(100%)
+    const all = byId(await preview({ amount: '1250000' }), 'balance_share');
+    expect(all.label).toBe('사용 가능 수량의 큰 부분을 한 번에 보냅니다');
+    expect(all.detail).toContain('100%');
   });
 
   it('recent burst: caution (no reason required) when 3 or more requests for the same asset were made in the last 60 minutes', async () => {
@@ -423,6 +541,24 @@ describe('진행 사유(CHECK_REASON_REQUIRED)와 저장', () => {
     expect(seen.checks.evaluatedAt).toBe(ok.body.checks.evaluatedAt);
     expect(byId(seen.checks.items, 'price').outcome).toBe('pass');
     expect(byId(seen.checks.items, 'first_use').reason).toBe(reasons.first_use);
+  });
+
+  it('does not accept invisible or punctuation-only reasons, and stores a reason without invisible format characters', async () => {
+    const { a, r } = await toReview('u-a-han', { addressId: 'ab-07' });
+    const body = { version: r.version, confirmTail: tail(r.address.address), ackIrreversible: true };
+    // 폭 없는 공백만, 문장부호만, 방향 제어 문자와 섞인 두 글자: 글자·숫자가 5자에 못 미친다
+    for (const bad of ['​​​​​', '.....', ' ! ? - … ', '‮​가​나​', '⁠⁠﻿..']) {
+      const res = await a.post(`/api/requests/${r.id}/submit`, { ...body, checkReasons: { first_use: bad } });
+      expect(res.status, JSON.stringify(bad)).toBe(422);
+      expect(res.body.error.code).toBe('CHECK_REASON_REQUIRED');
+      expect(res.body.error.fields.map((f: any) => f.field)).toEqual(['checkReasons.first_use']);
+      expect(res.body.error.fields[0].message).toContain('글자·숫자 5자 이상');
+    }
+    expect((ctx.db.prepare('SELECT status FROM withdrawal_requests WHERE id = ?').get(r.id) as any).status).toBe('REVIEW');
+    // 글자가 충분하면 받되, 저장하는 사유에서는 보이지 않는 서식 문자를 지운다(승인자 화면에 숨은 글자·뒤집힌 글자가 섞이지 않게)
+    const ok = await a.post(`/api/requests/${r.id}/submit`, { ...body, checkReasons: { first_use: '​거래처와‮ 전화로 대조했습니다​' } });
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    expect(byId(ok.body.checks.items, 'first_use').reason).toBe('거래처와 전화로 대조했습니다');
   });
 
   it('rejects an unknown check id in the reasons (422)', async () => {
@@ -547,7 +683,8 @@ describe('감사 기록 CSV: 한국 시간·행동 이름', () => {
   });
 
   it('labels the fingerprint-mismatch action in the shared map used by the screen and the CSV', () => {
-    expect(ACTION_LABEL['request.intent_tampered']).toBe('지문 불일치로 전달 중단');
+    // 승인 단계·커스터디 전달 직전 어느 쪽에도 맞는 이름(어느 단계였는지는 내용에 있다)
+    expect(ACTION_LABEL['request.intent_tampered']).toBe('승인 대상 지문 불일치로 중단');
     for (const a of ['request.submitted', 'request.approved', 'address.cooldown_stopped', 'address.activated']) expect(ACTION_LABEL[a], a).toBeTruthy();
   });
 });

@@ -25,8 +25,12 @@ export type RequestAction = 'edit' | 'review' | 'back_to_draft' | 'submit' | 'ap
  */
 export type ApprovalBasis = 'value_below_threshold' | 'value_at_or_above_threshold' | 'price_missing' | 'price_stale';
 
-/** 승인 대기 요청이 승인될 수 없는 이유. 지금은 받는 주소가 사용 가능 상태가 아닌 경우뿐이다. */
-export type BlockedReason = 'ADDRESS_NOT_ACTIVE';
+/**
+ * 승인 대기 요청이 승인될 수 없는 이유.
+ * - INTENT_TAMPERED: 지금 저장된 내용으로 다시 계산한 지문이 제출 때 고정한 지문과 다르다(승인 요청 뒤 내용이 바뀜). 받는 주소 상태보다 먼저 본다.
+ * - ADDRESS_NOT_ACTIVE: 받는 주소가 사용 가능 상태가 아니다.
+ */
+export type BlockedReason = 'INTENT_TAMPERED' | 'ADDRESS_NOT_ACTIVE';
 
 /** 감사 기록에 남길 주소 끝자리 길이. 전체 주소는 남기지 않고 대조에 필요한 끝부분만 남긴다. */
 const AUDIT_TAIL_LENGTH = 6;
@@ -50,7 +54,8 @@ export const TRANSITIONS: Record<RequestAction, { from: RequestStatus[]; to: Req
 
 const SELECT = `SELECT r.*, a.precision, n.name network_name, n.family network_family, w.name wallet_name, u.name creator_name,
     ab.label address_label, ab.address address_value, ab.memo address_memo, ab.status address_status, ab.counterparty address_counterparty, ab.active_from address_active_from,
-    ri.intent_hash intent_hash, ri.pre_checks pre_checks
+    ri.intent_hash intent_hash, ri.pre_checks pre_checks,
+    ri.reserved_wallet_id reserved_wallet_id, ri.reserved_asset_code reserved_asset_code, ri.reserved_units reserved_units
   FROM withdrawal_requests r
   JOIN assets a ON a.code = r.asset_code
   JOIN networks n ON n.code = r.network_code
@@ -119,8 +124,42 @@ function countedApproverIds(db: DB, r: any, approvals: any[]): Set<string> {
   return new Set(approvals.filter((a) => a.decision === 'approved').map((a) => a.userId as string));
 }
 
+/**
+ * 지금 저장된 요청·주소록 행으로 다시 계산한 지문이 제출 때 고정한 지문과 다른지(조회할 때마다 본다).
+ * 지문이 없는 요청(제출 전·이 기능 도입 전)은 대조할 것이 없어 false. 행을 읽을 수 없으면(수량이 숫자가 아님 등) 다른 것으로 본다.
+ */
+function intentMismatch(r: any): boolean {
+  if (!r.intent_hash) return false;
+  try {
+    return intentHashOf(intentFieldsOf(r as IntentRow)) !== r.intent_hash;
+  } catch {
+    return true;
+  }
+}
+
 function blockedReasonOf(r: any): BlockedReason | null {
-  return r.status === 'PENDING_APPROVAL' && r.address_status !== 'ACTIVE' ? 'ADDRESS_NOT_ACTIVE' : null;
+  if (r.status !== 'PENDING_APPROVAL') return null;
+  if (intentMismatch(r)) return 'INTENT_TAMPERED';
+  return r.address_status !== 'ACTIVE' ? 'ADDRESS_NOT_ACTIVE' : null;
+}
+
+/**
+ * 승인 요청 때 실제로 예약한 지갑·자산·수량. 반려·취소·처리 결과 반영은 이 값으로 예약을 푼다.
+ * 승인 요청 뒤 저장 계층에서 요청 행이 바뀌어도(INTENT_TAMPERED) 예약을 잡은 그대로 풀어, 반려·취소가 막히거나 다른 요청의 예약이 함께 풀리지 않게 한다.
+ * 예약 기록이 없는 이전 요청은 지금 행의 값을 쓴다.
+ */
+function reservationOf(r: any): { walletId: string; assetCode: string; units: bigint } {
+  if (r.reserved_units != null && r.reserved_wallet_id && r.reserved_asset_code) {
+    return { walletId: String(r.reserved_wallet_id), assetCode: String(r.reserved_asset_code), units: BigInt(r.reserved_units) };
+  }
+  return { walletId: r.wallet_id, assetCode: r.asset_code, units: BigInt(r.amount_units) };
+}
+
+/** 예약을 풀고, 감사 기록에 남길 풀린 수량(표시용)을 돌려준다. */
+function releaseReservation(db: DB, r: any): { released: string; assetCode: string } {
+  const res = reservationOf(r);
+  adjustReserved(db, res.walletId, res.assetCode, -res.units);
+  return { released: formatUnits(res.units, getAsset(db, res.assetCode).precision), assetCode: res.assetCode };
 }
 
 export function allowedActions(r: any, approvals: any[], auth: AuthContext): RequestAction[] {
@@ -131,9 +170,10 @@ export function allowedActions(r: any, approvals: any[], auth: AuthContext): Req
     for (const a of ['edit', 'review', 'back_to_draft', 'submit', 'cancel'] as RequestAction[]) if (can(a)) acts.push(a);
   }
   if (!mine && auth.perms.has('request.approve') && can('approve') && !approvals.some((x) => x.userId === auth.user.id)) {
-    // 받는 주소가 사용 가능 상태가 아니면 승인은 내보이지 않고 반려만 남긴다. 서버의 승인 거부(ADDRESS_NOT_ACTIVE)는 그대로 둔다.
+    // 승인할 수 없는 요청(승인 요청 뒤 내용이 바뀜 INTENT_TAMPERED, 받는 주소가 사용 가능 상태가 아님 ADDRESS_NOT_ACTIVE)은
+    // 승인을 내보이지 않고 반려만 남긴다. 서버의 승인 거부는 그대로 둔다.
     // 승인 대상 지문이 없는 이전 요청(이 기능 도입 전 제출)도 승인할 수 없으므로 반려만 남긴다(서버는 INTENT_MISSING).
-    if (r.address_status === 'ACTIVE' && r.intent_hash) acts.push('approve');
+    if (!blockedReasonOf(r) && r.intent_hash) acts.push('approve');
     acts.push('reject');
   }
   return acts;
@@ -434,9 +474,10 @@ export function submitForApproval(db: DB, cfg: AppConfig, auth: AuthContext, id:
     const display = intentHashDisplay(intentHash);
     adjustReserved(db, r.wallet_id, r.asset_code, units);
     bump(db, id, input.version, { status: 'PENDING_APPROVAL', submitted_at: now(), required_approvals: quorum.required, krw_value_at_submit: quorum.krw?.toString() ?? null, approval_basis: quorum.basis, price_as_of_at_submit: quorum.priceAsOf });
-    // 지문과 점검 결과는 바꿀 수 없는 기록으로 한 번만 남긴다(migrations/006, 수정·삭제 트리거).
-    db.prepare('INSERT INTO request_intents (request_id, intent_version, intent_hash, pre_checks, created_at) VALUES (?, ?, ?, ?, ?)')
-      .run(id, INTENT_VERSION, intentHash, serializeChecks(evaluatedAt, checks), evaluatedAt);
+    // 지문과 점검 결과, 실제로 예약한 지갑·자산·수량은 바꿀 수 없는 기록으로 한 번만 남긴다(migrations/006, 수정·삭제 트리거).
+    // 반려·취소·처리 결과 반영은 이 예약 기록으로 예약을 푼다(reservationOf).
+    db.prepare('INSERT INTO request_intents (request_id, intent_version, intent_hash, pre_checks, reserved_wallet_id, reserved_asset_code, reserved_units, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, INTENT_VERSION, intentHash, serializeChecks(evaluatedAt, checks), r.wallet_id, r.asset_code, units.toString(), evaluatedAt);
     const note = quorum.basis === 'price_missing' ? ' · 시세를 확인할 수 없어 고액 기준 적용' : quorum.basis === 'price_stale' ? ' · 시세가 지연되어 고액 기준 적용' : '';
     const cautions = checks.filter((c) => c.outcome !== 'pass');
     audit(db, auth, r, 'request.submitted', `승인 요청 (필요 승인 ${quorum.required}명${note}) · 지문 ${display}`, {
@@ -631,9 +672,13 @@ export function rejectRequest(db: DB, cfg: AppConfig, auth: AuthContext, id: str
     const decidedAt = now();
     db.prepare("INSERT INTO approvals (request_id, user_id, decision, reason, created_at) VALUES (?, ?, 'rejected', ?, ?)").run(id, auth.user.id, input.reason.trim(), decidedAt);
     db.prepare('INSERT INTO approval_intents (request_id, user_id, intent_hash, created_at) VALUES (?, ?, ?, ?)').run(id, auth.user.id, r.intent_hash ?? null, decidedAt);
-    adjustReserved(db, r.wallet_id, r.asset_code, -BigInt(r.amount_units));
+    // 지금 행의 수량이 아니라 승인 요청 때 예약한 수량을 푼다(내용이 바뀐 요청도 반려할 수 있게).
+    const rel = releaseReservation(db, r);
     bump(db, id, input.version, { status: 'REJECTED', reject_reason: input.reason.trim(), completed_at: now(), counted_approver_ids: JSON.stringify(validApproverIds(db, id)) });
-    audit(db, auth, r, 'request.rejected', '반려', { reason: input.reason.trim(), intentHash: r.intent_hash ?? null });
+    audit(db, auth, r, 'request.rejected', '반려', {
+      reason: input.reason.trim(), intentHash: r.intent_hash ?? null, released: rel.released, releasedAssetCode: rel.assetCode,
+      ...(r.intent_hash ? { contentMatchesIntent: !intentMismatch(r) } : {}),
+    });
     return getRequest(db, cfg, auth, id);
   });
 }
@@ -643,9 +688,12 @@ export function cancelRequest(db: DB, cfg: AppConfig, auth: AuthContext, id: str
     const r = lockRow(db, auth, id, 'cancel', version);
     requireCreator(r, auth);
     const wasPending = r.status === 'PENDING_APPROVAL';
-    if (wasPending) adjustReserved(db, r.wallet_id, r.asset_code, -BigInt(r.amount_units));
+    // 승인 대기였다면 승인 요청 때 예약한 수량을 그대로 푼다(지금 행의 수량이 바뀌었어도).
+    const rel = wasPending ? releaseReservation(db, r) : null;
     bump(db, id, version, { status: 'CANCELLED', completed_at: now(), ...(wasPending ? { counted_approver_ids: JSON.stringify(validApproverIds(db, id)) } : {}) });
-    audit(db, auth, r, 'request.cancelled', '요청자 취소');
+    audit(db, auth, r, 'request.cancelled', '요청자 취소', rel ? {
+      released: rel.released, releasedAssetCode: rel.assetCode, ...(r.intent_hash ? { contentMatchesIntent: !intentMismatch(r) } : {}),
+    } : {});
     return getRequest(db, cfg, auth, id);
   });
 }
@@ -660,14 +708,16 @@ export function settleProcessing(db: DB, custody: CustodyAdapter): number {
     tx(db, () => {
       const cur = db.prepare('SELECT status, version FROM withdrawal_requests WHERE id = ?').get(r.id) as any;
       if (cur.status !== 'PROCESSING') return;
-      const units = BigInt(r.amount_units);
-      const b = balanceFor(db, r.wallet_id, r.asset_code);
-      adjustReserved(db, r.wallet_id, r.asset_code, -units);
+      // 승인 요청 때 예약한 지갑·자산·수량. 커스터디로 넘기기 직전에 지문을 다시 대조했으므로 넘긴 수량과 같다.
+      const res = reservationOf(r);
+      const units = res.units;
+      const b = balanceFor(db, res.walletId, res.assetCode);
+      adjustReserved(db, res.walletId, res.assetCode, -units);
       if (st === 'completed' && b.total >= units) {
-        db.prepare('UPDATE balances SET total_units = ?, updated_at = ? WHERE wallet_id = ? AND asset_code = ?').run((b.total - units).toString(), now(), r.wallet_id, r.asset_code);
+        db.prepare('UPDATE balances SET total_units = ?, updated_at = ? WHERE wallet_id = ? AND asset_code = ?').run((b.total - units).toString(), now(), res.walletId, res.assetCode);
         db.prepare("UPDATE withdrawal_requests SET status = 'COMPLETED', completed_at = ?, updated_at = ?, version = version + 1 WHERE id = ?").run(now(), now(), r.id);
         db.prepare("INSERT INTO transactions (id, org_id, wallet_id, type, asset_code, network_code, amount_units, counterparty, status, occurred_at, request_id, tx_ref) VALUES (?, ?, ?, 'withdrawal', ?, ?, ?, ?, 'completed', ?, ?, ?)")
-          .run(randomUUID(), r.org_id, r.wallet_id, r.asset_code, r.network_code, r.amount_units, r.address_label, now(), r.id, r.custody_ref);
+          .run(randomUUID(), r.org_id, res.walletId, res.assetCode, r.network_code, units.toString(), r.address_label, now(), r.id, r.custody_ref);
         writeAudit(db, { orgId: r.org_id, actorId: null, actorName: custody.name, action: 'request.completed', targetType: 'request', targetId: r.id, summary: `${r.ref_no} 처리 완료 (모의)` });
       } else {
         const reason = st === 'failed' ? '커스터디 처리 실패(모의)' : '보유 수량 부족으로 처리하지 못했습니다.';

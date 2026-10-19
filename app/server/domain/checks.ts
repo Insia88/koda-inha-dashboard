@@ -11,6 +11,7 @@ import type { Policy, WithdrawalChecksPolicy } from '../config.ts';
 import { formatGrouped, formatUnits, krwValue } from '../../shared/decimal.ts';
 import { FAMILY_RULES } from '../../shared/address-rules.ts';
 import { CHECK_REASON_MIN_LENGTH, type CheckId, type RequestCheck } from '../../shared/terms.ts';
+import { letterDigitCount, stripFormatChars } from '../../shared/schemas.ts';
 
 // ---------------------------------------------------------------------------
 // 승인 대상 지문(F10)
@@ -185,9 +186,10 @@ const fmtN = (n: number) => (Number.isInteger(n) ? String(n) : String(Math.round
 
 /**
  * 출금 전 점검 목록. 요청 상태를 바꾸지 않는다(읽기만).
- * 1) first_use: 같은 자산·네트워크로 이 주소에 처리 완료된 출금 요청이 없으면 주의(사유 필요) + 소액 시험 전송 권유
+ * 1) first_use: 이 대시보드에서 같은 자산·네트워크로 이 주소에 처리 완료된 출금 요청이 없으면 주의(사유 필요) + 소액 시험 전송 권유.
+ *    자산 활동 내역의 출금 행은 받는 주소가 없어 세지 않으므로, 문구에 '이 대시보드' 범위를 함께 쓴다.
  * 2) amount_history: 그런 출금이 최소 건수 이상이면 중앙값의 배수를 넘을 때 주의(사유 필요), 모자라면 확인 불가
- * 3) balance_share: 사용 가능 수량의 비율 이상을 한 번에 보내면 주의(사유 필요)
+ * 3) balance_share: 사용 가능 수량의 비율 이상을 한 번에 보내면 주의(사유 필요). 사용 가능 수량보다 많으면 수량 부족으로 알린다
  * 4) recent_burst: 최근 기간에 같은 조직·같은 자산 요청(이번 요청 포함)이 건수 이상이면 주의(사유 필요 없음)
  * 5) price: 시세가 없거나 지연되면 확인 불가(기준 이내로 보이지 않음)
  */
@@ -208,25 +210,28 @@ export function computeChecks(db: DB, policy: Policy, c: CheckContext): RequestC
         AND (r.completed_at IS NULL OR r.completed_at <= ?)
       ORDER BY r.completed_at`,
   ).all(c.orgId, c.assetCode, c.networkCode, c.address, c.requestId ?? '', nowIso) as { amount_units: string; completed_at: string | null }[];
-  const historyBasis = '이 조직이 같은 자산·네트워크로 이 주소에 보내 완료된 출금 요청 기준';
+  // 범위를 문장에 함께 쓴다: 이 대시보드의 출금 요청만 세며, 자산 활동 내역의 출금 행은 받는 주소가 없어 세지 않는다(A-27).
+  // 다른 화면(자산 활동 내역)에 같은 받는 곳으로 간 출금이 보여도 이 문장과 어긋나지 않게 한다.
+  // 요청 상태 이름('처리 완료')과 헷갈리지 않게 점검 문장에는 '보내 완료된'으로 쓴다(같은 화면에 이 요청의 상태가 함께 보인다).
+  const historyBasis = '이 대시보드에서 이 조직이 같은 자산·네트워크로 이 주소에 보내 완료된 출금 요청 기준(자산 활동 내역의 출금은 받는 주소가 기록되지 않아 제외)';
 
-  // 1) 처음 보내는 주소(F14)
+  // 1) 이 대시보드로 처음 보내는 주소(F14)
   if (history.length === 0) {
-    check('first_use', 'caution', '처음 보내는 주소입니다',
-      '이 주소로 보내 완료된 출금 기록이 없습니다. 먼저 소액을 시험 전송해 받는 곳의 수령 확인을 받은 뒤 본 전송을 요청하는 방법을 권합니다. 시험 전송이 도착했다는 것은 이번 경로가 맞았다는 뜻일 뿐 이후 전송을 보증하지 않습니다.',
+    check('first_use', 'caution', '이 대시보드로 처음 보내는 주소입니다',
+      '이 대시보드의 출금 요청으로 이 주소에 보내 완료된 기록이 없습니다. 자산 활동 내역의 이전 출금은 받는 주소가 기록되지 않아 세지 않았습니다. 먼저 소액을 시험 전송해 받는 곳의 수령 확인을 받은 뒤 본 전송을 요청하는 방법을 권합니다. 시험 전송이 도착했다는 것은 이번 경로가 맞았다는 뜻일 뿐 이후 전송을 보증하지 않습니다.',
       historyBasis, true);
   } else {
     const last = history[history.length - 1]!.completed_at;
-    check('first_use', 'pass', '이전에 보낸 적이 있는 주소입니다',
-      `이 주소로 보내 완료된 출금이 ${history.length}건 있습니다${last ? `(마지막 ${kstDateTime(last)} KST)` : ''}. 이전 기록이 있어도 받는 곳이 그대로라는 보증은 아닙니다.`,
+    check('first_use', 'pass', '이 대시보드로 보낸 적이 있는 주소입니다',
+      `이 대시보드의 출금 요청으로 이 주소에 보내 완료된 출금이 ${history.length}건 있습니다${last ? `(마지막 ${kstDateTime(last)} KST)` : ''}. 이전 기록이 있어도 받는 곳이 그대로라는 보증은 아닙니다.`,
       historyBasis);
   }
 
   // 2) 과거 금액과 비교(F13)
-  const amountBasis = `과거에 완료된 출금이 ${t.amountMedianMinHistory}건 이상일 때 중앙값의 ${fmtN(t.amountMedianMultiple)}배를 넘으면 주의(설계 가정)`;
+  const amountBasis = `이 대시보드에서 완료된 출금이 ${t.amountMedianMinHistory}건 이상일 때 중앙값의 ${fmtN(t.amountMedianMultiple)}배를 넘으면 주의(설계 가정)`;
   if (history.length < t.amountMedianMinHistory) {
     check('amount_history', 'unknown', '확인 불가(과거 출금 부족)',
-      `이 주소로 보내 완료된 출금이 ${history.length}건이라 과거 금액과 비교하지 않았습니다. ${t.amountMedianMinHistory}건 이상일 때 중앙값과 비교합니다.`,
+      `이 대시보드의 출금 요청으로 이 주소에 보내 완료된 출금이 ${history.length}건이라 과거 금액과 비교하지 않았습니다. ${t.amountMedianMinHistory}건 이상일 때 중앙값과 비교합니다.`,
       amountBasis);
   } else {
     const med = median(history.map((h) => BigInt(h.amount_units)));
@@ -249,9 +254,10 @@ export function computeChecks(db: DB, policy: Policy, c: CheckContext): RequestC
     available = BigInt(b?.total_units ?? '0') - BigInt(b?.reserved_units ?? '0');
   }
   const shareBasis = `사용 가능 수량(보유 − 예약)의 ${fmtN(t.balanceSharePercent)}% 이상이면 주의(설계 가정)`;
-  if (available <= 0n) {
+  if (available <= 0n || amount > available) {
+    // 비율 문제가 아니라 수량이 모자란 경우: 나누어 보내라는 안내 대신 두 수량과 예약 확인을 알린다(검토 단계에서 서버가 거부한다).
     check('balance_share', 'caution', '사용 가능 수량보다 많이 보내려고 합니다',
-      `지금 사용 가능 수량이 ${num(available < 0n ? 0n : available, c.precision)} ${unit}입니다. 예약된 다른 요청이 끝났는지 확인하세요.`,
+      `지금 사용 가능 수량(보유 − 예약)은 ${num(available < 0n ? 0n : available, c.precision)} ${unit}이고 이번 수량은 ${num(amount, c.precision)} ${unit}입니다. 이대로는 검토로 이동할 수 없습니다. 승인 대기 중인 다른 요청에 예약된 수량을 확인하고, 수량을 줄이거나 예약이 풀린 뒤 다시 요청하세요.`,
       shareBasis, true);
   } else {
     const permille = (amount * 1000n) / available;
@@ -308,22 +314,26 @@ export function computeChecks(db: DB, policy: Policy, c: CheckContext): RequestC
 }
 
 /**
- * 제출 본문의 진행 사유를 점검 목록에 붙인다. 사유가 필요한 주의 항목에 5자 이상 사유가 없으면
+ * 제출 본문의 진행 사유를 점검 목록에 붙인다.
+ * 사유에서 보이지 않는 서식 문자(폭 없는 공백·방향 제어 문자 등 \p{Cf})를 지우고 앞뒤 공백을 없앤 뒤,
+ * 글자·숫자가 5자 이상인지 센다(문장부호·공백만으로는 채울 수 없다). 사유가 필요한 주의 항목에 그런 사유가 없으면
  * 항목마다 필드 오류(checkReasons.<id>)를 담아 422 CHECK_REASON_REQUIRED로 거부한다.
+ * 저장하는 사유도 서식 문자를 지운 값이다(승인자에게 보이지 않는 글자나 뒤집힌 글자가 섞이지 않게).
  * 기준 이내 항목의 사유는 버린다. 사유가 필요 없는 주의·확인 불가 항목에 적은 사유는 그대로 남긴다.
  */
 export function attachCheckReasons(items: RequestCheck[], reasons: Partial<Record<string, string>> | undefined): RequestCheck[] {
   const r = reasons ?? {};
-  const missing = items.filter((i) => i.requiresReason && String(r[i.id] ?? '').trim().length < CHECK_REASON_MIN_LENGTH);
+  const clean = (id: string) => stripFormatChars(String(r[id] ?? '')).trim();
+  const missing = items.filter((i) => i.requiresReason && letterDigitCount(clean(i.id)) < CHECK_REASON_MIN_LENGTH);
   if (missing.length) {
     throw new AppError(422, 'CHECK_REASON_REQUIRED',
       `주의 항목 ${missing.length}건에 진행 사유가 필요합니다.`,
-      `각 주의 항목 아래에 그대로 진행하는 이유를 ${CHECK_REASON_MIN_LENGTH}자 이상 적어 주세요. 사유는 승인자에게 함께 보입니다.`,
-      missing.map((i) => ({ field: `checkReasons.${i.id}`, message: `'${i.label}' 항목의 진행 사유를 ${CHECK_REASON_MIN_LENGTH}자 이상 입력하세요.` })),
+      `각 주의 항목 아래에 그대로 진행하는 이유를 글자·숫자 ${CHECK_REASON_MIN_LENGTH}자 이상으로 적어 주세요. 사유는 승인자에게 함께 보입니다.`,
+      missing.map((i) => ({ field: `checkReasons.${i.id}`, message: `'${i.label}' 항목의 진행 사유를 글자·숫자 ${CHECK_REASON_MIN_LENGTH}자 이상으로 입력하세요.` })),
       { checkIds: missing.map((i) => i.id) });
   }
   return items.map((i) => {
-    const reason = String(r[i.id] ?? '').trim();
+    const reason = clean(i.id);
     return { ...i, reason: i.outcome !== 'pass' && reason ? reason : null };
   });
 }

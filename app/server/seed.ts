@@ -352,7 +352,9 @@ export function seed(db: DB) {
           preChecks = serializeChecks(r.submitted_at, attachCheckReasons(items, reasons));
         }
         // 처리 완료·반려된 시드 요청은 점검 기록 없이 지문만 남긴다(점검 도입 전에 결정된 요청으로 본다).
-        ins('INSERT INTO request_intents (request_id, intent_version, intent_hash, pre_checks, created_at) VALUES (?, ?, ?, ?, ?)', id, INTENT_VERSION, hash, preChecks, r.submitted_at);
+        // 예약 기록은 실제 제출 경로와 같이 제출 때 예약한 지갑·자산·수량이다(승인 대기 요청은 위에서 예약을 잡았다).
+        ins('INSERT INTO request_intents (request_id, intent_version, intent_hash, pre_checks, reserved_wallet_id, reserved_asset_code, reserved_units, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          id, INTENT_VERSION, hash, preChecks, r.wallet_id, r.asset_code, String(r.amount_units), r.submitted_at);
         for (const v of db.prepare('SELECT user_id, created_at FROM approvals WHERE request_id = ?').all(id) as { user_id: string; created_at: string }[]) {
           ins('INSERT INTO approval_intents (request_id, user_id, intent_hash, created_at) VALUES (?, ?, ?, ?)', id, v.user_id, hash, v.created_at);
         }
