@@ -324,7 +324,7 @@ describe('GET /api/audit/verify', () => {
       const v = await api(ctx.app, await login(ctx.app, 'u-a-moon')).get('/api/audit/verify');
       expect(v.status).toBe(200);
       // 로그인 등으로 뒤에 기록이 더 붙을 수 있으므로 응답 이후의 최신 행과 비교한다.
-      expect(v.body).toEqual({ ok: true, count: rowsOf(ctx.db, 'org-a').length, brokenAtSeq: null, brokenAtNo: null, headHash: head(ctx.db, 'org-a').hash });
+      expect(v.body).toEqual({ ok: true, count: rowsOf(ctx.db, 'org-a').length, brokenAtNo: null, headHash: head(ctx.db, 'org-a').hash });
     } finally {
       await ctx.app.close();
       ctx.db.close();
@@ -353,13 +353,14 @@ describe('GET /api/audit/verify', () => {
       const ok = await aud.get('/api/audit/verify');
       expect(ok.status).toBe(200);
       const newest = head(ctx.db, 'org-a');
-      expect(ok.body).toEqual({ ok: true, count: rowsOf(ctx.db, 'org-a').length, brokenAtSeq: null, brokenAtNo: null, headHash: newest.hash });
+      expect(ok.body).toEqual({ ok: true, count: rowsOf(ctx.db, 'org-a').length, brokenAtNo: null, headHash: newest.hash });
 
       dropUpdateGuard(ctx.db);
       const rows = rowsOf(ctx.db, 'org-a');
       ctx.db.prepare('UPDATE audit_log SET actor_name = ? WHERE seq = ?').run('다른 사람', rows[2]!.seq);
       const broken = await aud.get('/api/audit/verify');
-      expect(broken.body).toEqual({ ok: false, count: rows.length, brokenAtSeq: rows[2]!.seq, brokenAtNo: 3, headHash: null });
+      expect(broken.body).toEqual({ ok: false, count: rows.length, brokenAtNo: 3, headHash: null });
+      expect(broken.body).not.toHaveProperty('brokenAtSeq');
     } finally {
       await ctx.app.close();
       ctx.db.close();

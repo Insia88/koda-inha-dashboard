@@ -55,6 +55,16 @@ describe('shared: cleanText·reasonError', () => {
     expect(reasonError(cleanText('abc12'), opts)).toBeNull();
   });
 
+  it('treats Hangul filler and blank characters (letters that render as nothing) as invisible', () => {
+    const opts = { label: '정지 사유', short: '정지 사유를 5자 이상 입력하세요.' };
+    for (const ch of ['ㅤ', 'ᅟ', 'ᅠ', 'ﾠ', '⠀']) {
+      expect(cleanText(ch.repeat(5)), `U+${ch.codePointAt(0)!.toString(16).toUpperCase()}`).toBe('');
+      expect(reasonError(cleanText(ch.repeat(5)), opts)).toBe('정지 사유를 5자 이상 입력하세요.');
+    }
+    expect(cleanText('가ㅤ나ㅤ다ㅤ라ㅤ마')).toBe('가나다라마');
+    expect(addressStopSchema.safeParse({ version: 1, reason: 'ㅤ'.repeat(8) }).success).toBe(false);
+  });
+
   it('stop and reject schemas reject zero-width-only, bidi-only and punctuation-only reasons, and pass on the cleaned value', () => {
     for (const [schema, field, short] of [
       [addressStopSchema, '정지 사유', '정지 사유를 5자 이상 입력하세요.'],

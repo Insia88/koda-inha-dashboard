@@ -252,8 +252,8 @@ test('검토 때 없던 사유 필요 주의가 승인 요청 때 처음 생기�
     const shareBox = card.getByRole('textbox', { name: /^진행 사유: 사용 가능 수량의 큰 부분을 한 번에 보냅니다/ });
     await expect(shareBox).toBeVisible();
     await expect(shareBox).toHaveAttribute('aria-invalid', 'true');
-    // 포커스 이동은 여기서 보지 않는다: 첫 오류 포커스(useFocusFirstError)가 다시 불러오기 전에 한 번만 실행돼
-    // 다시 불러오기가 늦으면 포커스가 「승인 요청 보내기」에 남는다(RequestDetail.tsx 쪽 수정 대상).
+    // 다시 불러온 뒤 새로 생긴 사유 입력으로 포커스가 옮겨 가야 한다(첫 오류 포커스가 입력칸이 생길 때까지 다시 찾는다).
+    await expect(shareBox).toBeFocused();
     await page.unroute(`**/api/requests/${a.id}`);
     expect((await (await page.request.get(`/api/requests/${a.id}`)).json()).status).toBe('REVIEW'); // 아무것도 예약되지 않았다
   } finally {

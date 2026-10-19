@@ -320,7 +320,11 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
     const a = requirePerm(req, 'audit.read', '감사 기록 조회');
     return rm.auditList(db, a, parse(pageQuery.merge(auditQuery), req.query));
   });
-  app.get('/api/audit/verify', async (req) => verifyChain(db, requirePerm(req, 'audit.read', '감사 기록 조회').org.id));
+  // 응답에는 조직 안 번호(brokenAtNo)만 담는다. 전체 공용 순번(brokenAtSeq)은 다른 조직의 기록량을 드러내므로 내보내지 않는다.
+  app.get('/api/audit/verify', async (req) => {
+    const { brokenAtSeq: _global, ...result } = verifyChain(db, requirePerm(req, 'audit.read', '감사 기록 조회').org.id);
+    return result;
+  });
   app.get('/api/audit/export.csv', async (req, reply) => {
     const a = requirePerm(req, 'audit.export', '감사 기록 내보내기');
     const q = parse(auditQuery, req.query);

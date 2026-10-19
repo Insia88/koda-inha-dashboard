@@ -287,7 +287,8 @@ export function RequestDetailPage() {
   // 제출 전 평가액: 공용 krwValue(BigInt)로 계산한다.
   const price = bal.data?.price as { asOf: string | null; state: string; source: string | null } | undefined;
   const assetPrice: string | null = bal.data?.assets.find((a: any) => a.assetCode === r.assetCode)?.krwPrice ?? null;
-  const currentKrw = preSubmit && assetPrice && price && price.state !== 'unavailable' ? krwValue(BigInt(r.amountUnits), r.precision, assetPrice) : null;
+  // 저장된 수량을 읽을 수 없는 요청(r.amount === null)은 평가액을 계산하지 않는다(BigInt 변환이 실패해 화면이 깨지지 않도록).
+  const currentKrw = preSubmit && r.amount !== null && assetPrice && price && price.state !== 'unavailable' ? krwValue(BigInt(r.amountUnits), r.precision, assetPrice) : null;
   const projected = preSubmit && price ? { krw: currentKrw, state: assetPrice ? price.state : 'unavailable' } : null;
 
   // 확인 카드(승인 요청·승인/반려)가 있으면 되돌리기·요청 취소는 카드 아래로 내려 주 행동과 섞이지 않게 한다.
@@ -295,7 +296,7 @@ export function RequestDetailPage() {
   const secondary = can('back_to_draft') || can('cancel');
   const rowAbove = !editing && (can('edit') || can('review') || (!hasActionCard && secondary));
   const rowBelow = !editing && hasActionCard && secondary;
-  const editButton = can('edit') && <button className="btn" onClick={() => { const v = { assetCode: r.assetCode, networkCode: r.networkCode, addressId: r.address.id, amount: r.amount, purpose: r.purpose }; setForm(v); setOriginal(v); save.reset(); act.reset(); setEditing(true); }}>내용 수정</button>;
+  const editButton = can('edit') && <button className="btn" onClick={() => { const v = { assetCode: r.assetCode, networkCode: r.networkCode, addressId: r.address.id, amount: r.amount ?? '', purpose: r.purpose }; setForm(v); setOriginal(v); save.reset(); act.reset(); setEditing(true); }}>내용 수정</button>;
   const backButton = can('back_to_draft') && <button className="btn" onClick={() => act.mutate({ action: 'back-to-draft', body: {} })} disabled={act.isPending}>작성 단계로 되돌리기</button>;
   const cancelButton = can('cancel') && <button type="button" className="btn btn-danger-outline" onClick={() => { cancelM.reset(); setConfirmCancel(true); }} disabled={act.isPending}>요청 취소</button>;
   const reviewButton = can('review') && <button className="btn btn-primary" onClick={() => act.mutate({ action: 'review', body: {} })} disabled={act.isPending}>검토로 이동</button>;

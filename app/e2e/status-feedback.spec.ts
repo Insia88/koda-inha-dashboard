@@ -5,10 +5,10 @@ import { loginAs, logout } from './helpers.ts';
 import { middleSegment } from '../shared/address-rules.ts';
 
 // 결과·오류 안내와 포커스(G2 후속): 처리 결과가 누른 자리에서 보이고, 받는 주소를 쓸 수 없을 때 무엇을 해야 하는지 알린다.
-// - 작성 중 요청의 받는 주소가 사용 중지되면 요청자 안내·다음 할 일·주소 상태 배지, 「검토로 이동」 거부 안내로 포커스
+// - 작성 중 요청의 받는 주소가 사용 중지되면 요청자 안내·다음 할 일·주소 상태 배지(「검토로 이동」은 내놓지 않음), 화면을 연 사이 중지되면 거부 안내로 포커스
 // - 주소 확인 뒤 결과 안내로 포커스, 승인(1/2·마지막) 뒤 결과 안내로 포커스와 다음 할 일
 // - 주소록 목록에서 유사 주소(ab-13)에 '비슷한 주소 있음' 표시, 흉내 낸 원래 주소(ab-02)에는 없음
-// 바꾸는 데이터: 이 파일에서 만든 주소 2건과 그 주소로 가는 요청 2건뿐이다(다른 검사가 쓰는 시드 주소·요청은 읽기만 한다).
+// 바꾸는 데이터: 이 파일에서 만든 주소 3건과 그 주소로 가는 요청 3건뿐이다(다른 검사가 쓰는 시드 주소·요청은 읽기만 한다).
 // 다른 검사의 점검 결과(최근 요청 수 등)에 영향을 주지 않도록 파일 이름 순서상 데스크톱 검사의 마지막에 돈다.
 
 async function apiPost(page: Page, url: string, body: unknown) {
@@ -35,7 +35,7 @@ async function activeAddress(page: Page, label: string) {
   return { id: created.address.id as string, address, version: created.address.version as number };
 }
 
-test('작성 중 요청의 받는 주소가 사용 중지되면: 요청자 안내·다음 할 일·주소 상태 배지, 「검토로 이동」 거부는 버튼 위에 보이고 포커스', async ({ page }) => {
+test('작성 중 요청의 받는 주소가 사용 중지되면: 요청자 안내·다음 할 일·주소 상태 배지가 보이고 「검토로 이동」은 내놓지 않는다', async ({ page }) => {
   const a = await activeAddress(page, 'E2E 사용 중지될 주소');
   await loginAs(page, '오민재');
   await apiPost(page, `/api/addresses/${a.id}/review`, { decision: 'approve', version: a.version, confirmTail: a.address.slice(-6), confirmMiddle: middleSegment(a.address).text, note: '' });
@@ -59,10 +59,32 @@ test('작성 중 요청의 받는 주소가 사용 중지되면: 요청자 안�
   const recipient = page.locator('.dl dd').filter({ hasText: 'E2E 사용 중지될 주소' });
   await expect(recipient.locator('.badge')).toHaveText('사용 중지');
   await expect(page.getByText('주소 사용 불가')).toHaveCount(0);
+  // 진행할 수 없는 행동은 처음부터 내놓지 않는다(서버가 허용 행동에서 검토를 뺀다).
+  await expect(page.getByRole('button', { name: '검토로 이동' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '내용 수정' })).toBeVisible();
+});
+
+test('화면을 연 사이 받는 주소가 사용 중지되면: 「검토로 이동」 거부 안내가 버튼 위에 보이고 포커스, 요청은 그대로', async ({ page, browser }) => {
+  const a = await activeAddress(page, 'E2E 열어 둔 사이 중지될 주소');
+  await loginAs(page, '오민재');
+  await apiPost(page, `/api/addresses/${a.id}/review`, { decision: 'approve', version: a.version, confirmTail: a.address.slice(-6), confirmMiddle: middleSegment(a.address).text, note: '' });
+  await logout(page);
+  await loginAs(page, '한지수');
+  const draft = await apiPost(page, '/api/requests', { assetCode: 'USDC', networkCode: 'ETHEREUM', addressId: a.id, amount: '1', purpose: 'E2E 열어 둔 사이 중지 초안' });
+  await page.goto(`/requests/${draft.id}`);
+  await expect(page.getByRole('button', { name: '검토로 이동' })).toBeVisible();
+
+  // 요청자가 화면을 열어 둔 채로, 다른 창에서 조직 관리자가 주소를 사용 중지한다.
+  const admin = await browser.newContext({ baseURL: new URL(page.url()).origin, locale: 'ko-KR', timezoneId: 'Asia/Seoul' });
+  const adminPage = await admin.newPage();
+  await loginAs(adminPage, '윤가람');
+  const cur = await (await adminPage.request.get(`/api/addresses/${a.id}`)).json();
+  await apiPost(adminPage, `/api/addresses/${a.id}/disable`, { version: cur.version });
+  await admin.close();
 
   // 「검토로 이동」: 서버가 거부하면 안내가 버튼 줄 바로 위에 보이고 그 안내로 포커스가 옮겨진다.
   await page.getByRole('button', { name: '검토로 이동' }).click();
-  const refused = page.getByRole('alert').filter({ hasText: '주소는 아직 사용할 수 없습니다' });
+  const refused = page.getByRole('alert').filter({ hasText: '사용 중지되어' });
   await expect(refused).toBeVisible();
   await expect(refused).toContainText('사용 가능한 다른 받는 주소를 고르거나 요청을 취소하세요');
   await expect(refused).not.toContainText('두 번째 담당자의 주소 확인');

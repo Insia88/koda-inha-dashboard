@@ -29,7 +29,7 @@ export function AuditPage() {
       />
       <div className="audit-integrity" role="status">
         {verify.data ? (verify.data.ok ? <Badge tone="success">무결성 확인됨</Badge> : <Badge tone="danger">무결성 오류</Badge>) : <Badge tone="neutral">무결성 확인 중</Badge>}
-        <span className="small muted">{verify.data ? (verify.data.ok ? `기록 ${verify.data.count}건의 해시 연결이 끊김 없이 이어집니다.` : `${verify.data.brokenAtNo ?? verify.data.brokenAtSeq}번 기록에서 해시가 맞지 않습니다. 보안 담당자에게 알리세요.`) : ''}</span>
+        <span className="small muted">{verify.data ? (verify.data.ok ? `기록 ${verify.data.count}건의 해시 연결이 끊김 없이 이어집니다.` : `${verify.data.brokenAtNo}번 기록에서 해시가 맞지 않습니다. 보안 담당자에게 알리세요.`) : ''}</span>
       </div>
       {/* 확인 범위: 해시가 키 없는 SHA-256이라, 이 확인은 해시 연결이 끊긴 곳만 찾는다. 가장 최근 기록을 지우거나,
           기록을 고친 뒤 그 뒤의 prev_hash·hash를 모두 다시 계산하면 연결은 그대로라 드러나지 않는다.

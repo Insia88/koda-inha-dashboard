@@ -21,11 +21,13 @@ export function isWellFormedText(s: string): boolean {
 }
 
 /**
- * 보이지 않는 서식 문자(\p{Cf}: 폭 없는 공백 U+200B, 방향 제어 문자 U+202E, BOM 등)를 지운다.
- * 사람이 읽고 판단하는 글(출금 전 점검의 진행 사유)에 보이지 않거나 뒤집혀 보이는 글자가 섞이지 않게 한다.
+ * 보이지 않는 서식 문자(\p{Cf}: 폭 없는 공백 U+200B, 방향 제어 문자 U+202E, BOM 등)와, 글자로 분류되지만 화면에
+ * 아무것도 보이지 않는 채움 문자(한글 채움 U+115F·U+1160·U+3164·U+FFA0, 점자 빈칸 U+2800)를 지운다.
+ * 사람이 읽고 판단하는 글(사유·메모·이름)에 보이지 않거나 뒤집혀 보이는 글자가 섞이지 않게 한다.
  */
+const INVISIBLE_CHARS = /[\p{Cf}ᅟᅠㅤﾠ⠀]/gu;
 export function stripFormatChars(s: string): string {
-  return s.replace(/\p{Cf}/gu, '');
+  return s.replace(INVISIBLE_CHARS, '');
 }
 
 /** 글자(\p{L})와 숫자(\p{N})의 개수. 공백·문장부호·기호·보이지 않는 문자는 세지 않는다. */
