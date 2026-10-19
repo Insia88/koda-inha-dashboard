@@ -98,15 +98,25 @@ export function getAddressRow(db: DB, orgId: string, id: string): any {
 
 const STATUS_ORDER: Record<string, number> = { ACTIVE: 0, PENDING_REVIEW: 1, DISABLED: 2, REJECTED: 3 };
 
-/** 같은 글자 수(앞+뒤)가 많은 순서, 같으면 사용 가능 → 확인 대기 → 사용 중지 → 등록 거절 순으로 상위 3건 */
-function rankMatches(matches: LookalikeFindingMatch[]): LookalikeFindingMatch[] {
+/** 같은 글자 수(앞+뒤)가 많은 순서, 같으면 사용 가능 → 확인 대기 → 사용 중지 → 등록 거절 순으로 정렬한다(자르지 않음). */
+function sortMatches(matches: LookalikeFindingMatch[]): LookalikeFindingMatch[] {
   return [...matches]
-    .sort((a, b) => (b.prefix + b.suffix) - (a.prefix + a.suffix) || (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || a.id.localeCompare(b.id))
-    .slice(0, LOOKALIKE_MAX_MATCHES);
+    .sort((a, b) => (b.prefix + b.suffix) - (a.prefix + a.suffix) || (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || a.id.localeCompare(b.id));
 }
 
-/** 같은 조직 주소록 전체(상태와 무관)에서 앞·뒤가 같고 가운데가 다른 주소를 찾는다. */
-export function findLookalikes(db: DB, orgId: string, normalized: string, excludeId?: string): LookalikeFindingMatch[] {
+/** 정렬한 뒤 상위 LOOKALIKE_MAX_MATCHES(3)건만 남긴다. 점검 결과(data.matches)에는 이 목록만 저장한다. */
+function rankMatches(matches: LookalikeFindingMatch[]): LookalikeFindingMatch[] {
+  return sortMatches(matches).slice(0, LOOKALIKE_MAX_MATCHES);
+}
+
+/** 유사 주소 점검 결과: 비교해 보여 줄 상위 3건과, 자르기 전 전체 건수. */
+export interface LookalikeScan {
+  matches: LookalikeFindingMatch[];
+  total: number;
+}
+
+/** 같은 조직 주소록 전체(상태와 무관)에서 앞·뒤가 같고 가운데가 다른 주소를 모두 찾는다(정렬만 하고 자르지 않음). */
+function findAllLookalikes(db: DB, orgId: string, normalized: string, excludeId?: string): LookalikeFindingMatch[] {
   const rows = db.prepare('SELECT id, label, status, address FROM address_book WHERE org_id = ?').all(orgId) as { id: string; label: string; status: string; address: string }[];
   const out: LookalikeFindingMatch[] = [];
   for (const r of rows) {
@@ -114,17 +124,30 @@ export function findLookalikes(db: DB, orgId: string, normalized: string, exclud
     const m = lookalikeMatch(r.address, normalized);
     if (m) out.push({ id: r.id, label: r.label, status: r.status, address: r.address, prefix: m.prefix, suffix: m.suffix });
   }
-  return rankMatches(out);
+  return sortMatches(out);
 }
 
-function lookalikeFinding(matches: LookalikeFindingMatch[]): Finding {
+/** 같은 조직 주소록 전체(상태와 무관)에서 앞·뒤가 같고 가운데가 다른 주소를 찾는다. 상위 3건과 전체 건수를 함께 돌려준다. */
+export function findLookalikes(db: DB, orgId: string, normalized: string, excludeId?: string): LookalikeScan {
+  const all = findAllLookalikes(db, orgId, normalized, excludeId);
+  return { matches: all.slice(0, LOOKALIKE_MAX_MATCHES), total: all.length };
+}
+
+/**
+ * 유사 주소 경고. matches는 비교해 보여 줄 상위 3건(이미 정렬됨), total은 자르기 전 전체 건수다.
+ * 메시지의 '외 N건'은 total로 센다. 비교 목록이 3건으로 잘려도 실제로 몇 건이 더 있는지 그대로 알린다.
+ */
+export function lookalikeFinding(matches: LookalikeFindingMatch[], total: number): Finding {
   const top = matches[0]!;
   const st = ADDRESS_STATUS[top.status as AddressStatus]?.label ?? top.status;
-  const more = matches.length > 1 ? ` 비슷한 기존 주소가 ${matches.length - 1}건 더 있습니다.` : '';
+  const all = Math.max(total, matches.length);
+  const others = all - 1;
+  const more = others > 0 ? ` 이 주소 외에 비슷한 기존 주소가 ${others}건 더 있습니다.` : '';
+  const cut = all > matches.length ? ` 글자 비교는 가장 비슷한 ${matches.length}건까지 보여 줍니다.` : '';
   return {
     code: 'ADDRESS_LOOKALIKE',
     level: 'warning',
-    message: `기존 주소 '${top.label}'(${st})와 앞 ${top.prefix}자·뒤 ${top.suffix}자가 같지만 가운데가 다릅니다.${more}`,
+    message: `기존 주소 '${top.label}'(${st})와 앞 ${top.prefix}자·뒤 ${top.suffix}자가 같지만 가운데가 다릅니다.${more}${cut}`,
     action: '앞·뒤만 같게 만든 가짜 주소를 이용한 사기일 수 있습니다. 가운데를 포함한 전체 글자를 받는 곳과 별도 연락 수단으로 다시 대조하고, 어떻게 확인했는지 남기세요.',
     data: { matches },
   };
@@ -146,8 +169,8 @@ export function checkAddress(db: DB, orgId: string, input: { assetCode: string; 
       findings.unshift({ code: 'ADDRESS_DUPLICATE', level: 'error', message: `이미 '${dup.label}'(으)로 등록된 주소입니다.`, action: '기존 주소를 사용하거나, 사용 중지 후 다시 등록하세요.' });
     }
     // 유사 주소는 사용 중지·거절된 주소까지 모두 본다.
-    const matches = findLookalikes(db, orgId, normalized);
-    if (matches.length) findings.unshift(lookalikeFinding(matches));
+    const scan = findLookalikes(db, orgId, normalized);
+    if (scan.matches.length) findings.unshift(lookalikeFinding(scan.matches, scan.total));
   }
   return { findings, normalized };
 }
@@ -226,14 +249,32 @@ export function reviewAddress(db: DB, auth: AuthContext, policy: Policy, id: str
       }
       assertMiddle(String(r.address), input.confirmMiddle ?? '', '화면을 복사하지 말고 받는 곳에서 받은 원본 주소의 가운데 글자를 보고 입력하세요.');
       // 등록 뒤에 생긴 유사 주소가 있으면 확인 담당자가 비교 내용을 먼저 보도록 점검 결과를 갱신하고 다시 확인하게 한다.
-      const fresh = findLookalikes(db, auth.org.id, String(r.address), id);
+      const fresh = findAllLookalikes(db, auth.org.id, String(r.address), id);
       const freshById = new Map(fresh.map((m) => [m.id, m]));
-      const merged = rankMatches([...seenMatches.map((m) => freshById.get(m.id) ?? m), ...fresh.filter((m) => !seenMatches.some((s) => s.id === m.id))]);
-      const added = merged.filter((m) => !seenMatches.some((s) => s.id === m.id));
+      const seenIds = new Set(seenMatches.map((m) => m.id));
+      // 저장된 결과와 지금 찾은 결과의 합집합(자르기 전). 건수는 메시지의 '외 N건'에 쓴다.
+      const union = [...seenMatches.map((m) => freshById.get(m.id) ?? m), ...fresh.filter((m) => !seenIds.has(m.id))];
+      const merged = rankMatches(union);
+      const added = merged.filter((m) => !seenIds.has(m.id));
       if (added.length) {
-        const next = [lookalikeFinding(merged), ...seen.filter((f) => f.code !== 'ADDRESS_LOOKALIKE')];
+        const next = [lookalikeFinding(merged, union.length), ...seen.filter((f) => f.code !== 'ADDRESS_LOOKALIKE')];
         const res = db.prepare('UPDATE address_book SET check_findings = ?, version = version + 1 WHERE id = ? AND org_id = ? AND version = ?').run(JSON.stringify(next), id, auth.org.id, input.version);
         if (res.changes !== 1) throw Errors.conflict('다른 사용자가 먼저 이 주소를 변경했습니다.');
+        // 확인 담당자에게 보여 줄 점검 결과가 바뀌었다는 증거를 같은 트랜잭션에서 남긴다(전체 주소는 남기지 않음).
+        writeAudit(db, {
+          orgId: auth.org.id, actorId: auth.user.id, actorName: auth.user.name, action: 'address.findings_updated', targetType: 'address', targetId: id,
+          summary: `주소 점검 결과 갱신: ${r.label} (비슷한 주소 ${added.length}건 새로 확인, 확인 보류)`,
+          detail: {
+            ruleVersion: LOOKALIKE_RULE_VERSION,
+            attempted: 'approve',
+            added: auditMatches(added),
+            previous: auditMatches(seenMatches),
+            lookalike: auditMatches(merged),
+            lookalikeTotal: union.length,
+            findings: next.map((f) => f.code),
+            version: input.version + 1,
+          },
+        });
         return { kind: 'refreshed', added };
       }
       if (seenMatches.length && note.length < 5) {
@@ -254,10 +295,11 @@ export function reviewAddress(db: DB, auth: AuthContext, policy: Policy, id: str
     });
     return { kind: 'done', dto: toAddressDto(getAddressRow(db, auth.org.id, id), auth) };
   });
-  // 점검 결과 갱신은 위 트랜잭션에서 저장(커밋)한 뒤 알린다. 이 함수를 바깥 트랜잭션으로 감싸면 갱신이 함께 취소되므로 감싸지 않는다.
+  // 점검 결과 갱신과 그 감사 기록은 위 트랜잭션에서 함께 저장(커밋)한 뒤 알린다. 이 함수를 바깥 트랜잭션으로 감싸면 둘 다 취소되므로 감싸지 않는다.
+  // 화면은 409를 받으면 주소를 다시 불러와 갱신된 비교 내용을 보여 준다(입력값은 유지).
   if (out.kind === 'refreshed') {
     const labels = out.added.map((m) => `'${m.label}'`).join(', ');
-    throw new AppError(409, 'LOOKALIKE_UPDATED', `등록 뒤에 비슷한 주소(${labels})가 새로 확인되어 점검 결과를 갱신했습니다.`, '화면을 새로 고쳐 비교 내용을 확인한 뒤 다시 대조하세요. 확인할 때 어떻게 확인했는지 메모를 남겨야 합니다.');
+    throw new AppError(409, 'LOOKALIKE_UPDATED', `등록 뒤에 비슷한 주소(${labels})가 새로 확인되어 점검 결과를 갱신했습니다.`, '갱신된 점검 결과와 글자 비교가 화면에 다시 표시됩니다. 새로 표시된 주소와 가운데를 포함한 전체 글자를 대조하고, 어떻게 확인했는지 메모를 남긴 뒤 다시 확인하세요.');
   }
   return out.dto;
 }
