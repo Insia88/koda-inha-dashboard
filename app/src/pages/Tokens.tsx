@@ -10,6 +10,7 @@ export function TokensPage() {
   return (
     <div className="page">
       <PageHeader title="토큰 목록" description="이 환경에서 다룰 수 있는 자산과 네트워크 조합입니다. 같은 자산이 여러 네트워크에 있으면 주소 등록과 출금 때 네트워크를 꼭 맞춰야 합니다." />
+      <p className="page-desc">{GLOSSARY.token}</p>
       <div className="table-wrap">
         <table className="table">
           <caption className="sr-only">지원 자산과 네트워크</caption>

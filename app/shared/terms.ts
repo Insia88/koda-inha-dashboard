@@ -10,7 +10,7 @@ export const REQUEST_STATUS: Record<RequestStatus, { label: string; tone: Tone; 
   REVIEW: { label: '검토 중', tone: 'info', step: 1, description: '요청자가 받는 주소와 수량을 최종 대조하는 단계입니다. 확인을 마치면 승인 요청을 보냅니다.' },
   PENDING_APPROVAL: { label: '승인 대기', tone: 'warning', step: 2, description: '요청자가 아닌 승인자의 승인을 기다립니다. 출금 수량은 예약되어 다른 요청에 쓸 수 없습니다.' },
   PROCESSING: { label: '처리 중', tone: 'info', step: 3, description: '승인이 끝나 커스터디 처리 중입니다. 이 단계부터는 취소할 수 없습니다.' },
-  COMPLETED: { label: '처리 완료', tone: 'success', step: 3, description: '처리가 끝났습니다. 블록체인 전송은 되돌릴 수 없습니다.' },
+  COMPLETED: { label: '처리 완료', tone: 'success', step: 3, description: '모의 커스터디가 처리 완료를 알린 상태입니다. 블록체인 확정을 완료 기준으로 삼을지는 KODA와 정할 항목입니다. 블록체인 전송은 되돌릴 수 없습니다.' },
   REJECTED: { label: '반려', tone: 'danger', step: 3, description: '승인자가 반려했습니다. 반려 사유를 확인하고 필요하면 새 요청을 작성하세요.' },
   CANCELLED: { label: '취소', tone: 'neutral', step: 3, description: '요청자가 취소했습니다. 예약된 수량은 해제되었습니다.' },
   FAILED: { label: '처리 실패', tone: 'danger', step: 3, description: '처리 중 문제가 생겨 완료되지 않았습니다. 예약 수량은 해제되었습니다. 실패 사유를 확인하세요.' },
@@ -23,7 +23,7 @@ export const ADDRESS_STATUS: Record<AddressStatus, { label: string; tone: Tone; 
   PENDING_REVIEW: { label: '확인 대기', tone: 'warning', description: '등록자가 아닌 다른 담당자의 확인을 기다립니다. 확인 전에는 출금 요청에 쓸 수 없습니다.' },
   ACTIVE: { label: '사용 가능', tone: 'success', description: '두 사람이 입력 내용을 확인했습니다. 주소의 소유자나 안전성을 보증하는 표시는 아닙니다.' },
   REJECTED: { label: '등록 거절', tone: 'danger', description: '확인 담당자가 등록을 거절했습니다. 사유를 확인하고 다시 등록하세요.' },
-  DISABLED: { label: '사용 중지', tone: 'neutral', description: '더 이상 출금 요청에 쓸 수 없는 주소입니다.' },
+  DISABLED: { label: '사용 중지', tone: 'neutral', description: '더 이상 출금 요청에 쓸 수 없는 주소입니다. 이 주소로 가는 승인 대기 요청은 승인할 수 없고, 반려하거나 취소해야 예약 수량이 풀립니다.' },
 };
 
 export type Role = 'admin' | 'requester' | 'approver' | 'auditor' | 'operator';
@@ -47,10 +47,46 @@ export const TX_STATUS: Record<string, { label: string; tone: Tone }> = {
   failed: { label: '실패', tone: 'danger' },
 };
 
-export const GLOSSARY: Record<string, string> = {
+/**
+ * 용어 설명(화면 Term 버튼과 문서가 함께 쓰는 단일 출처).
+ * 팀 용어집(수탁·화이트리스트·스테이킹·비가역적 이전 등)을 바탕으로 이 화면에 맞게 다시 쓴 설명이다.
+ * 확인되지 않은 규제 시행일·기준 금액은 넣지 않는다. 안전을 보장하는 표현을 쓰지 않는다(tests/glossary.test.ts).
+ */
+export type GlossaryKey =
+  | 'network' | 'memo' | 'reserved' | 'available' | 'valuation'
+  | 'custody' | 'whitelist' | 'staking' | 'validator' | 'unbonding' | 'destinationTag' | 'irreversible' | 'approvalCount' | 'token';
+
+/** 화면에 보이는 용어 이름 */
+export const GLOSSARY_LABEL: Record<GlossaryKey, string> = {
+  network: '네트워크',
+  memo: '메모/태그',
+  reserved: '예약 수량',
+  available: '사용 가능',
+  valuation: '평가액',
+  custody: '커스터디 처리',
+  whitelist: '화이트리스트',
+  staking: '스테이킹',
+  validator: '검증인',
+  unbonding: '해제 대기',
+  destinationTag: '데스티네이션 태그',
+  irreversible: '되돌릴 수 없는 전송',
+  approvalCount: '승인 x/y',
+  token: '토큰과 자산',
+};
+
+export const GLOSSARY: Record<GlossaryKey, string> = {
   network: '자산이 오가는 블록체인입니다. 같은 자산이라도 네트워크가 다르면 받는 쪽에서 찾지 못해 회수가 어려울 수 있습니다.',
   memo: '거래소 등 하나의 주소를 여러 고객이 함께 쓰는 곳에서 받는 사람을 구분하는 값입니다. 요구하는 곳에 빠뜨리면 입금이 확인되지 않을 수 있습니다.',
   reserved: '승인 대기 중인 출금 요청에 묶여 있는 수량입니다. 요청이 반려·취소되면 다시 사용할 수 있습니다.',
   available: '보유 수량에서 예약 수량을 뺀, 새 요청에 쓸 수 있는 수량입니다.',
   valuation: '모의 시세로 계산한 참고용 원화 평가액입니다. 실제 매도 가능 금액이 아닙니다.',
+  custody: '커스터디(수탁)는 고객 대신 디지털 자산을 보관하고, 옮길 때 승인 절차와 기록까지 관리하는 일입니다. 커스터디 처리는 회사 안 승인이 끝난 출금을 수탁사가 넘겨받아 처리하는 단계입니다. 이 환경에서는 모의 커스터디가 처리하며 실제 전송은 일어나지 않습니다.',
+  whitelist: '미리 검토해 등록한 대상만 허용하는 목록입니다. 출금에서는 확인을 마친 주소록 주소로만 보낼 수 있게 하는 규칙이고, Market Insight에서는 게시를 허용한 리서치 기관 목록입니다. 목록에 있다고 안전이 보장되지는 않습니다.',
+  staking: '자산을 블록체인 네트워크에 맡겨 운영에 참여하고 보상을 받는 일입니다. 예금 이자와 비슷해 보이지만 원리와 위험이 다르며, 맡긴 동안에는 자산이 묶여 바로 출금할 수 없습니다.',
+  validator: '스테이킹한 자산으로 네트워크 운영(거래 확인·기록)에 참여하는 운영 주체입니다. 규칙을 어긴 검증인에게 맡긴 자산 일부가 삭감되는 네트워크도 있어, 어느 검증인을 쓰는지가 보상과 위험에 영향을 줍니다.',
+  unbonding: '스테이킹을 끝내기로 요청한 뒤 네트워크가 정한 기간이 지나기를 기다리는 상태입니다. 이 기간에는 출금할 수 없으며, 기간은 네트워크마다 다릅니다.',
+  destinationTag: 'XRP Ledger에서 거래소처럼 여러 고객이 한 주소를 함께 쓰는 곳이 누구의 입금인지 구분하는 번호입니다. 0부터 4294967295 사이의 숫자이며, 요구하는 곳에 빠뜨리면 입금이 반영되지 않을 수 있습니다.',
+  irreversible: '블록체인 전송은 한 번 실행되면 시스템이 되돌려 주지 않습니다. 잘못 보낸 자산은 받은 쪽이 따로 돌려줘야만 되찾을 수 있으므로, 보내기 전에 주소·네트워크·수량을 대조합니다.',
+  approvalCount: 'x는 지금 승인 권한이 있는 사람이 남긴 승인 수, y는 이 요청에 필요한 승인 수입니다. 승인한 뒤 권한을 잃었거나 비활성화된 사람의 승인은 세지 않으며, 요청자 본인은 승인할 수 없습니다. 결정이 끝난 요청은 결정 당시의 승인 수를 그대로 보여 줍니다.',
+  token: '이 화면의 토큰은 다른 화면의 자산과 같은 대상을 뜻합니다. 비트코인처럼 네트워크 고유의 자산(코인)과 USDC처럼 네트워크 위에서 발행된 토큰을 모두 포함합니다.',
 };

@@ -29,13 +29,19 @@ node scripts/screens.mjs       # 실행 중인 서버의 주요 화면 캡처 �
 node scripts/screens-states.mjs  # 대화상자·이탈 확인·폼 오류·검색 상태 캡처
 ```
 
-## 보호된 공개 데모 (Vercel)
+## Vercel 공개 데모
 
-같은 앱을 **모의 데이터 공개 데모**로 Vercel에 올릴 수 있다. 자세한 구성·설정·검증·되돌리기는 [docs/deploy-vercel.md](docs/deploy-vercel.md).
+같은 앱을 **보호된 모의 데이터 공개 데모**로 Vercel에 올릴 수 있다. 구성·프로젝트 설정·배포 게이트·되돌리기는 [docs/deploy-vercel.md](docs/deploy-vercel.md)에 있다. 프로젝트 연결·환경변수 설정·배포는 그때마다 사용자 확인을 받은 뒤에만 한다.
 
-- `VERCEL=1` 또는 `NODE_ENV=production`에서는 기동을 거부하며, Vercel 프로젝트 환경변수에 `DEMO_PUBLIC=1`(그리고 `NODEJS_HELPERS=0`)을 명시했을 때만 공개 데모로 뜬다. `NODE_ENV`·`AUTH_MODE`·`DB_PATH`는 설정하지 않는다.
-- 프로젝트 설정: Root Directory `app`, Node.js 24.x, 미리보기 배포는 Vercel Authentication으로 보호. git 푸시로는 배포되지 않으며(`vercel.json`), 전체 검증을 통과한 뒤 수동으로만 배포한다.
-- 공개 데모의 데이터·세션·요청 한도는 인스턴스 메모리에 있어 재시작·재배포 때 처음 상태로 돌아간다. 화면 상단 띠와 로그인 화면이 이를 알리고, 인스턴스가 바뀌면 안내를 띄운다. 재시작 뒤에도 요청·세션이 남는 동작(`tests/api.test.ts`)은 로컬 모드에만 해당한다.
+- **켜는 조건:** `VERCEL=1` 또는 `NODE_ENV=production`에서는 기동을 거부하고, Vercel 프로젝트 환경변수에 `DEMO_PUBLIC=1`(그리고 `NODEJS_HELPERS=0`)을 명시했을 때만 공개 데모로 뜬다. `NODE_ENV`·`AUTH_MODE`·`DB_PATH`는 설정하지 않는다. Root Directory `app`, Node.js 24.x. git 푸시로는 배포되지 않으며(`vercel.json`), 전체 검증을 통과한 뒤 수동으로만 배포한다.
+- **보호:** 미리보기 배포는 Vercel Authentication으로 보호한다. KODA 승인 전에는 보호 없이 공개하지 않는다(제안 [DEC-001](../docs/decisions.md#제안-기록)).
+
+공개 데모의 한계:
+
+- 로컬과 같은 **개발용 로그인(비밀번호 없음)·모의 데이터·모의 커스터디**로만 동작한다. 모의가 아닌 커스터디 어댑터나 조직이 있으면 기동하지 않는다. KODA 공식 서비스가 아니며 실제 계정·자산과 연결되지 않는다.
+- 데이터·세션·요청 한도는 **인스턴스마다 메모리**에 있어 재시작·재배포·인스턴스 추가 때 처음 상태로 돌아간다. 화면 상단 띠와 로그인 화면이 이를 알리고, 인스턴스가 바뀌면 안내를 띄운다. 재시작 뒤에도 요청·세션이 남는 동작(`tests/api.test.ts`)은 로컬 모드에만 해당한다.
+- 인스턴스당 새로 만들 수 있는 주소 등록·출금 요청·인사이트 게시는 종류별 200건(422 `DEMO_LIMIT`)이고, 세션은 기본 120분, 함수 실행 시간은 15초까지다. 감사 기록 해시 검증은 한 인스턴스 안에서만 의미가 있다.
+- 실제 Vercel 배포에서의 동작(경로 다시 쓰기, 함수 번들 내용, 런타임 Node 버전)은 아직 확인하지 않았다([docs/deploy-vercel.md](docs/deploy-vercel.md) 4절).
 
 ```bash
 npm run build:vercel                          # dist/ + .vercel-server/handler.mjs
@@ -64,6 +70,7 @@ shared/   decimal.ts(정밀 소수) address-rules.ts terms.ts(용어·상태) sc
 src/      pages/ components/ (화면)   tests/ (vitest)   e2e/ (Playwright)
 config/   policy.json(승인·주소 정책 가정) insight-policy.json(인사이트 운영 설정)
 docs/     api.md assumptions.md traceability.md tab-design.md operations.md experiments.md
+          deploy-vercel.md(공개 데모) oss-tracking.md(오픈소스 후보·결정 기록)
 ```
 
-설계 규칙은 [DESIGN.md](DESIGN.md), 상호작용 소유권·검증은 [UX-CONTRACT.md](UX-CONTRACT.md)(정적 검사 설정 `premium-ui.json`), 오픈소스 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+설계 규칙은 [DESIGN.md](DESIGN.md), 상호작용 소유권·검증은 [UX-CONTRACT.md](UX-CONTRACT.md)(정적 검사 설정 `premium-ui.json`), 오픈소스 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). 검토한 오픈소스 후보와 결정(적용·보류·제외), 버전 고정·출시 2주·라이선스 규칙은 [docs/oss-tracking.md](docs/oss-tracking.md)에 기록한다.
