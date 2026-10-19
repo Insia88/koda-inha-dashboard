@@ -9,6 +9,7 @@ import { seed } from '../server/seed.ts';
 import { AUDIT_GENESIS_HASH, hashRowV1, hashRowV2, verifyChain, writeAudit, type AuditInput } from '../server/audit.ts';
 import { api, login, makeApp } from './helpers.ts';
 import { middleSegment } from '../shared/address-rules.ts';
+import { brokenTextMessage } from '../shared/schemas.ts';
 
 // 감사 기록 해시 체인 v2 검증. 저장소 수준 변조는 추가 전용 트리거를 지운 테스트 DB에서만 재현한다.
 
@@ -309,17 +310,16 @@ describe('짝 없는 서로게이트가 든 값 (모의 데이터)', () => {
 });
 
 describe('GET /api/audit/verify', () => {
-  it('an address label with a lone surrogate does not break the chain (POST /api/addresses)', async () => {
+  it('rejects an address label with a lone surrogate before it reaches the chain (POST /api/addresses)', async () => {
     const ctx = await makeApp();
     try {
       const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
       const address = 'MOCK-EVM-' + '1234567890ABCDEF1234567890ABCDEF12345678';
       const cr = await han.post('/api/addresses', { label: '거래처\ud800', counterparty: '테스트 상대방', assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '', confirmTail: address.slice(-6), confirmMiddle: middleSegment(address).text, ackNotVerified: true, ackOutOfBandConfirmed: true });
-      expect(cr.status).toBe(201);
-      const created = head(ctx.db, 'org-a');
-      expect(created.action).toBe('address.created');
-      expect(created.summary).toContain('거래처�');
-      expect(created.hash).toBe(hashRowV2(created));
+      // 깨진 문자열은 입력 검증에서 거부되어 업무 표와 감사 요약에 닿지 않는다(마지막 기록은 로그인 그대로).
+      expect(cr.status).toBe(422);
+      expect(cr.body.error.fields).toContainEqual({ field: 'label', message: brokenTextMessage('주소 이름') });
+      expect(head(ctx.db, 'org-a').action).toBe('auth.login');
 
       const v = await api(ctx.app, await login(ctx.app, 'u-a-moon')).get('/api/audit/verify');
       expect(v.status).toBe(200);
@@ -331,15 +331,15 @@ describe('GET /api/audit/verify', () => {
     }
   });
 
-  it('an insight title with a lone surrogate does not break the publisher org chain (POST /api/insights)', async () => {
+  it('rejects an insight title with a lone surrogate and the publisher org chain still verifies (POST /api/insights)', async () => {
     const ctx = await makeApp();
     try {
       const op = api(ctx.app, await login(ctx.app, 'u-k-op'));
       const r = await op.post('/api/insights', { title: '모의 자료\udc00', summary: '요약', language: 'ko', publishedAt: '2026-10-19', url: 'https://example.com/x', providerId: 'prov-a' });
-      expect(r.status).toBe(201);
-      const row = ctx.db.prepare("SELECT * FROM audit_log WHERE action = 'insight.published' ORDER BY seq DESC LIMIT 1").get() as unknown as Row;
-      expect(row.summary).toContain('모의 자료�');
-      expect(verifyChain(ctx.db, row.org_id)).toMatchObject({ ok: true, brokenAtSeq: null, headHash: head(ctx.db, row.org_id).hash });
+      expect(r.status).toBe(422);
+      expect(r.body.error.fields).toContainEqual({ field: 'title', message: brokenTextMessage('제목') });
+      expect(head(ctx.db, 'org-koda').action).toBe('auth.login');
+      expect(verifyChain(ctx.db, 'org-koda')).toMatchObject({ ok: true, brokenAtSeq: null, headHash: head(ctx.db, 'org-koda').hash });
     } finally {
       await ctx.app.close();
       ctx.db.close();

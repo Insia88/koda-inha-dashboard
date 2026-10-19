@@ -126,7 +126,7 @@ describe('유사 주소 예시(확인 대기)', () => {
     expect(look!.data!.matches!.map((m) => m.id)).toEqual(['ab-02']);
     expect(look!.data!.matches![0]).toMatchObject({ prefix: 4, suffix: 6, status: 'ACTIVE' });
     // 저장된 결과는 지금 다시 점검해도 같다(자기 자신 제외). 다른 시드 주소와는 비슷하지 않다.
-    expect(findLookalikes(db, 'org-a', r.address, 'ab-13').map((m) => m.id)).toEqual(['ab-02']);
+    expect(findLookalikes(db, 'org-a', r.address, 'ab-13').matches.map((m) => m.id)).toEqual(['ab-02']);
     const audit = db.prepare("SELECT detail FROM audit_log WHERE action = 'address.created' AND target_id = 'ab-13'").get() as any;
     expect(JSON.parse(audit.detail)).toMatchObject({ ruleVersion: 'lookalike-v2', lookalike: [{ id: 'ab-02', prefix: 4, suffix: 6 }], warnings: expect.arrayContaining(['ADDRESS_LOOKALIKE']) });
     expect(audit.detail).not.toContain(r.address); // 감사 기록에는 끝 6자리만 남긴다

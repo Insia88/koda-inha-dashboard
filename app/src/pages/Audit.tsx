@@ -10,7 +10,7 @@ import { dateTime } from '../format.ts';
 
 const ACTION_LABEL: Record<string, string> = {
   'auth.login': '로그인', 'auth.logout': '로그아웃',
-  'address.created': '주소 등록 요청', 'address.approved': '주소 확인', 'address.rejected': '주소 거절', 'address.disabled': '주소 사용 중지',
+  'address.created': '주소 등록 요청', 'address.findings_updated': '주소 점검 결과 갱신', 'address.approved': '주소 확인', 'address.rejected': '주소 거절', 'address.disabled': '주소 사용 중지',
   'request.created': '요청 작성', 'request.updated': '요청 수정', 'request.reviewing': '검토 이동', 'request.back_to_draft': '작성으로 되돌림',
   'request.submitted': '승인 요청', 'request.approved': '승인', 'request.rejected': '반려', 'request.cancelled': '취소',
   'request.processing': '처리 시작', 'request.completed': '처리 완료', 'request.failed': '처리 실패',

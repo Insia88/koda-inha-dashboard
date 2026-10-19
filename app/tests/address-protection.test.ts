@@ -80,7 +80,8 @@ describe('유사 주소 판정 (lookalike-v2)', () => {
     expect(f.data.matches[0].prefix + f.data.matches[0].suffix).toBe(12);
     const scores = f.data.matches.map((m: any) => m.prefix + m.suffix);
     expect([...scores].sort((a, b) => b - a)).toEqual(scores);
-    expect(f.message).toContain('비슷한 기존 주소가 2건 더 있습니다.');
+    // 4건이 비슷하다(ab-01 + 등록한 3건). 메시지는 잘라내기 전 전체 건수로 '외 3건'을 말한다.
+    expect(f.message).toContain('이 주소 외에 비슷한 기존 주소가 3건 더 있습니다.');
   });
 });
 
