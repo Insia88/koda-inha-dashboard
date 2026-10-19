@@ -342,7 +342,8 @@ test('native select·date: 키보드 조작, ko-KR 날짜 입력, 좁은 폭에�
   await page.keyboard.press('ArrowRight');
   await page.keyboard.type('1231');
   await expect(page).toHaveURL(/to=2026-12-31/);
-  expect(seen).toEqual(['2026-12-31']);
+  // 주소 갱신 직후 조회가 나가기까지 잠깐 걸릴 수 있으므로 기다리되, 중간값 조회가 없었는지는 그대로 본다.
+  await expect.poll(() => seen).toEqual(['2026-12-31']);
   // 필터 초기화는 날짜 입력도 비운다
   await page.getByRole('button', { name: '필터 초기화' }).first().click();
   await expect(from).toHaveValue('');

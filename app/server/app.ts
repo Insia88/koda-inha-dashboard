@@ -2,7 +2,6 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -350,6 +349,9 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
   // ---------- 화면 ----------
   const dist = path.join(APP_ROOT, 'dist');
   if (cfg.serveClient && existsSync(dist)) {
+    // 공개 데모(Vercel)는 화면을 CDN이 서빙하므로 이 플러그인을 불러오지 않는다. Vercel 함수 런타임은
+    // CommonJS에서 ES 모듈을 require()하지 못해, 맨 위 정적 불러오기만으로도 함수가 시작하지 못했다.
+    const { default: fastifyStatic } = await import('@fastify/static');
     await app.register(fastifyStatic, { root: dist, prefix: '/', wildcard: true, index: false });
     app.get('/', (_req, reply) => reply.sendFile('index.html'));
     app.setNotFoundHandler((req: FastifyRequest, reply) => {

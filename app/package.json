@@ -12,7 +12,8 @@
     "e2e": "playwright test",
     "check": "npm run typecheck && npm run test && npm run build",
     "build:api": "esbuild server/vercel.ts --bundle --platform=node --target=node24 --format=esm --packages=external --outfile=.vercel-server/handler.mjs",
-    "build:vercel": "npm run build && npm run build:api"
+    "build:vercel": "npm run build && npm run build:api",
+    "check:vercel": "npm run build:vercel && node --no-experimental-require-module scripts/probe-handler.mjs"
   },
   "keywords": [],
   "author": "",

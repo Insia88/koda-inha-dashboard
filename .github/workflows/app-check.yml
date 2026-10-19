@@ -24,5 +24,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # Vercel 함수 런타임 조건(require(esm) 불가)으로 공개 데모 핸들러를 띄워 본다.
+      - run: npm run check:vercel
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e
