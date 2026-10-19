@@ -9,6 +9,9 @@ import { AllocationBar } from '../components/AllocationBar.tsx';
 import { amount, dateTime, krw, krwShort, relative } from '../format.ts';
 import { GLOSSARY, REQUEST_STATUS, TX_STATUS, TX_TYPE, type RequestStatus } from '../../shared/terms.ts';
 
+/** 홈 '진행 중인 요청'의 상태 묶음. 결재 및 요청 화면의 '진행 중' 칩과 같다. */
+const IN_PROGRESS_STATUSES = 'REVIEW,PENDING_APPROVAL,PROCESSING';
+
 export function HomePage() {
   const me = useMe();
   const q = useQuery({ queryKey: ['dashboard'], queryFn: () => api('/api/dashboard'), refetchInterval: 15_000 });
@@ -61,7 +64,8 @@ export function HomePage() {
         <section className="card card-progress" aria-labelledby="prog-h">
           <div className="card-head">
             <h2 id="prog-h">진행 중인 요청 <span className="muted">{d.inProgressCount}건</span></h2>
-            <Link to="/requests?status=REVIEW,PENDING_APPROVAL,PROCESSING" className="link-more">전체 보기 <IconArrowRight size={14} aria-hidden="true" /></Link>
+            {/* 결재 및 요청의 '진행 중' 칩과 같은 상태 묶음이라 건수가 같다. */}
+            <Link to={`/requests?status=${IN_PROGRESS_STATUSES}`} className="link-more">전체 보기 <IconArrowRight size={14} aria-hidden="true" /></Link>
           </div>
           {d.inProgress.length === 0 ? <Empty title="진행 중인 요청이 없습니다">검토·승인 대기·처리 중인 요청이 생기면 단계와 함께 표시됩니다.</Empty> : (
             <ul className="progress-list">
@@ -75,7 +79,10 @@ export function HomePage() {
                         <Badge tone={st.tone}>{st.label}</Badge>
                         <span className="progress-amt">{amount(r.amount, r.assetCode)}</span>
                       </div>
-                      <div className="progress-meta muted small">{r.creatorName} → {r.addressLabel} · {relative(r.updatedAt)}{r.status === 'PENDING_APPROVAL' && ` · 승인 ${r.approved}/${r.requiredApprovals}`}</div>
+                      <div className="progress-meta small" style={{ color: 'var(--ink-2)' }}>
+                        {r.creatorName} → {r.addressLabel} · <time className="nowrap" dateTime={r.updatedAt}>{dateTime(r.updatedAt)}</time> <span className="muted nowrap">({relative(r.updatedAt)})</span>
+                        {r.status === 'PENDING_APPROVAL' && <span className="nowrap"> · 승인 {r.approved}/{r.requiredApprovals}</span>}
+                      </div>
                       <StatusRail step={st.step} status={r.status} compact />
                     </Link>
                   </li>

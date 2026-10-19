@@ -4,7 +4,9 @@ import { createHash } from 'node:crypto';
 import type { DB } from './db.ts';
 import { tx } from './db.ts';
 import { writeAudit } from './audit.ts';
-import { parseUnits } from '../shared/decimal.ts';
+import { krwValue, parseUnits } from '../shared/decimal.ts';
+import { LOOKALIKE_RULE_VERSION } from '../shared/address-rules.ts';
+import { checkAddress, lookalikeMatchesOf } from './domain/addresses.ts';
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -26,6 +28,33 @@ function mockAddress(family: 'BTC' | 'EVM' | 'XRP', label: string): string {
 }
 
 const ago = (days: number, hours = 0) => new Date(Date.now() - days * 86400_000 - hours * 3600_000).toISOString();
+
+/** 모의 시세(원). 시세 표와 제출 시 평가액 계산이 같은 값을 쓴다. */
+const MOCK_KRW_PRICE: Record<string, string> = { BTC: '100000000', ETH: '4000000', USDC: '1400', KAIA: '200', XRP: '3000' };
+/** config/policy.json approval.highValueThresholdKrw와 같은 값(설계 가정). tests/seed.test.ts가 둘이 같은지 확인한다. */
+const SEED_HIGH_VALUE_THRESHOLD_KRW = 100_000_000n;
+
+/** 출금 거래의 상대방: 자산·네트워크마다 같은 자산·네트워크로 등록된 주소록 이름만 쓴다. */
+const WITHDRAWAL_COUNTERPARTY: Record<string, string> = {
+  'USDC/ETHEREUM': '모의 거래소 A 입금 (USDC)', // ab-01
+  'USDC/KAIA': '정산 파트너 B (Kaia USDC)', // ab-02
+  'ETH/ETHEREUM': '운영비 정산 (ETH)', // ab-05
+  'BTC/BITCOIN': '그룹사 BTC 보관 이전용', // ab-03
+  'KAIA/KAIA': '카이아 생태계 파트너', // ab-06
+  'XRP/XRPL': '모의 거래소 A 입금 (XRP)', // ab-04
+};
+
+/**
+ * 주소 오염 예시용 모의 주소: 원래 주소와 고유부 앞 head자·뒤 tail자가 같고, 그 사이 글자는 모두 다르다.
+ * 끝 6자리 확인만으로는 구분되지 않고, 가운데 8자리를 대조하면 다르다는 것이 드러난다.
+ */
+function lookalikeOf(original: string, seedLabel: string, head: number, tail: number): string {
+  const body = original.replace(/^MOCK-EVM-/, '');
+  const filler = mockAddress('EVM', seedLabel).replace(/^MOCK-EVM-/, '');
+  const differ = (c: string, from: string) => (c !== from ? c : ((parseInt(c, 16) + 7) % 16).toString(16).toUpperCase());
+  const chars = [...body].map((c, i) => (i < head || i >= body.length - tail ? c : differ(filler[i]!, c)));
+  return `MOCK-EVM-${chars.join('')}`;
+}
 
 export function seed(db: DB) {
   const events: { at: string; orgId: string; actorId: string | null; actorName: string; action: string; targetType: string; targetId: string; summary: string; detail?: Record<string, unknown> }[] = [];
@@ -67,7 +96,7 @@ export function seed(db: DB) {
     const precision: Record<string, number> = { BTC: 8, ETH: 18, USDC: 6, KAIA: 18, XRP: 6 };
     const u = (amount: string, asset: string) => parseUnits(amount, precision[asset]!).toString();
     const t0 = new Date().toISOString();
-    for (const [a, p] of [['BTC', '100000000'], ['ETH', '4000000'], ['USDC', '1400'], ['KAIA', '200'], ['XRP', '3000']]) {
+    for (const [a, p] of Object.entries(MOCK_KRW_PRICE)) {
       ins("INSERT INTO prices VALUES (?, ?, ?, '모의 시세(개발용)')", a, p, t0);
     }
 
@@ -120,6 +149,32 @@ export function seed(db: DB) {
       if (status === 'DISABLED') events.push({ at: ago(days - 100), orgId: org, actorId: 'u-a-yoon', actorName: name('u-a-yoon'), action: 'address.disabled', targetType: 'address', targetId: id, summary: `주소 사용 중지: ${label}` });
     }
 
+    // 주소 오염 예시(확인 대기): 정산 파트너 B(ab-02)의 주소와 앞 4자·뒤 6자가 같은 주소를 이메일 안내만 보고 등록한 상황.
+    // ab-01을 본뜨면 ab-01 자신을 다시 점검할 때도 유사 주소가 잡혀 기존 검사(tests/address-protection.test.ts)와 어긋나므로 ab-02를 쓴다.
+    // 점검 결과는 실제 등록 경로와 같은 checkAddress로 계산해 저장한다(등록 전에 계산하므로 자기 자신과는 비교하지 않는다).
+    {
+      const id = 'ab-13';
+      const label = '정산 파트너 B (Kaia USDC, 변경 안내분)';
+      const address = lookalikeOf(mockAddress('EVM', 'book:ab-02'), `book:${id}`, 4, 6);
+      const { findings, normalized } = checkAddress(db, 'org-a', { assetCode: 'USDC', networkCode: 'KAIA', address, memo: '' });
+      const matches = lookalikeMatchesOf(findings);
+      const reason = '정산 파트너 B 담당자가 이메일로 입금 주소 변경을 안내해 등록합니다. 메신저로 주소 앞·뒤 글자를 확인했습니다.';
+      const at = ago(0, 7);
+      ins('INSERT INTO address_book (id, org_id, label, counterparty, asset_code, network_code, address, memo, status, created_by, created_at, check_findings, lookalike_reason, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        id, 'org-a', label, '모의 정산 파트너 B', 'USDC', 'KAIA', normalized, '', 'PENDING_REVIEW', 'u-a-kang', at, JSON.stringify(findings), matches.length ? reason : null, 1);
+      events.push({
+        at, orgId: 'org-a', actorId: 'u-a-kang', actorName: name('u-a-kang'), action: 'address.created', targetType: 'address', targetId: id,
+        summary: `주소 등록 요청: ${label} (USDC/KAIA)`,
+        detail: {
+          assetCode: 'USDC', networkCode: 'KAIA', addressTail: normalized.slice(-6), memoSet: false,
+          warnings: findings.filter((f) => f.level === 'warning').map((f) => f.code),
+          ruleVersion: LOOKALIKE_RULE_VERSION,
+          lookalike: matches.map((m) => ({ id: m.id, label: m.label, status: m.status, prefix: m.prefix, suffix: m.suffix })),
+          lookalikeReason: matches.length ? reason : null,
+        },
+      });
+    }
+
     // 출금 요청 (모의법인 A)
     type Req = [string, string, string, string, string, string, string, string, string, number, number, string | null, string | null];
     const reqs: Req[] = [
@@ -139,12 +194,16 @@ export function seed(db: DB) {
       const submitted = ['PENDING_APPROVAL', 'COMPLETED', 'REJECTED'].includes(status) ? ago(days, -1) : null;
       const done = ['COMPLETED', 'REJECTED'].includes(status) ? ago(days, -3) : null;
       const units = u(amt, asset);
-      ins(`INSERT INTO withdrawal_requests (id, org_id, ref_no, wallet_id, asset_code, network_code, amount_units, address_id, purpose, status, required_approvals, created_by, created_at, updated_at, submitted_at, processing_started_at, completed_at, reject_reason, custody_ref, version)
-           VALUES (?, 'org-a', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        id, ref, w, asset, net, units, addr, purpose, status, reqd, by, at, done ?? submitted ?? at, submitted, status === 'COMPLETED' ? ago(days, -2) : null, done, reason, status === 'COMPLETED' ? 'MOCK-CUSTODY-SEED0001' : null, 3);
+      // 제출된 요청은 제출 시 평가액과 필요 승인 수의 근거를 함께 남긴다(실제 제출 경로와 같은 기준, 모의 시세).
+      const krwAtSubmit = submitted ? krwValue(units, precision[asset]!, MOCK_KRW_PRICE[asset]!) : null;
+      const basis = krwAtSubmit === null ? null : krwAtSubmit >= SEED_HIGH_VALUE_THRESHOLD_KRW ? 'value_at_or_above_threshold' : 'value_below_threshold';
+      ins(`INSERT INTO withdrawal_requests (id, org_id, ref_no, wallet_id, asset_code, network_code, amount_units, address_id, purpose, status, required_approvals, created_by, created_at, updated_at, submitted_at, processing_started_at, completed_at, reject_reason, custody_ref, version, krw_value_at_submit, approval_basis, price_as_of_at_submit)
+           VALUES (?, 'org-a', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, ref, w, asset, net, units, addr, purpose, status, reqd, by, at, done ?? submitted ?? at, submitted, status === 'COMPLETED' ? ago(days, -2) : null, done, reason, status === 'COMPLETED' ? 'MOCK-CUSTODY-SEED0001' : null, 3,
+        krwAtSubmit?.toString() ?? null, basis, submitted);
       events.push({ at, orgId: 'org-a', actorId: by, actorName: name(by), action: 'request.created', targetType: 'request', targetId: id, summary: `${ref} 출금 요청 작성: ${amt} ${asset}` });
       if (status !== 'DRAFT') events.push({ at: ago(days, -0.5), orgId: 'org-a', actorId: by, actorName: name(by), action: 'request.reviewing', targetType: 'request', targetId: id, summary: `${ref} 검토 단계로 이동` });
-      if (submitted) events.push({ at: submitted, orgId: 'org-a', actorId: by, actorName: name(by), action: 'request.submitted', targetType: 'request', targetId: id, summary: `${ref} 승인 요청 (필요 승인 ${reqd}명)` });
+      if (submitted) events.push({ at: submitted, orgId: 'org-a', actorId: by, actorName: name(by), action: 'request.submitted', targetType: 'request', targetId: id, summary: `${ref} 승인 요청 (필요 승인 ${reqd}명)`, detail: { requiredApprovals: reqd, approvalBasis: basis, krwValue: krwAtSubmit?.toString() ?? null, priceAsOf: submitted } });
       if (status === 'PENDING_APPROVAL') {
         const b = db.prepare('SELECT reserved_units FROM balances WHERE wallet_id = ? AND asset_code = ?').get(w, asset) as any;
         db.prepare('UPDATE balances SET reserved_units = ? WHERE wallet_id = ? AND asset_code = ?').run((BigInt(b.reserved_units) + BigInt(units)).toString(), w, asset);
@@ -183,9 +242,13 @@ export function seed(db: DB) {
       const flow = isReward ? (r() < 0.5 ? flows[2] : flows[4]) : f;
       const raw = isReward ? (flow.asset === 'ETH' ? 0.01 + r() * 0.2 : 50 + r() * 800) : flow.min + r() * (flow.max - flow.min);
       const amount = raw.toFixed(flow.dp);
-      const status = i === 3 || i === 9 ? 'processing' : r() < 0.04 ? 'failed' : 'completed';
+      // 실패는 출금에만 둔다(입금·보상은 실패로 기록하지 않는다). 난수는 예전과 같은 순서로 소비해 금액·시각을 유지한다.
+      const failRoll = i === 3 || i === 9 ? null : r();
+      const status = failRoll === null ? 'processing' : failRoll < 0.04 && type === 'withdrawal' ? 'failed' : 'completed';
       const occurred = ago(Math.floor(r() * 120), Math.floor(r() * 24));
-      const cp = type === 'deposit' ? pick(inLabels) : type === 'withdrawal' ? pick(outLabels) : '모의 검증인 보상';
+      // 출금 상대방은 같은 자산·네트워크로 등록된 주소록 이름으로 정한다. 예전 순서를 지키려고 pick은 그대로 부르고 결과는 쓰지 않는다.
+      if (type === 'withdrawal') pick(outLabels);
+      const cp = type === 'deposit' ? pick(inLabels) : type === 'withdrawal' ? WITHDRAWAL_COUNTERPARTY[`${flow.asset}/${flow.net}`]! : '모의 검증인 보상';
       ins('INSERT INTO transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)', `tx-a-${String(i + 1).padStart(3, '0')}`, 'org-a', flow.w, type, flow.asset, flow.net, u(amount, flow.asset), cp, status, occurred, `MOCK-TX-A${String(i + 1).padStart(4, '0')}`);
     }
     for (let i = 0; i < 5; i++) {
@@ -202,24 +265,41 @@ export function seed(db: DB) {
     ins("INSERT INTO insight_providers VALUES ('prov-b', '모의 리서치 B', 1, 'https://example.com/mock-research-b')");
     ins("INSERT INTO insight_providers VALUES ('prov-c', '모의 리서치 C', 1, 'https://example.com/mock-research-c')");
     ins("INSERT INTO insight_providers VALUES ('prov-x', '모의 미등록 기관', 0, 'https://example.com/mock-unlisted')");
-    const topics: [string, 'ko' | 'en', string][] = [
-      ['스테이블코인 결제 인프라의 구조', 'ko', 'USDC'], ['토큰화 증권 시장의 거래 구조', 'ko', ''], ['법인의 디지털 자산 회계 처리 쟁점', 'ko', ''],
-      ['Validator economics on proof-of-stake networks', 'en', 'ETH'], ['디지털 자산 커스터디 제도 비교', 'ko', ''], ['비트코인 현물 상품의 수급 구조', 'ko', 'BTC'],
-      ['Stablecoin reserve disclosure practices', 'en', 'USDC'], ['카이아 생태계 개발 동향', 'ko', 'KAIA'], ['가상자산 과세 제도 주요 쟁점', 'ko', ''],
-      ['Cross-border settlement with tokenized deposits', 'en', 'XRP'], ['오송금·주소 사기 유형 정리', 'ko', ''], ['스테이킹 보상의 회계·세무 처리', 'ko', 'ETH'],
-      ['Market liquidity during high-volatility weeks', 'en', 'BTC'], ['기관 투자자 디지털 자산 운용 현황', 'ko', ''], ['토큰 언락 일정과 가격 변동성', 'ko', ''],
-      ['Layer-2 networks and settlement risk', 'en', 'ETH'], ['국내 디지털 자산 제도 변화 요약', 'ko', ''], ['XRP Ledger 결제 활용 사례', 'ko', 'XRP'],
-      ['On-chain analytics for treasury teams', 'en', ''], ['디지털 자산 보안 사고 사례 연구', 'ko', ''], ['스테이블코인 발행 구조 비교', 'ko', 'USDC'],
-      ['ETF flows and spot market depth', 'en', 'BTC'], ['법인 지갑 권한 분리 모범 사례', 'ko', ''], ['디지털 자산 시장 월간 정리', 'ko', ''],
+    // 요약은 모두 가상의 한 줄 설명이며 실제 리서치 내용을 옮긴 것이 아니다. 기관 이름·원문 링크도 모의 값이다.
+    const topics: [string, 'ko' | 'en', string, string][] = [
+      ['스테이블코인 결제 인프라의 구조', 'ko', 'USDC', '발행사·결제 대행사·수취 기관으로 이어지는 가상의 결제 흐름으로 정산 단계별 확인 항목을 정리했습니다.'],
+      ['토큰화 증권 시장의 거래 구조', 'ko', '', '토큰화 증권의 발행·유통·결제 단계를 가상의 거래 사례로 나누어 참여 기관별 역할을 설명합니다.'],
+      ['법인의 디지털 자산 회계 처리 쟁점', 'ko', '', '가상의 법인 사례로 디지털 자산의 취득·평가·처분 시점별 회계 처리 쟁점을 짚었습니다.'],
+      ['Validator economics on proof-of-stake networks', 'en', 'ETH', '지분증명 네트워크에서 검증인의 보상과 운영 비용 구조를 개념 중심으로 비교했습니다.'],
+      ['디지털 자산 커스터디 제도 비교', 'ko', '', '가상의 세 관할 제도를 예로 들어 수탁 기관의 분리 보관·보고 의무를 비교합니다.'],
+      ['비트코인 현물 상품의 수급 구조', 'ko', 'BTC', '현물 상품의 설정·환매 과정이 수급에 영향을 주는 경로를 가상의 흐름도로 설명합니다.'],
+      ['Stablecoin reserve disclosure practices', 'en', 'USDC', '준비금 공시를 읽을 때 확인할 구성·감사 주기·공시 시점을 점검표로 정리했습니다.'],
+      ['카이아 생태계 개발 동향', 'ko', 'KAIA', '생태계 동향을 볼 때 함께 확인할 개발·이용 지표를 가상의 예시로 소개합니다.'],
+      ['가상자산 과세 제도 주요 쟁점', 'ko', '', '법인이 과세 시점과 평가 방법을 검토할 때 던질 질문을 가상의 사례로 묶었습니다.'],
+      ['Cross-border settlement with tokenized deposits', 'en', 'XRP', '토큰화 예금으로 국가 간 정산을 하는 과정을 가상의 두 은행 사례로 단계별 설명합니다.'],
+      ['오송금·주소 사기 유형 정리', 'ko', '', '앞·뒤만 같은 주소, 네트워크 착오, 메모 누락 같은 오송금 유형을 가상의 사례로 분류했습니다.'],
+      ['스테이킹 보상의 회계·세무 처리', 'ko', 'ETH', '스테이킹 보상을 언제 어떤 기준으로 인식할지에 대한 쟁점을 가상의 법인 사례로 정리했습니다.'],
+      ['Market liquidity during high-volatility weeks', 'en', 'BTC', '변동성이 큰 기간에 호가 깊이와 체결 비용을 살피는 지표를 개념 중심으로 소개합니다.'],
+      ['기관 투자자 디지털 자산 운용 현황', 'ko', '', '가상의 기관 세 곳을 예로 들어 운용 정책·한도·보고 체계를 비교합니다.'],
+      ['토큰 언락 일정과 가격 변동성', 'ko', '', '언락 일정이 공개되는 방식과 확인할 출처를 가상의 토큰 사례로 정리했습니다.'],
+      ['Layer-2 networks and settlement risk', 'en', 'ETH', '레이어2의 출금 대기 기간과 브리지 구조가 정산 위험에 주는 영향을 개념 중심으로 설명합니다.'],
+      ['국내 디지털 자산 제도 변화 요약', 'ko', '', '제도 변화가 법인의 보관·보고·내부 통제 실무에 주는 영향을 가상의 일정표로 정리했습니다.'],
+      ['XRP Ledger 결제 활용 사례', 'ko', 'XRP', '데스티네이션 태그를 쓰는 입금 흐름을 가상의 거래소 사례로 설명합니다.'],
+      ['On-chain analytics for treasury teams', 'en', '', '재무팀이 온체인 기록으로 입출금 내역을 대사하는 절차를 가상의 예시로 보여 줍니다.'],
+      ['디지털 자산 보안 사고 사례 연구', 'ko', '', '권한 관리와 서명 절차가 허술할 때 생길 수 있는 가상의 사고 시나리오와 점검 항목을 담았습니다.'],
+      ['스테이블코인 발행 구조 비교', 'ko', 'USDC', '담보 방식이 다른 가상의 스테이블코인 세 종류를 발행·상환 절차 중심으로 비교합니다.'],
+      ['ETF flows and spot market depth', 'en', 'BTC', '상품 자금 흐름과 현물 호가 깊이를 함께 볼 때의 해석 방법을 개념 중심으로 설명합니다.'],
+      ['법인 지갑 권한 분리 모범 사례', 'ko', '', '요청·승인·감사 권한을 나누는 방법을 가상의 조직도로 예시합니다.'],
+      ['디지털 자산 시장 월간 정리', 'ko', '', '한 달 동안의 가상 시장 사건을 주제별로 묶고 함께 볼 지표를 정리한 예시 자료입니다.'],
     ];
     const provs = ['prov-a', 'prov-b', 'prov-c'];
-    topics.forEach(([title, lang, tag], i) => {
+    topics.forEach(([title, lang, tag, summary], i) => {
       const id = `ins-${String(i + 1).padStart(2, '0')}`;
       const pub = ago(i * 4 + 1).slice(0, 10);
-      ins("INSERT INTO insights VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'published', 'u-k-op', ?)", id, provs[i % 3], `모의 시장 동향: ${title}`, '개발 환경에서 목록·필터·출처 표시를 확인하기 위한 모의 요약입니다. 실제 리서치 내용이 아닙니다.', lang, pub, `https://example.com/mock-research/${id}`, tag, ago(i * 4));
+      ins("INSERT INTO insights VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'published', 'u-k-op', ?)", id, provs[i % 3], title, `${summary} (모의 요약)`, lang, pub, `https://example.com/mock-research/${id}`, tag, ago(i * 4));
     });
-    ins("INSERT INTO insights VALUES ('ins-h1', 'prov-a', '모의 시장 동향: 운영자가 숨긴 자료', '숨김 처리된 모의 자료입니다.', 'ko', ?, 'https://example.com/mock-research/ins-h1', '', 'hidden', 'u-k-op', ?)", ago(3).slice(0, 10), ago(3));
-    ins("INSERT INTO insights VALUES ('ins-x1', 'prov-x', '모의 시장 동향: 화이트리스트 외 기관 자료', '화이트리스트에 없는 기관의 모의 자료입니다.', 'ko', ?, 'https://example.com/mock-research/ins-x1', '', 'published', 'u-k-op', ?)", ago(2).slice(0, 10), ago(2));
+    ins("INSERT INTO insights VALUES ('ins-h1', 'prov-a', '운영자가 숨긴 자료', '운영자가 게시를 멈춘 가상의 자료로, 고객 화면에는 보이지 않습니다. (모의 요약)', 'ko', ?, 'https://example.com/mock-research/ins-h1', '', 'hidden', 'u-k-op', ?)", ago(3).slice(0, 10), ago(3));
+    ins("INSERT INTO insights VALUES ('ins-x1', 'prov-x', '화이트리스트 외 기관 자료', '화이트리스트에 없는 가상 기관의 자료로, 고객 화면에는 보이지 않습니다. (모의 요약)', 'ko', ?, 'https://example.com/mock-research/ins-x1', '', 'published', 'u-k-op', ?)", ago(2).slice(0, 10), ago(2));
 
     for (const [id, org, nm, , , roles] of users) {
       events.push({ at: created, orgId: org, actorId: null, actorName: '시스템(초기 설정)', action: 'member.roles_changed', targetType: 'user', targetId: id, summary: `${nm} 초기 역할 부여: ${roles.join(', ')}` });

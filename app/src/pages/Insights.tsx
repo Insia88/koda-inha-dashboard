@@ -7,6 +7,11 @@ import { Badge, Empty, ErrorState, Loading, PageHeader } from '../components/ui.
 import { SearchField } from '../components/SearchField.tsx';
 import { date } from '../format.ts';
 
+/** 원문 링크의 도메인(표시용). 읽을 수 없으면 표시하지 않는다. */
+function hostOf(url: string): string {
+  try { return new URL(url).host; } catch { return ''; }
+}
+
 export function InsightsPage() {
   const me = useMe();
   const experiment = me.insight.experiments.holdingRelatedFilter;
@@ -50,6 +55,18 @@ export function InsightsPage() {
                 </div>
                 <h2 className="insight-title"><a href={i.url} target="_blank" rel="noopener noreferrer">{i.title}<IconExternalLink size={14} aria-label="(새 창, 외부 원문)" /></a></h2>
                 <p className="insight-summary">{i.summary}</p>
+                <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {i.assetTags.length > 0 && (
+                    <div className="insight-meta">
+                      <span className="sr-only">관련 자산</span>
+                      {i.assetTags.map((t: string) => <span key={t} className="badge badge-neutral" style={{ fontWeight: 600 }}>{t}</span>)}
+                    </div>
+                  )}
+                  <div className="insight-meta">
+                    {hostOf(i.url) && <span>원문: {hostOf(i.url)} (새 창)</span>}
+                    {i.curatedAt && <span>KODA 선별 {date(i.curatedAt)}</span>}
+                  </div>
+                </div>
               </li>
             ))}
           </ul>

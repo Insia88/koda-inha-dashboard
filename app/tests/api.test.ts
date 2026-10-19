@@ -320,8 +320,9 @@ describe('주소록', () => {
   });
   it('filters and returns an empty result without error', async () => {
     const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
-    expect((await han.get('/api/addresses')).body.items.length).toBe(12);
-    expect((await han.get('/api/addresses?status=PENDING_REVIEW')).body.items.length).toBe(2);
+    // 시드: 모의법인 A 주소 13건(ab-02의 유사 주소 예시 ab-13 포함), 확인 대기 3건(ab-08, ab-09, ab-13)
+    expect((await han.get('/api/addresses')).body.items.length).toBe(13);
+    expect((await han.get('/api/addresses?status=PENDING_REVIEW')).body.items.length).toBe(3);
     expect((await han.get('/api/addresses?q=' + encodeURIComponent('존재하지않는검색어'))).body.items).toEqual([]);
     expect((await han.get('/api/addresses?q=%25')).body.items).toEqual([]);
   });
