@@ -7,6 +7,7 @@ import type { AppConfig } from '../config.ts';
 import { formatUnits, krwValue } from '../../shared/decimal.ts';
 import { ROLE_LABEL, type Role } from '../../shared/terms.ts';
 import { likePattern } from './addresses.ts';
+import { validApprovals } from './requests.ts';
 
 export function priceState(db: DB, cfg: AppConfig) {
   const rows = db.prepare('SELECT asset_code, krw_price, as_of, source FROM prices').all() as any[];
@@ -59,8 +60,12 @@ export function dashboard(db: DB, cfg: AppConfig, auth: AuthContext) {
   const tasks: { kind: string; count: number; title: string; description: string; href: string; tone: string }[] = [];
   const count = (sql: string, ...args: any[]) => (db.prepare(sql).get(...args) as { c: number }).c;
   if (auth.perms.has('request.approve')) {
-    const c = count("SELECT COUNT(*) c FROM withdrawal_requests r WHERE r.org_id = ? AND r.status = 'PENDING_APPROVAL' AND r.created_by <> ? AND NOT EXISTS (SELECT 1 FROM approvals x WHERE x.request_id = r.id AND x.user_id = ?)", org, me, me);
+    // 받는 주소가 사용 가능 상태인 요청만 '승인할 요청'으로 센다. 나머지는 아래 '승인할 수 없는 요청'으로 따로 보인다.
+    const undecided = "r.org_id = ? AND r.status = 'PENDING_APPROVAL' AND r.created_by <> ? AND NOT EXISTS (SELECT 1 FROM approvals x WHERE x.request_id = r.id AND x.user_id = ?)";
+    const c = count(`SELECT COUNT(*) c FROM withdrawal_requests r JOIN address_book ab ON ab.id = r.address_id WHERE ${undecided} AND ab.status = 'ACTIVE'`, org, me, me);
     tasks.push({ kind: 'approve_requests', count: c, title: '승인할 출금 요청', description: '다른 담당자가 보낸 요청입니다. 받는 주소와 수량을 대조한 뒤 승인하거나 반려하세요.', href: '/requests?view=to_approve', tone: 'warning' });
+    const blocked = count(`SELECT COUNT(*) c FROM withdrawal_requests r JOIN address_book ab ON ab.id = r.address_id WHERE ${undecided} AND ab.status <> 'ACTIVE'`, org, me, me);
+    tasks.push({ kind: 'blocked_requests', count: blocked, title: '받는 주소가 사용 중지되어 승인할 수 없는 요청', description: '승인할 수 없는 상태입니다. 내용을 확인하고 사유와 함께 반려하세요. 반려하면 예약 수량이 풀립니다.', href: '/requests?view=blocked', tone: 'danger' });
   }
   if (auth.perms.has('address.review')) {
     const c = count("SELECT COUNT(*) c FROM address_book WHERE org_id = ? AND status = 'PENDING_REVIEW' AND created_by <> ?", org, me);
@@ -72,6 +77,8 @@ export function dashboard(db: DB, cfg: AppConfig, auth: AuthContext) {
     const since = new Date(Date.now() - 14 * 86400_000).toISOString();
     const rejected = count("SELECT COUNT(*) c FROM withdrawal_requests WHERE org_id = ? AND created_by = ? AND status IN ('REJECTED','FAILED') AND completed_at >= ?", org, me, since);
     tasks.push({ kind: 'my_rejected', count: rejected, title: '반려·실패한 내 요청 (14일)', description: '사유를 확인하고 필요하면 새 요청을 작성하세요.', href: '/requests?view=mine&status=REJECTED,FAILED', tone: 'danger' });
+    const myBlocked = count("SELECT COUNT(*) c FROM withdrawal_requests r JOIN address_book ab ON ab.id = r.address_id WHERE r.org_id = ? AND r.created_by = ? AND r.status = 'PENDING_APPROVAL' AND ab.status <> 'ACTIVE'", org, me);
+    tasks.push({ kind: 'my_blocked_requests', count: myBlocked, title: '받는 주소가 사용 중지된 내 요청', description: '승인할 수 없는 상태입니다. 요청을 취소하면 예약 수량이 풀립니다.', href: '/requests?view=blocked', tone: 'danger' });
     const pendingAddr = count("SELECT COUNT(*) c FROM address_book WHERE org_id = ? AND created_by = ? AND status = 'PENDING_REVIEW'", org, me);
     tasks.push({ kind: 'my_pending_addresses', count: pendingAddr, title: '확인을 기다리는 내 주소', description: '다른 담당자가 확인하면 출금 요청에 쓸 수 있습니다.', href: '/addresses?status=PENDING_REVIEW', tone: 'neutral' });
   }
@@ -94,7 +101,8 @@ export function dashboard(db: DB, cfg: AppConfig, auth: AuthContext) {
   return {
     holdings: holdings(db, cfg, org),
     tasks,
-    inProgress: inProgress.map((r) => ({ id: r.id, refNo: r.ref_no, status: r.status, assetCode: r.asset_code, amount: formatUnits(r.amount_units, r.precision), creatorName: r.creator_name, addressLabel: r.address_label, approved: r.approved, requiredApprovals: r.required_approvals, updatedAt: r.updated_at })),
+    // 승인 대기 중인 요청의 승인 수는 지금 유효한 표만 센다(요청 상세의 approvedCount와 같은 기준).
+    inProgress: inProgress.map((r) => ({ id: r.id, refNo: r.ref_no, status: r.status, assetCode: r.asset_code, amount: formatUnits(r.amount_units, r.precision), creatorName: r.creator_name, addressLabel: r.address_label, approved: r.status === 'PENDING_APPROVAL' ? validApprovals(db, r.id) : r.approved, requiredApprovals: r.required_approvals, updatedAt: r.updated_at })),
     inProgressCount,
     recentActivity: recent.map((t) => ({ id: t.id, type: t.type, assetCode: t.asset_code, amount: formatUnits(t.amount_units, t.precision), status: t.status, occurredAt: t.occurred_at, counterparty: t.counterparty, networkName: t.network_name })),
   };
@@ -157,6 +165,11 @@ export function updateRoles(db: DB, auth: AuthContext, userId: string, roles: Ro
     if (userId === auth.user.id && before.includes('admin') && !next.includes('admin')) {
       throw new AppError(422, 'SELF_ADMIN_REMOVAL', '본인의 조직 관리자 역할은 직접 해제할 수 없습니다.', '다른 조직 관리자에게 요청하세요.');
     }
+    // 역할을 관리하는 사람이 스스로 출금 승인·작성 권한을 얻지 못하게 한다(직무 분리). 역할 해제는 위험을 줄이므로 막지 않는다.
+    const TRANSACTIONAL: Role[] = ['approver', 'requester'];
+    if (userId === auth.user.id && next.some((r) => TRANSACTIONAL.includes(r) && !before.includes(r))) {
+      throw new AppError(422, 'SELF_ROLE_ESCALATION', '본인에게 승인자·자산 담당자 역할을 직접 부여할 수 없습니다.', '다른 조직 관리자에게 요청하세요.');
+    }
     if (before.includes('admin') && !next.includes('admin')) {
       const admins = (db.prepare("SELECT COUNT(*) c FROM user_roles ur JOIN users u ON u.id = ur.user_id WHERE u.org_id = ? AND ur.role = 'admin'").get(auth.org.id) as { c: number }).c;
       if (admins <= 1) throw new AppError(422, 'LAST_ADMIN', '조직에 관리자가 한 명 이상 있어야 합니다.', '다른 구성원에게 관리자 역할을 먼저 부여하세요.');
@@ -173,7 +186,12 @@ export function updateRoles(db: DB, auth: AuthContext, userId: string, roles: Ro
 export function auditList(db: DB, auth: AuthContext, q: { action?: string; actor?: string; q?: string; from?: string; to?: string; page: number; pageSize: number }) {
   const { w, args } = auditWhere(auth, q);
   const total = (db.prepare(`SELECT COUNT(*) c FROM audit_log WHERE ${w}`).get(...args) as { c: number }).c;
-  const items = db.prepare(`SELECT seq, id, actor_id actorId, actor_name actorName, action, target_type targetType, target_id targetId, summary, detail, created_at createdAt, hash FROM audit_log WHERE ${w} ORDER BY seq DESC LIMIT ? OFFSET ?`).all(...args, q.pageSize, (q.page - 1) * q.pageSize) as any[];
+  // seq는 DB 전체 순번이라 조직별로 보면 빈 번호가 생긴다. 조직 안 순번(orgSeq)은 필터를 걸기 전에 매긴다.
+  const items = db.prepare(
+    `SELECT seq, org_seq orgSeq, id, actor_id actorId, actor_name actorName, action, target_type targetType, target_id targetId, summary, detail, created_at createdAt, hash
+       FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY seq) org_seq FROM audit_log WHERE org_id = ?)
+      WHERE ${w} ORDER BY seq DESC LIMIT ? OFFSET ?`,
+  ).all(auth.org.id, ...args, q.pageSize, (q.page - 1) * q.pageSize) as any[];
   const actions = (db.prepare('SELECT DISTINCT action FROM audit_log WHERE org_id = ? ORDER BY action').all(auth.org.id) as any[]).map((r) => r.action);
   return { total, page: q.page, pageSize: q.pageSize, actions, items: items.map((i) => ({ ...i, detail: JSON.parse(i.detail) })) };
 }

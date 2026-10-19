@@ -6,12 +6,29 @@ import { writeAudit } from '../audit.ts';
 import type { AuthContext } from '../auth.ts';
 import type { AppConfig } from '../config.ts';
 import type { CustodyAdapter } from '../adapters/custody.ts';
+import { permissionsFor } from '../authz.ts';
 import { AmountError, formatUnits, krwValue, parsePositiveUnits } from '../../shared/decimal.ts';
-import { REQUEST_STATUS, type RequestStatus } from '../../shared/terms.ts';
+import { REQUEST_STATUS, type RequestStatus, type Role } from '../../shared/terms.ts';
 import { assertAssetOnNetwork, getAsset, getNetworkRule } from './catalog.ts';
 import { getAddressRow, likePattern } from './addresses.ts';
 
 export type RequestAction = 'edit' | 'review' | 'back_to_draft' | 'submit' | 'approve' | 'reject' | 'cancel';
+
+/**
+ * 제출 시 필요 승인 수를 정한 근거 (설계 가정, docs/assumptions.md A-03).
+ * 시세가 없거나 오래되면 원화 평가액을 믿을 수 없으므로 고액 기준을 적용한다(fail closed).
+ */
+export type ApprovalBasis = 'value_below_threshold' | 'value_at_or_above_threshold' | 'price_missing' | 'price_stale';
+
+/** 승인 대기 요청이 승인될 수 없는 이유. 지금은 받는 주소가 사용 가능 상태가 아닌 경우뿐이다. */
+export type BlockedReason = 'ADDRESS_NOT_ACTIVE';
+
+/** 시세 기준 시각이 이보다 더 미래이면 잘못된 값으로 보고 지연과 같게 다룬다(시계 차이 허용 폭). */
+const PRICE_FUTURE_SKEW_MS = 5 * 60_000;
+
+/** 감사 기록에 남길 주소 끝자리 길이. 전체 주소는 남기지 않고 대조에 필요한 끝부분만 남긴다. */
+const AUDIT_TAIL_LENGTH = 6;
+const tailOf = (address: unknown) => String(address ?? '').slice(-AUDIT_TAIL_LENGTH);
 
 const OPEN: RequestStatus[] = ['DRAFT', 'REVIEW', 'PENDING_APPROVAL'];
 
@@ -39,6 +56,59 @@ function approvalsOf(db: DB, id: string) {
   return db.prepare('SELECT ap.user_id userId, u.name, ap.decision, ap.reason, ap.created_at createdAt FROM approvals ap JOIN users u ON u.id = ap.user_id WHERE ap.request_id = ? ORDER BY ap.created_at').all(id) as any[];
 }
 
+/** 지금 이 순간 출금 승인 권한이 있는 사람인지: 같은 조직의 활성 사용자이고 현재 역할에 request.approve가 있다. */
+function canApproveNow(db: DB, userId: string, orgId: string): boolean {
+  const u = db.prepare('SELECT is_active, org_id FROM users WHERE id = ?').get(userId) as { is_active: number; org_id: string } | undefined;
+  if (!u || !u.is_active || u.org_id !== orgId) return false;
+  const roles = (db.prepare('SELECT role FROM user_roles WHERE user_id = ?').all(userId) as { role: Role }[]).map((x) => x.role);
+  return permissionsFor(roles).has('request.approve');
+}
+
+/**
+ * 지금 유효한 승인 표를 남긴 사람의 id (남긴 순서).
+ * 승인 기록은 바꾸지 않는다(저장 계층에서 수정·삭제 금지). 대신 셀 때마다 승인자의 현재 상태를 다시 확인해
+ * 비활성화되었거나 승인 권한을 잃은 사람의 표는 정족수에서 뺀다.
+ */
+export function validApproverIds(db: DB, requestId: string): string[] {
+  const rows = db.prepare(
+    `SELECT ap.user_id userId, r.org_id orgId, r.created_by createdBy FROM approvals ap JOIN withdrawal_requests r ON r.id = ap.request_id
+      WHERE ap.request_id = ? AND ap.decision = 'approved' ORDER BY ap.created_at`,
+  ).all(requestId) as { userId: string; orgId: string; createdBy: string }[];
+  return rows.filter((x) => x.userId !== x.createdBy && canApproveNow(db, x.userId, x.orgId)).map((x) => x.userId);
+}
+
+/** 정족수 판단에 쓰는 유효 승인 수 */
+export function validApprovals(db: DB, requestId: string): number {
+  return validApproverIds(db, requestId).length;
+}
+
+/** 작성자를 뺀, 지금 승인할 수 있는 조직 구성원 수 */
+function eligibleApprovers(db: DB, orgId: string, creatorId: string): number {
+  const users = db.prepare('SELECT id FROM users WHERE org_id = ? AND is_active = 1 AND id <> ?').all(orgId, creatorId) as { id: string }[];
+  return users.filter((u) => canApproveNow(db, u.id, orgId)).length;
+}
+
+/**
+ * 화면에 보일 '정족수에 들어간 표'.
+ * 승인 대기 중이면 현재 역할로 다시 판단한다. 결정이 끝난 요청은 결정 당시 남긴 목록을 쓰므로
+ * 나중에 승인자가 퇴사하거나 역할이 바뀌어도 과거 승인 기록이 달라 보이지 않는다.
+ * 목록이 없는 오래된 요청(이 기능 이전에 결정된 요청)은 당시 승인 표를 모두 센 것으로 본다.
+ */
+function countedApproverIds(db: DB, r: any, approvals: any[]): Set<string> {
+  if (r.status === 'PENDING_APPROVAL') return new Set(validApproverIds(db, r.id));
+  if (typeof r.counted_approver_ids === 'string') {
+    try {
+      const ids = JSON.parse(r.counted_approver_ids);
+      if (Array.isArray(ids)) return new Set(ids.map(String));
+    } catch { /* 아래 기본값을 쓴다 */ }
+  }
+  return new Set(approvals.filter((a) => a.decision === 'approved').map((a) => a.userId as string));
+}
+
+function blockedReasonOf(r: any): BlockedReason | null {
+  return r.status === 'PENDING_APPROVAL' && r.address_status !== 'ACTIVE' ? 'ADDRESS_NOT_ACTIVE' : null;
+}
+
 export function allowedActions(r: any, approvals: any[], auth: AuthContext): RequestAction[] {
   const acts: RequestAction[] = [];
   const mine = r.created_by === auth.user.id;
@@ -47,13 +117,18 @@ export function allowedActions(r: any, approvals: any[], auth: AuthContext): Req
     for (const a of ['edit', 'review', 'back_to_draft', 'submit', 'cancel'] as RequestAction[]) if (can(a)) acts.push(a);
   }
   if (!mine && auth.perms.has('request.approve') && can('approve') && !approvals.some((x) => x.userId === auth.user.id)) {
-    acts.push('approve', 'reject');
+    // 받는 주소가 사용 가능 상태가 아니면 승인은 내보이지 않고 반려만 남긴다. 서버의 승인 거부(ADDRESS_NOT_ACTIVE)는 그대로 둔다.
+    if (r.address_status === 'ACTIVE') acts.push('approve');
+    acts.push('reject');
   }
   return acts;
 }
 
 export function toRequestDto(db: DB, r: any, auth: AuthContext, withApprovals = true) {
-  const approvals = withApprovals ? approvalsOf(db, r.id) : [];
+  const raw = withApprovals ? approvalsOf(db, r.id) : [];
+  const counted = withApprovals ? countedApproverIds(db, r, raw) : new Set<string>();
+  // counted: 이 표가 승인 정족수에 들어가는지. 반려 표는 정족수 계산 대상이 아니므로 false다.
+  const approvals = raw.map((a) => ({ ...a, counted: a.decision === 'approved' && counted.has(a.userId) }));
   const st = REQUEST_STATUS[r.status as RequestStatus];
   return {
     id: r.id as string,
@@ -72,8 +147,11 @@ export function toRequestDto(db: DB, r: any, auth: AuthContext, withApprovals = 
     purpose: r.purpose as string,
     address: { id: r.address_id as string, label: r.address_label as string, counterparty: r.address_counterparty as string, address: r.address_value as string, memo: r.address_memo as string, status: r.address_status as string },
     requiredApprovals: r.required_approvals as number,
-    approvedCount: approvals.filter((a) => a.decision === 'approved').length,
+    approvedCount: approvals.filter((a) => a.counted).length,
     approvals,
+    approvalBasis: (r.approval_basis ?? null) as ApprovalBasis | null,
+    priceAsOfAtSubmit: (r.price_as_of_at_submit ?? null) as string | null,
+    blockedReason: blockedReasonOf(r),
     krwValueAtSubmit: r.krw_value_at_submit as string | null,
     createdBy: { id: r.created_by as string, name: r.creator_name as string },
     createdAt: r.created_at as string,
@@ -103,28 +181,33 @@ export function getRequest(db: DB, auth: AuthContext, id: string) {
 }
 
 export function listRequests(db: DB, auth: AuthContext, q: { status?: string; view?: string; q?: string; sort?: string; order?: string; page: number; pageSize: number }) {
-  const where = ['r.org_id = ?'];
-  const args: any[] = [auth.org.id];
+  // base: 보기(view)·검색어 조건. 상태 칩의 건수도 같은 조건으로 세어 목록과 어긋나지 않게 한다.
+  const base = ['r.org_id = ?'];
+  const baseArgs: any[] = [auth.org.id];
+  if (q.view === 'mine') { base.push('r.created_by = ?'); baseArgs.push(auth.user.id); }
+  if (q.view === 'to_approve') {
+    // 받는 주소가 사용 가능 상태가 아닌 요청은 승인할 수 없으므로 승인할 목록에서 뺀다(view=blocked에서 보인다).
+    base.push("r.status = 'PENDING_APPROVAL' AND ab.status = 'ACTIVE' AND r.created_by <> ? AND NOT EXISTS (SELECT 1 FROM approvals x WHERE x.request_id = r.id AND x.user_id = ?)");
+    baseArgs.push(auth.user.id, auth.user.id);
+  }
+  if (q.view === 'blocked') base.push("r.status = 'PENDING_APPROVAL' AND ab.status <> 'ACTIVE'");
+  if (q.q) {
+    base.push("(r.ref_no LIKE ? ESCAPE '\\' OR r.purpose LIKE ? ESCAPE '\\' OR ab.label LIKE ? ESCAPE '\\')");
+    const like = likePattern(q.q);
+    baseArgs.push(like, like, like);
+  }
+  const where = [...base];
+  const args = [...baseArgs];
   if (q.status) {
     const sts = q.status.split(',').filter((s) => s in REQUEST_STATUS);
     if (sts.length) { where.push(`r.status IN (${sts.map(() => '?').join(',')})`); args.push(...sts); }
-  }
-  if (q.view === 'mine') { where.push('r.created_by = ?'); args.push(auth.user.id); }
-  if (q.view === 'to_approve') {
-    where.push("r.status = 'PENDING_APPROVAL' AND r.created_by <> ? AND NOT EXISTS (SELECT 1 FROM approvals x WHERE x.request_id = r.id AND x.user_id = ?)");
-    args.push(auth.user.id, auth.user.id);
-  }
-  if (q.q) {
-    where.push("(r.ref_no LIKE ? ESCAPE '\\' OR r.purpose LIKE ? ESCAPE '\\' OR ab.label LIKE ? ESCAPE '\\')");
-    const like = likePattern(q.q);
-    args.push(like, like, like);
   }
   const sortCol = q.sort === 'updated' ? 'r.updated_at' : 'r.created_at';
   const dir = q.order === 'asc' ? 'ASC' : 'DESC';
   const w = where.join(' AND ');
   const total = (db.prepare(`SELECT COUNT(*) c FROM withdrawal_requests r JOIN address_book ab ON ab.id = r.address_id WHERE ${w}`).get(...args) as { c: number }).c;
   const rows = db.prepare(`${SELECT} WHERE ${w} ORDER BY ${sortCol} ${dir}, r.ref_no ${dir} LIMIT ? OFFSET ?`).all(...args, q.pageSize, (q.page - 1) * q.pageSize);
-  const counts = Object.fromEntries((db.prepare('SELECT status, COUNT(*) c FROM withdrawal_requests WHERE org_id = ? GROUP BY status').all(auth.org.id) as any[]).map((x) => [x.status, x.c]));
+  const counts = Object.fromEntries((db.prepare(`SELECT r.status, COUNT(*) c FROM withdrawal_requests r JOIN address_book ab ON ab.id = r.address_id WHERE ${base.join(' AND ')} GROUP BY r.status`).all(...baseArgs) as any[]).map((x) => [x.status, x.c]));
   return { items: rows.map((r) => ({ ...toRequestDto(db, r, auth, false) })), total, page: q.page, pageSize: q.pageSize, counts };
 }
 
@@ -223,7 +306,10 @@ export function updateDraft(db: DB, auth: AuthContext, id: string, input: { asse
     requireCreator(r, auth);
     const v = validateDraft(db, auth, input);
     bump(db, id, input.version, { wallet_id: v.walletId, asset_code: input.assetCode, network_code: input.networkCode, amount_units: v.units.toString(), address_id: input.addressId, purpose: input.purpose.trim() });
-    audit(db, auth, r, 'request.updated', '작성 내용 수정');
+    // 해시 체인에 무엇이 무엇으로 바뀌었는지 남긴다. 주소는 끝자리만 남긴다.
+    const before = { assetCode: r.asset_code, networkCode: r.network_code, amount: formatUnits(r.amount_units, r.precision), addressId: r.address_id, addressLabel: r.address_label, addressTail: tailOf(r.address_value) };
+    const after = { assetCode: input.assetCode, networkCode: input.networkCode, amount: formatUnits(v.units, v.asset.precision), addressId: input.addressId, addressLabel: v.addr.label, addressTail: tailOf(v.addr.address) };
+    audit(db, auth, r, 'request.updated', '작성 내용 수정', { before, after });
     return getRequest(db, auth, id);
   });
 }
@@ -261,15 +347,51 @@ export function submitForApproval(db: DB, cfg: AppConfig, auth: AuthContext, id:
     }
     const units = BigInt(r.amount_units);
     assertAvailable(db, r.wallet_id, r.asset_code, units, r.precision);
-    const price = db.prepare('SELECT krw_price FROM prices WHERE asset_code = ?').get(r.asset_code) as { krw_price: string } | undefined;
-    const krw = price ? krwValue(units, r.precision, price.krw_price) : null;
-    const p = cfg.policy.approval;
-    const required = krw !== null && krw >= BigInt(p.highValueThresholdKrw) ? p.highValueRequiredApprovals : p.defaultRequiredApprovals;
+    const quorum = decideRequiredApprovals(db, cfg, r.asset_code, units, r.precision);
+    const eligible = eligibleApprovers(db, auth.org.id, r.created_by);
+    if (eligible < quorum.required) {
+      const message = eligible === 0
+        ? `승인할 수 있는 사람이 없어 필요한 ${quorum.required}명을 채울 수 없습니다.`
+        : `승인 가능한 사람이 ${eligible}명뿐이라 필요한 ${quorum.required}명을 채울 수 없습니다.`;
+      throw new AppError(422, 'APPROVERS_INSUFFICIENT', message, '조직 관리자에게 승인자 추가를 요청하세요.', undefined, { eligibleApprovers: eligible, requiredApprovals: quorum.required, approvalBasis: quorum.basis });
+    }
     adjustReserved(db, r.wallet_id, r.asset_code, units);
-    bump(db, id, input.version, { status: 'PENDING_APPROVAL', submitted_at: now(), required_approvals: required, krw_value_at_submit: krw?.toString() ?? null });
-    audit(db, auth, r, 'request.submitted', `승인 요청 (필요 승인 ${required}명)`, { requiredApprovals: required, krwValue: krw?.toString() ?? null, reserved: formatUnits(units, r.precision) });
+    bump(db, id, input.version, { status: 'PENDING_APPROVAL', submitted_at: now(), required_approvals: quorum.required, krw_value_at_submit: quorum.krw?.toString() ?? null, approval_basis: quorum.basis, price_as_of_at_submit: quorum.priceAsOf });
+    const note = quorum.basis === 'price_missing' ? ' · 시세를 확인할 수 없어 고액 기준 적용' : quorum.basis === 'price_stale' ? ' · 시세가 지연되어 고액 기준 적용' : '';
+    audit(db, auth, r, 'request.submitted', `승인 요청 (필요 승인 ${quorum.required}명${note})`, {
+      requiredApprovals: quorum.required,
+      approvalBasis: quorum.basis,
+      krwValue: quorum.krw?.toString() ?? null,
+      priceAsOf: quorum.priceAsOf,
+      reserved: formatUnits(units, r.precision),
+      assetCode: r.asset_code,
+      networkCode: r.network_code,
+      amount: formatUnits(units, r.precision),
+      addressId: r.address_id,
+      addressLabel: r.address_label,
+      addressTail: tailOf(r.address_value),
+      memoSet: String(r.address_memo ?? '') !== '',
+    });
     return getRequest(db, auth, id);
   });
+}
+
+/**
+ * 필요 승인 수 결정 (설계 가정, A-03). 시세가 없거나 기준 시각이 priceStaleAfterMinutes보다 오래되었거나
+ * 기준 시각을 믿을 수 없으면 평가액을 근거로 쓸 수 없으므로 고액 기준을 적용한다(fail closed).
+ * 어떤 경우에도 기본 승인 수보다 적어지지 않는다.
+ */
+export function decideRequiredApprovals(db: DB, cfg: AppConfig, assetCode: string, units: bigint, precision: number): { required: number; basis: ApprovalBasis; krw: bigint | null; priceAsOf: string | null } {
+  const p = cfg.policy.approval;
+  const high = Math.max(p.highValueRequiredApprovals, p.defaultRequiredApprovals);
+  const price = db.prepare('SELECT krw_price, as_of FROM prices WHERE asset_code = ?').get(assetCode) as { krw_price: string; as_of: string } | undefined;
+  if (!price) return { required: high, basis: 'price_missing', krw: null, priceAsOf: null };
+  const krw = krwValue(units, precision, price.krw_price);
+  const age = Date.now() - Date.parse(price.as_of);
+  const stale = !Number.isFinite(age) || age > cfg.policy.priceStaleAfterMinutes * 60_000 || age < -PRICE_FUTURE_SKEW_MS;
+  if (stale) return { required: high, basis: 'price_stale', krw, priceAsOf: price.as_of };
+  if (krw >= BigInt(p.highValueThresholdKrw)) return { required: high, basis: 'value_at_or_above_threshold', krw, priceAsOf: price.as_of };
+  return { required: p.defaultRequiredApprovals, basis: 'value_below_threshold', krw, priceAsOf: price.as_of };
 }
 
 export function approveRequest(db: DB, auth: AuthContext, custody: CustodyAdapter, id: string, version: number) {
@@ -287,14 +409,29 @@ export function approveRequest(db: DB, auth: AuthContext, custody: CustodyAdapte
       throw new AppError(422, 'ADDRESS_NOT_ACTIVE', '받는 주소가 더 이상 사용 가능 상태가 아닙니다.', '요청을 반려하고 주소 상태를 확인하세요.');
     }
     db.prepare("INSERT INTO approvals (request_id, user_id, decision, created_at) VALUES (?, ?, 'approved', ?)").run(id, auth.user.id, now());
-    const approved = approvalsOf(db, id).filter((a) => a.decision === 'approved').length;
-    audit(db, auth, r, 'request.approved', `승인 (${approved}/${r.required_approvals})`);
-    if (approved >= r.required_approvals) {
-      const { ref } = custody.submitWithdrawal({ requestId: id, assetCode: r.asset_code, networkCode: r.network_code, amountUnits: r.amount_units, address: r.address_value, memo: r.address_memo });
-      bump(db, id, version, { status: 'PROCESSING', processing_started_at: now(), custody_ref: ref });
-      writeAudit(db, { orgId: auth.org.id, actorId: null, actorName: custody.name, action: 'request.processing', targetType: 'request', targetId: id, summary: `${r.ref_no} 커스터디 처리 시작 (${ref})` });
+    // 정족수는 지금 유효한 표만 센다. 승인 뒤 역할을 잃었거나 비활성화된 사람의 표는 빠진다.
+    const validIds = validApproverIds(db, id);
+    const valid = validIds.length;
+    const notCounted = approvalsOf(db, id).filter((a) => a.decision === 'approved' && !validIds.includes(a.userId)).map((a) => a.userId as string);
+    audit(db, auth, r, 'request.approved', `승인 (유효 ${valid}/${r.required_approvals})`, { validApprovals: valid, required: r.required_approvals, notCountedApproverIds: notCounted });
+    const snapshot = JSON.stringify(validIds);
+    if (valid >= r.required_approvals) {
+      // 커스터디 호출은 승인 트랜잭션 안, 상태 변경 바로 앞에 둔다. 뒤에서 실패해 되돌려지고 다시 시도되어도
+      // 같은 멱등 키(요청 id)를 쓰므로 어댑터는 같은 접수 참조를 돌려준다.
+      const idempotencyKey = id;
+      const { ref } = custody.submitWithdrawal({ requestId: id, idempotencyKey, assetCode: r.asset_code, networkCode: r.network_code, amountUnits: r.amount_units, address: r.address_value, memo: r.address_memo });
+      bump(db, id, version, { status: 'PROCESSING', processing_started_at: now(), custody_ref: ref, counted_approver_ids: snapshot });
+      writeAudit(db, {
+        orgId: auth.org.id, actorId: null, actorName: custody.name, action: 'request.processing', targetType: 'request', targetId: id,
+        summary: `${r.ref_no} 커스터디 처리 시작 (${ref})`,
+        detail: {
+          idempotencyKey, custodyRef: ref, assetCode: r.asset_code, networkCode: r.network_code, amount: formatUnits(r.amount_units, r.precision),
+          addressId: r.address_id, addressLabel: r.address_label, addressTail: tailOf(r.address_value), memoSet: String(r.address_memo ?? '') !== '',
+          approverIds: validIds,
+        },
+      });
     } else {
-      bump(db, id, version, {});
+      bump(db, id, version, { counted_approver_ids: snapshot });
     }
     return getRequest(db, auth, id);
   });
@@ -313,7 +450,7 @@ export function rejectRequest(db: DB, auth: AuthContext, id: string, input: { ve
     lockRow(db, auth, id, 'reject', input.version);
     db.prepare("INSERT INTO approvals (request_id, user_id, decision, reason, created_at) VALUES (?, ?, 'rejected', ?, ?)").run(id, auth.user.id, input.reason.trim(), now());
     adjustReserved(db, r.wallet_id, r.asset_code, -BigInt(r.amount_units));
-    bump(db, id, input.version, { status: 'REJECTED', reject_reason: input.reason.trim(), completed_at: now() });
+    bump(db, id, input.version, { status: 'REJECTED', reject_reason: input.reason.trim(), completed_at: now(), counted_approver_ids: JSON.stringify(validApproverIds(db, id)) });
     audit(db, auth, r, 'request.rejected', '반려', { reason: input.reason.trim() });
     return getRequest(db, auth, id);
   });
@@ -323,8 +460,9 @@ export function cancelRequest(db: DB, auth: AuthContext, id: string, version: nu
   return tx(db, () => {
     const r = lockRow(db, auth, id, 'cancel', version);
     requireCreator(r, auth);
-    if (r.status === 'PENDING_APPROVAL') adjustReserved(db, r.wallet_id, r.asset_code, -BigInt(r.amount_units));
-    bump(db, id, version, { status: 'CANCELLED', completed_at: now() });
+    const wasPending = r.status === 'PENDING_APPROVAL';
+    if (wasPending) adjustReserved(db, r.wallet_id, r.asset_code, -BigInt(r.amount_units));
+    bump(db, id, version, { status: 'CANCELLED', completed_at: now(), ...(wasPending ? { counted_approver_ids: JSON.stringify(validApproverIds(db, id)) } : {}) });
     audit(db, auth, r, 'request.cancelled', '요청자 취소');
     return getRequest(db, auth, id);
   });
