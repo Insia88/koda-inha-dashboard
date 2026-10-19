@@ -33,7 +33,7 @@ node scripts/screens-states.mjs  # 대화상자·이탈 확인·폼 오류·검�
 
 같은 앱을 **보호된 모의 데이터 공개 데모**로 Vercel에 올릴 수 있다. 구성·프로젝트 설정·배포 게이트·되돌리기는 [docs/deploy-vercel.md](docs/deploy-vercel.md)에 있다. 프로젝트 연결·환경변수 설정·배포는 그때마다 사용자 확인을 받은 뒤에만 한다.
 
-- **켜는 조건:** `VERCEL=1` 또는 `NODE_ENV=production`에서는 기동을 거부하고, Vercel 프로젝트 환경변수에 `DEMO_PUBLIC=1`(그리고 `NODEJS_HELPERS=0`)을 명시했을 때만 공개 데모로 뜬다. `NODE_ENV`·`AUTH_MODE`·`DB_PATH`는 설정하지 않는다. Root Directory `app`, Node.js 24.x. git 푸시로는 배포되지 않으며(`vercel.json`), 전체 검증을 통과한 뒤 수동으로만 배포한다.
+- **켜는 조건:** `VERCEL=1` 또는 `NODE_ENV=production`에서는 기동을 거부하고, Vercel 프로젝트 환경변수에 `DEMO_PUBLIC=1`(그리고 `NODEJS_HELPERS=0`, `DEMO_SESSION_SECRET`)을 명시했을 때만 공개 데모로 뜬다. `NODE_ENV`·`AUTH_MODE`·`DB_PATH`는 설정하지 않는다. Root Directory `app`, Node.js 24.x. git 푸시로는 배포되지 않으며(`vercel.json`), 전체 검증을 통과한 뒤 수동으로만 배포한다. `DEMO_SESSION_SECRET`은 32바이트 이상 무작위 값(운영·미리보기 환경변수, 저장소에 넣지 않음)이며, 없거나 짧으면 함수가 기동을 거부한다.
 - **보호:** 미리보기 배포는 Vercel Authentication으로 보호한다. KODA 승인 전에는 보호 없이 공개하지 않는다(제안 [DEC-001](../docs/decisions.md#제안-기록)).
 
 공개 데모의 한계:

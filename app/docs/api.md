@@ -77,7 +77,7 @@
 ```json
 { "ok": true, "env": "development", "authMode": "dev", "custody": "모의 커스터디(개발용)", "mode": "local", "instanceId": "uuid", "seededAt": null }
 ```
-`mode`는 `local` 또는 `public-demo`. `seededAt`은 이번 기동에서 모의 데이터를 새로 만든 시각(기존 DB를 이어 쓰면 null). 공개 데모의 `/api` 응답에는 `X-Demo-Instance`(인스턴스 id) 헤더가 붙고, 화면은 이 값이 바뀌면 데이터 초기화 안내를 보인다. `GET /me`의 `environment`에도 `mode`·`instanceId`·`seededAt`이 있다.
+`mode`는 `local` 또는 `public-demo`. `seededAt`은 이번 기동에서 모의 데이터를 새로 만든 시각(기존 DB를 이어 쓰면 null). 공개 데모의 `/api` 응답에는 `X-Demo-Instance`(인스턴스 id) 헤더가 붙고, 화면은 이 탭이 처음 보는 인스턴스가 응답하면 '다른 데모 서버로 연결되었습니다' 안내를 보인다. 로그인은 서명된 세션 쿠키라 유지되고, 데이터는 인스턴스마다 따로라 방금 만든 요청·주소가 없을 수 있다. 이미 본 인스턴스로 돌아갈 때는 다시 띄우지 않는다. `GET /me`의 `environment`에도 `mode`·`instanceId`·`seededAt`이 있다.
 
 ## 경로
 | 메서드·경로 | 권한 | 설명 |

@@ -5,10 +5,13 @@
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 
 process.env.VERCEL = '1';
 process.env.DEMO_PUBLIC = '1';
 process.env.LOG_LEVEL ??= 'warn';
+// 공개 데모는 세션 서명 값이 없으면 기동을 거부한다. 점검에는 이번 실행에만 쓰는 무작위 값을 쓴다(출력·저장하지 않음).
+process.env.DEMO_SESSION_SECRET ||= randomBytes(32).toString('base64url');
 
 const entry = pathToFileURL(path.resolve('api/index.mjs')).href;
 const { default: handler } = await import(entry);
