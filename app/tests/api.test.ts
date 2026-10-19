@@ -123,7 +123,7 @@ describe('요청 상태 전이와 승인', () => {
     const mid = (await api(ctx.app, await login(ctx.app, 'u-a-han')).get('/api/balances')).body.assets.find((a: any) => a.assetCode === 'USDC');
     expect(BigInt(mid.reserved.replace('.', '')) > BigInt(before.reserved.replace('.', ''))).toBe(true);
     const oh = api(ctx.app, await login(ctx.app, 'u-a-oh'));
-    const ap = await oh.post(`/api/requests/${pending.id}/approve`, { version: pending.version });
+    const ap = await oh.post(`/api/requests/${pending.id}/approve`, { version: pending.version, intentHash: pending.intentHash });
     expect(ap.status).toBe(200);
     expect(ap.body.status).toBe('PROCESSING');
     expect(settleProcessing(ctx.db, ctx.custody)).toBe(1);
@@ -139,7 +139,7 @@ describe('요청 상태 전이와 승인', () => {
   it('forbids self-approval at API and at the storage layer', async () => {
     const pending = await toPending('u-a-kang');
     const kang = api(ctx.app, await login(ctx.app, 'u-a-kang'));
-    const r = await kang.post(`/api/requests/${pending.id}/approve`, { version: pending.version });
+    const r = await kang.post(`/api/requests/${pending.id}/approve`, { version: pending.version, intentHash: pending.intentHash });
     expect(r.status).toBe(403);
     expect(r.body.error.code).toBe('SELF_APPROVAL_FORBIDDEN');
     expect(() => ctx.db.prepare("INSERT INTO approvals VALUES (?, 'u-a-kang', 'approved', NULL, 'x')").run(pending.id)).toThrow(/SELF_APPROVAL_FORBIDDEN/);
@@ -154,7 +154,7 @@ describe('요청 상태 전이와 승인', () => {
     const stale = await a.post(`/api/requests/${r.body.id}/review`, { version: r.body.version + 5 });
     expect(stale.body.error.code).toBe('VERSION_CONFLICT');
     const oh = api(ctx.app, await login(ctx.app, 'u-a-oh'));
-    expect((await oh.post(`/api/requests/${r.body.id}/approve`, { version: r.body.version })).body.error.code).toBe('INVALID_TRANSITION');
+    expect((await oh.post(`/api/requests/${r.body.id}/approve`, { version: r.body.version, intentHash: r.body.intentHash })).body.error.code).toBe('INVALID_TRANSITION');
     // 다른 요청자도 남의 초안을 바꿀 수 없다
     const kang = api(ctx.app, await login(ctx.app, 'u-a-kang'));
     expect((await kang.post(`/api/requests/${r.body.id}/cancel`, { version: r.body.version })).body.error.code).toBe('NOT_REQUEST_OWNER');
@@ -163,10 +163,10 @@ describe('요청 상태 전이와 승인', () => {
   it('requires a rejection reason and releases the reservation', async () => {
     const pending = await toPending();
     const seo = api(ctx.app, await login(ctx.app, 'u-a-seo'));
-    const bad = await seo.post(`/api/requests/${pending.id}/reject`, { version: pending.version, reason: '짧음' });
+    const bad = await seo.post(`/api/requests/${pending.id}/reject`, { version: pending.version, reason: '짧음', intentHash: pending.intentHash });
     expect(bad.status).toBe(422);
     expect(bad.body.error.fields[0].field).toBe('reason');
-    const ok = await seo.post(`/api/requests/${pending.id}/reject`, { version: pending.version, reason: '수량이 정산서와 다릅니다' });
+    const ok = await seo.post(`/api/requests/${pending.id}/reject`, { version: pending.version, reason: '수량이 정산서와 다릅니다', intentHash: pending.intentHash });
     expect(ok.body.status).toBe('REJECTED');
     expect(ok.body.rejectReason).toBe('수량이 정산서와 다릅니다');
     const b = ctx.db.prepare("SELECT reserved_units FROM balances WHERE wallet_id = 'w-a-eth' AND asset_code = 'USDC'").get() as any;
@@ -179,8 +179,8 @@ describe('요청 상태 전이와 승인', () => {
     const oh = api(ctx.app, await login(ctx.app, 'u-a-oh'));
     const seo = api(ctx.app, await login(ctx.app, 'u-a-seo'));
     const [r1, r2] = await Promise.all([
-      oh.post(`/api/requests/${pending.id}/approve`, { version: pending.version }),
-      seo.post(`/api/requests/${pending.id}/approve`, { version: pending.version }),
+      oh.post(`/api/requests/${pending.id}/approve`, { version: pending.version, intentHash: pending.intentHash }),
+      seo.post(`/api/requests/${pending.id}/approve`, { version: pending.version, intentHash: pending.intentHash }),
     ]);
     const statuses = [r1.status, r2.status].sort();
     expect(statuses).toEqual([200, 409]);
@@ -189,9 +189,9 @@ describe('요청 상태 전이와 승인', () => {
     const cur = await oh.get(`/api/requests/${pending.id}`);
     expect(cur.body.status).toBe('PENDING_APPROVAL');
     expect(cur.body.approvedCount).toBe(1);
-    const again = await (r1.status === 200 ? oh : seo).post(`/api/requests/${pending.id}/approve`, { version: cur.body.version });
+    const again = await (r1.status === 200 ? oh : seo).post(`/api/requests/${pending.id}/approve`, { version: cur.body.version, intentHash: cur.body.intentHash });
     expect(again.body.error.code).toBe('ALREADY_DECIDED');
-    const second = await (r1.status === 200 ? seo : oh).post(`/api/requests/${pending.id}/approve`, { version: cur.body.version });
+    const second = await (r1.status === 200 ? seo : oh).post(`/api/requests/${pending.id}/approve`, { version: cur.body.version, intentHash: cur.body.intentHash });
     expect(second.body.status).toBe('PROCESSING');
   });
 
@@ -211,8 +211,8 @@ describe('요청 상태 전이와 승인', () => {
     const pending = await toPending();
     const oh = api(ctx.app, await login(ctx.app, 'u-a-oh'));
     const ak = key();
-    const p1 = await oh.post(`/api/requests/${pending.id}/approve`, { version: pending.version }, { 'idempotency-key': ak });
-    const p2 = await oh.post(`/api/requests/${pending.id}/approve`, { version: pending.version }, { 'idempotency-key': ak });
+    const p1 = await oh.post(`/api/requests/${pending.id}/approve`, { version: pending.version, intentHash: pending.intentHash }, { 'idempotency-key': ak });
+    const p2 = await oh.post(`/api/requests/${pending.id}/approve`, { version: pending.version, intentHash: pending.intentHash }, { 'idempotency-key': ak });
     expect(p1.status).toBe(200);
     expect(p2.status).toBe(200);
     expect(p2.headers['idempotent-replayed']).toBe('true');
@@ -248,7 +248,7 @@ describe('요청 상태 전이와 승인', () => {
     const addr = await admin.get('/api/addresses/ab-01');
     expect((await admin.post('/api/addresses/ab-01/disable', { version: addr.body.version })).status).toBe(200);
     const oh = api(ctx.app, await login(ctx.app, 'u-a-oh'));
-    const r = await oh.post(`/api/requests/${pending.id}/approve`, { version: pending.version });
+    const r = await oh.post(`/api/requests/${pending.id}/approve`, { version: pending.version, intentHash: pending.intentHash });
     expect(r.body.error.code).toBe('ADDRESS_NOT_ACTIVE');
   });
 });

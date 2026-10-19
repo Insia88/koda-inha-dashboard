@@ -11,18 +11,22 @@ import { type DB, tx } from './db.ts';
 import { AppError, Errors } from './errors.ts';
 import { checkCsrf, clearSessionCookie, dbSessionStore, requireAuth, requirePerm, SESSION_COOKIE, setSessionCookie, statelessSessionStore } from './auth.ts';
 import { writeAudit, verifyChain } from './audit.ts';
-import { toCsv } from './csv.ts';
+import { kstDateTime, toCsv } from './csv.ts';
 import type { CustodyAdapter } from './adapters/custody.ts';
 import { getCatalog } from './domain/catalog.ts';
 import { assertCanStopCooling, checkAddress, createAddress, disableAddress, getAddressRow, listAddresses, reviewAddress, stopCoolingAddress, toAddressDto } from './domain/addresses.ts';
-import { approveRequest, backToDraft, cancelRequest, createDraft, getRequest, listRequests, moveToReview, rejectRequest, submitForApproval, updateDraft } from './domain/requests.ts';
+import {
+  approveRequest, backToDraft, cancelRequest, createDraft, getRequest, IntentTamperedError, listRequests, moveToReview, previewChecks, recordIntentTampered, rejectRequest,
+  submitForApproval, updateDraft,
+} from './domain/requests.ts';
+import { checkThresholds } from './domain/checks.ts';
 import { readIdemKey, withIdempotency } from './domain/idempotency.ts';
 import * as rm from './domain/readmodels.ts';
 import {
   addressCheckSchema, addressCreateSchema, addressReviewSchema, addressStopSchema, insightCreateSchema, insightStatusSchema, pageQuery,
-  requestDraftSchema, requestRejectSchema, requestSubmitSchema, requestUpdateSchema, roleUpdateSchema, versionSchema,
+  requestApproveSchema, requestChecksPreviewSchema, requestDraftSchema, requestRejectSchema, requestSubmitSchema, requestUpdateSchema, roleUpdateSchema, versionSchema,
 } from '../shared/schemas.ts';
-import { ROLE_LABEL } from '../shared/terms.ts';
+import { actionLabel, ROLE_LABEL } from '../shared/terms.ts';
 
 function parse<T>(schema: z.ZodType<T>, data: unknown): T {
   return schema.parse(data ?? {});
@@ -251,38 +255,48 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
     const a = requirePerm(req, 'request.read', '요청 조회');
     return listRequests(db, a, parse(pageQuery.extend({ status: str, view: str, q: str, sort: str, order: str }), req.query));
   });
-  app.get('/api/requests/:id', async (req) => getRequest(db, requirePerm(req, 'request.read', '요청 조회'), parse(idParam, req.params).id));
+  app.get('/api/requests/:id', async (req) => getRequest(db, cfg, requirePerm(req, 'request.read', '요청 조회'), parse(idParam, req.params).id));
+  // 작성 화면의 출금 전 점검 미리 보기(저장하지 않음). 검토 단계와 승인 요청 때 서버가 같은 규칙으로 다시 계산한다.
+  app.post('/api/requests/checks-preview', async (req) => previewChecks(db, cfg, requirePerm(req, 'request.create', '출금 전 점검'), parse(requestChecksPreviewSchema, req.body)));
   app.post('/api/requests', async (req, reply) => {
     const a = requirePerm(req, 'request.create', '출금 요청 작성');
     const key = readIdemKey(req.headers['idempotency-key'], true);
     const input = parse(requestDraftSchema, req.body);
     const out = tx(db, () => withIdempotency(db, a.user.id, 'POST /api/requests', key, input, () => {
       assertDemoCapacity('requests');
-      return { status: 201, body: createDraft(db, a, input, key) };
+      return { status: 201, body: createDraft(db, cfg, a, input, key) };
     }));
     if (out.replayed) reply.header('Idempotent-Replayed', 'true');
     reply.status(out.status);
     return out.body;
   });
-  app.put('/api/requests/:id', async (req) => updateDraft(db, requirePerm(req, 'request.create', '요청 수정'), parse(idParam, req.params).id, parse(requestUpdateSchema, req.body)));
+  app.put('/api/requests/:id', async (req) => updateDraft(db, cfg, requirePerm(req, 'request.create', '요청 수정'), parse(idParam, req.params).id, parse(requestUpdateSchema, req.body)));
 
   const action = (name: string, fn: (a: ReturnType<typeof requireAuth>, id: string, body: unknown) => unknown, perm: 'request.create' | 'request.approve') => {
     app.post(`/api/requests/:id/${name}`, async (req, reply) => {
       const a = requirePerm(req, perm, perm === 'request.create' ? '요청 작성·제출' : '요청 승인·반려');
       const { id } = parse(idParam, req.params);
       const key = readIdemKey(req.headers['idempotency-key'], false);
-      const out = tx(db, () => withIdempotency(db, a.user.id, `POST /api/requests/${id}/${name}`, key, req.body ?? null, () => ({ status: 200, body: fn(a, id, req.body) })));
+      let out: { status: number; body: unknown; replayed: boolean };
+      try {
+        out = tx(db, () => withIdempotency(db, a.user.id, `POST /api/requests/${id}/${name}`, key, req.body ?? null, () => ({ status: 200, body: fn(a, id, req.body) })));
+      } catch (e) {
+        // 승인 대상 지문 불일치: 승인 트랜잭션(승인 표 포함)은 이미 되돌려졌다. 그 뒤 별도 트랜잭션에서 감사 기록만 남기고 409를 그대로 보낸다.
+        if (e instanceof IntentTamperedError) tx(db, () => recordIntentTampered(db, e));
+        throw e;
+      }
       if (out.replayed) reply.header('Idempotent-Replayed', 'true');
       reply.status(out.status);
       return out.body;
     });
   };
-  action('review', (a, id, b) => moveToReview(db, a, id, parse(versionSchema, b).version), 'request.create');
-  action('back-to-draft', (a, id, b) => backToDraft(db, a, id, parse(versionSchema, b).version), 'request.create');
+  action('review', (a, id, b) => moveToReview(db, cfg, a, id, parse(versionSchema, b).version), 'request.create');
+  action('back-to-draft', (a, id, b) => backToDraft(db, cfg, a, id, parse(versionSchema, b).version), 'request.create');
   action('submit', (a, id, b) => submitForApproval(db, cfg, a, id, parse(requestSubmitSchema, b)), 'request.create');
-  action('cancel', (a, id, b) => cancelRequest(db, a, id, parse(versionSchema, b).version), 'request.create');
-  action('approve', (a, id, b) => approveRequest(db, a, custody, id, parse(versionSchema, b).version), 'request.approve');
-  action('reject', (a, id, b) => rejectRequest(db, a, id, parse(requestRejectSchema, b)), 'request.approve');
+  action('cancel', (a, id, b) => cancelRequest(db, cfg, a, id, parse(versionSchema, b).version), 'request.create');
+  // 승인·반려 본문에는 요청 응답의 intentHash(승인 대상 지문)를 함께 보낸다. 없으면 422, 다르면 409 INTENT_CHANGED.
+  action('approve', (a, id, b) => approveRequest(db, cfg, a, custody, id, parse(requestApproveSchema, b)), 'request.approve');
+  action('reject', (a, id, b) => rejectRequest(db, cfg, a, id, parse(requestRejectSchema, b)), 'request.approve');
 
   // ---------- 조직 ----------
   app.get('/api/org/members', async (req) => rm.members(db, requirePerm(req, 'org.read', '조직 조회')));
@@ -294,7 +308,7 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
   });
   app.get('/api/org/policy', async (req) => {
     requirePerm(req, 'org.read', '조직 조회');
-    return { approval: cfg.policy.approval, addressBook: cfg.policy.addressBook, isDesignAssumption: true };
+    return { approval: cfg.policy.approval, addressBook: cfg.policy.addressBook, withdrawalChecks: checkThresholds(cfg.policy.withdrawalChecks), isDesignAssumption: true };
   });
 
   // ---------- 감사 ----------
@@ -310,7 +324,12 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
     const { w, args } = rm.auditWhere(a, q);
     const rows = db.prepare(`SELECT seq, created_at, actor_name, action, target_type, target_id, summary, hash FROM audit_log WHERE ${w} ORDER BY seq ASC LIMIT 50000`).all(...args) as any[];
     tx(db, () => writeAudit(db, { orgId: a.org.id, actorId: a.user.id, actorName: a.user.name, action: 'audit.exported', targetType: 'audit', targetId: a.org.id, summary: `감사 기록 ${rows.length}건 내보내기`, detail: { filters: q } }));
-    const csv = toCsv(['순번', '시각(UTC)', '수행자', '행동', '대상 종류', '대상 ID', '내용', '해시'], rows.map((r) => [r.seq, r.created_at, r.actor_name, r.action, r.target_type, r.target_id, r.summary, r.hash]));
+    // 시각은 화면과 같은 한국 시간(초까지), 행동은 화면과 같은 이름(shared/terms.ts ACTION_LABEL)과 원래 코드를 함께 낸다.
+    // 수식으로 실행될 수 있는 값은 toCsv가 무력화한다.
+    const csv = toCsv(
+      ['순번', '시각(한국 시간)', '수행자', '행동', '행동 코드', '대상 종류', '대상 ID', '내용', '해시'],
+      rows.map((r) => [r.seq, kstDateTime(r.created_at, { seconds: true }), r.actor_name, actionLabel(r.action), r.action, r.target_type, r.target_id, r.summary, r.hash]),
+    );
     reply.header('Content-Type', 'text/csv; charset=utf-8').header('Content-Disposition', `attachment; filename="koda-audit-${new Date().toISOString().slice(0, 10)}.csv"`);
     return csv;
   });

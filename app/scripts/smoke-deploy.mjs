@@ -92,7 +92,11 @@ async function toPending(s, amount, purpose) {
   const rv = await call('POST', `/api/requests/${c.json.id}/review`, { ...s, body: { version: c.json.version } });
   expect(rv.status === 200, `검토 단계 이동 ${rv.status} ${rv.json?.error?.code ?? ''}${otherInstanceHint(c, rv)}`);
   const n = s.me.policy?.confirmTailLength ?? 6;
-  const sub = await call('POST', `/api/requests/${c.json.id}/submit`, { ...s, body: { version: rv.json.version, confirmTail: String(c.json.address.address).slice(-n), ackIrreversible: true } });
+  // 출금 전 점검에서 사유가 필요한 주의 항목(처음 보내는 주소·과거 금액 대비 큰 수량·사용 가능 수량의 큰 비율)이 생길 수 있어 사유를 함께 보낸다.
+  // 사유가 필요 없는 항목의 사유는 서버가 버린다.
+  const reason = '배포 확인용 모의 요청이라 그대로 진행합니다';
+  const checkReasons = { first_use: reason, amount_history: reason, balance_share: reason };
+  const sub = await call('POST', `/api/requests/${c.json.id}/submit`, { ...s, body: { version: rv.json.version, confirmTail: String(c.json.address.address).slice(-n), ackIrreversible: true, checkReasons } });
   expect(sub.status === 200, `승인 요청 ${sub.status} ${sub.json?.error?.code ?? ''}${otherInstanceHint(c, sub)}`);
   return sub.json;
 }
@@ -238,7 +242,7 @@ await check('CSRF 값 없는 변경 요청 403', async () => {
 await check('본인 요청 승인 403', async () => {
   const kang = await login('u-a-kang');
   const p = await toPending(kang, '1', '배포 확인용 모의 요청(자동 취소)');
-  const r = await call('POST', `/api/requests/${p.id}/approve`, { ...kang, body: { version: p.version } });
+  const r = await call('POST', `/api/requests/${p.id}/approve`, { ...kang, body: { version: p.version, intentHash: p.intentHash } });
   expect(r.status === 403 && r.json?.error?.code === 'SELF_APPROVAL_FORBIDDEN', `${r.status} ${r.json?.error?.code}`);
 });
 

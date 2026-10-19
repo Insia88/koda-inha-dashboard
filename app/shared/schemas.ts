@@ -77,15 +77,42 @@ export const requestDraftSchema = z.object({
 
 export const requestUpdateSchema = requestDraftSchema.extend({ version: z.number().int().positive() });
 
+/** 출금 전 점검 항목 id(server/domain/checks.ts). 진행 사유는 이 id를 키로 보낸다. */
+export const CHECK_IDS = ['first_use', 'amount_history', 'balance_share', 'recent_burst', 'price'] as const;
+
 export const requestSubmitSchema = z.object({
   version: z.number().int().positive(),
   confirmTail: z.string().trim().min(1, '받는 주소 끝자리를 입력하세요.').max(20),
   ackIrreversible: z.literal(true, { message: '전송 후에는 되돌릴 수 없다는 점을 확인하세요.' }),
+  // 사유가 필요한 주의 항목마다 진행 사유(5자 이상). 빠지면 서버가 422 CHECK_REASON_REQUIRED(항목별 필드 checkReasons.<id>)로 거부한다.
+  checkReasons: z.partialRecord(z.enum(CHECK_IDS), text(z.string().trim().max(300, '진행 사유는 300자 이내로 입력하세요.'), '진행 사유')).optional().default({}),
+});
+
+/**
+ * 승인·반려 본문의 승인 대상 지문: 요청 응답의 intentHash를 그대로 보낸다.
+ * 형식만 여기서 받고, 없거나 다르면 서버가 요청 상태를 확인한 뒤 거부한다(없음 422, 다름 409 INTENT_CHANGED).
+ * null은 지문이 없는 이전 요청을 반려할 때만 받는다.
+ */
+const intentHashField = z.string().trim().max(128, '승인 대상 지문 형식이 올바르지 않습니다.').nullable().optional();
+
+export const requestApproveSchema = z.object({
+  version: z.number().int().positive(),
+  intentHash: intentHashField,
 });
 
 export const requestRejectSchema = z.object({
   version: z.number().int().positive(),
   reason: text(z.string().trim().min(5, '반려 사유를 5자 이상 입력하세요.').max(500, '반려 사유는 500자 이내로 입력하세요.'), '반려 사유'),
+  intentHash: intentHashField,
+});
+
+/** 작성 화면의 출금 전 점검 미리 보기(저장하지 않음). requestId는 고치는 중인 초안 id. */
+export const requestChecksPreviewSchema = z.object({
+  assetCode: z.string().min(1, '자산을 선택하세요.').max(16),
+  networkCode: z.string().min(1, '네트워크를 선택하세요.').max(32),
+  addressId: z.string().min(1, '받는 주소를 선택하세요.').max(64),
+  amount: z.string().trim().min(1, '수량을 입력하세요.').max(60),
+  requestId: z.string().min(1).max(64).optional(),
 });
 
 export const roleUpdateSchema = z.object({

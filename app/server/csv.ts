@@ -8,5 +8,20 @@ export function csvCell(value: unknown): string {
 
 export function toCsv(header: string[], rows: unknown[][]): string {
   // Excel이 한글을 올바르게 열도록 UTF-8 BOM을 붙인다.
-  return '\uFEFF' + [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
+  return '﻿' + [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
+}
+
+/** 한국 표준시(KST)는 UTC+9이며 일광 절약 시간이 없다. */
+const KST_OFFSET_MS = 9 * 3600_000;
+
+/**
+ * ISO 시각 → 한국 시간 문자열. 기본 'YYYY-MM-DD HH:mm', seconds면 'YYYY-MM-DD HH:mm:ss'.
+ * 감사 기록 CSV와 서버 안내 문구(사용 가능 시각 등)가 같은 형식을 쓴다. 읽을 수 없는 값은 원래 문자열을 그대로 돌려준다.
+ */
+export function kstDateTime(iso: string | null | undefined, opts: { seconds?: boolean } = {}): string {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return String(iso);
+  const s = new Date(t + KST_OFFSET_MS).toISOString();
+  return `${s.slice(0, 10)} ${s.slice(11, opts.seconds ? 19 : 16)}`;
 }

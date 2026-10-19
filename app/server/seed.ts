@@ -7,6 +7,8 @@ import { writeAudit } from './audit.ts';
 import { krwValue, parseUnits } from '../shared/decimal.ts';
 import { LOOKALIKE_RULE_VERSION } from '../shared/address-rules.ts';
 import { checkAddress, lookalikeMatchesOf } from './domain/addresses.ts';
+import { attachCheckReasons, computeChecks, DEFAULT_WITHDRAWAL_CHECKS, INTENT_VERSION, intentFieldsOf, intentHashOf, serializeChecks, type IntentRow } from './domain/checks.ts';
+import type { Policy } from './config.ts';
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -35,6 +37,24 @@ const MOCK_KRW_PRICE: Record<string, string> = { BTC: '100000000', ETH: '4000000
 const SEED_HIGH_VALUE_THRESHOLD_KRW = 100_000_000n;
 /** config/policy.json addressBook.cooldownHours 기본값과 같은 값(설계 가정). tests/address-lifecycle.test.ts가 둘이 같은지 확인한다. */
 export const SEED_COOLDOWN_HOURS = 24;
+
+/**
+ * 시드의 승인 대기 요청에 저장할 출금 전 점검을 만들 때 쓰는 기준. config/policy.json의 기본값(설계 가정)과 같다.
+ * 점검 기준 시각은 각 요청의 제출 시각이고, 시세는 제출 때 쓴 모의 시세라 시세 지연 기준(30분)은 결과에 영향을 주지 않는다.
+ */
+const SEED_CHECK_POLICY: Policy = {
+  approval: { defaultRequiredApprovals: 1, highValueThresholdKrw: SEED_HIGH_VALUE_THRESHOLD_KRW.toString(), highValueRequiredApprovals: 2 },
+  addressBook: { requireSecondPersonReview: true, confirmTailLength: 6, cooldownHours: SEED_COOLDOWN_HOURS },
+  withdrawalChecks: { ...DEFAULT_WITHDRAWAL_CHECKS },
+  priceStaleAfterMinutes: 30,
+  mockCustodyProcessingMs: 0,
+};
+
+/** 시드 승인 대기 요청의 진행 사유(가상의 확인 기록). 사유가 필요한 주의 항목이 바뀌면 attachCheckReasons가 시드를 멈춘다. */
+const SEED_CHECK_REASONS: Record<string, Partial<Record<string, string>>> = {
+  'wr-3': { first_use: '정산 파트너 B와 맺은 정산 계약서의 입금 주소와 전체 글자를 대조했고, 파트너 재무팀 대표번호로 전화해 수령 주소를 다시 확인했습니다.' },
+  'wr-4': { first_use: '그룹사 C 자금팀장과 영상 통화로 주소 전체를 대조했습니다. 그룹사 내부 이전이라 수령 확인을 바로 받을 수 있어 시험 전송 없이 진행합니다.' },
+};
 
 /** 출금 거래의 상대방: 자산·네트워크마다 같은 자산·네트워크로 등록된 주소록 이름만 쓴다. */
 const WITHDRAWAL_COUNTERPARTY: Record<string, string> = {
@@ -305,6 +325,41 @@ export function seed(db: DB) {
     // id는 'tx-a-' 접두를 쓰지 않는다(tests/seed.test.ts가 그 접두의 무작위 행 136건을 그대로인지 확인한다).
     ins(`INSERT INTO transactions (${TX_COLUMNS}, counterparty_address) VALUES ('tx-dust-a1', 'org-a', 'w-a-eth', 'deposit', 'USDC', 'ETHEREUM', '0', '알 수 없는 보낸 주소 (모의)', 'completed', ?, NULL, 'MOCK-TX-DUST01', ?)`,
       ago(3), lookalikeOf(mockAddress('EVM', 'book:ab-07'), 'dust:ab-07', 4, 6));
+
+    // 승인 대상 지문(F10): 승인 요청된 요청(처리 완료·반려·승인 대기)마다 실제 제출 경로와 같은 함수로 지문을 계산해 저장하고,
+    // 시드의 승인·반려 표에도 그 지문을 남긴다. 승인 대기 요청에는 제출 시점 기준 출금 전 점검과 진행 사유를 저장한다(F8·F13·F14).
+    {
+      const rowOf = (id: string) => db.prepare(
+        `SELECT r.*, a.precision, n.family network_family, ab.address address_value, ab.memo address_memo
+           FROM withdrawal_requests r JOIN assets a ON a.code = r.asset_code JOIN networks n ON n.code = r.network_code JOIN address_book ab ON ab.id = r.address_id
+          WHERE r.id = ?`,
+      ).get(id) as any;
+      const submittedIds = (db.prepare('SELECT id FROM withdrawal_requests WHERE submitted_at IS NOT NULL ORDER BY ref_no').all() as { id: string }[]).map((x) => x.id);
+      for (const id of submittedIds) {
+        const r = rowOf(id);
+        const hash = intentHashOf(intentFieldsOf(r as IntentRow));
+        let preChecks: string | null = null;
+        const reasons = SEED_CHECK_REASONS[id];
+        if (r.status === 'PENDING_APPROVAL' && reasons) {
+          const b = db.prepare('SELECT total_units, reserved_units FROM balances WHERE wallet_id = ? AND asset_code = ?').get(r.wallet_id, r.asset_code) as any;
+          const units = BigInt(r.amount_units);
+          // 제출 직전 상태: 이 요청의 예약은 아직 잡히지 않았다.
+          const available = BigInt(b.total_units) - BigInt(b.reserved_units) + units;
+          const items = computeChecks(db, SEED_CHECK_POLICY, {
+            requestId: id, orgId: r.org_id, walletId: r.wallet_id, assetCode: r.asset_code, networkCode: r.network_code, amountUnits: units, precision: r.precision,
+            address: r.address_value, availableUnits: available, price: { krwPrice: MOCK_KRW_PRICE[r.asset_code]!, asOf: r.submitted_at }, nowIso: r.submitted_at,
+          });
+          preChecks = serializeChecks(r.submitted_at, attachCheckReasons(items, reasons));
+        }
+        // 처리 완료·반려된 시드 요청은 점검 기록 없이 지문만 남긴다(점검 도입 전에 결정된 요청으로 본다).
+        ins('INSERT INTO request_intents (request_id, intent_version, intent_hash, pre_checks, created_at) VALUES (?, ?, ?, ?, ?)', id, INTENT_VERSION, hash, preChecks, r.submitted_at);
+        for (const v of db.prepare('SELECT user_id, created_at FROM approvals WHERE request_id = ?').all(id) as { user_id: string; created_at: string }[]) {
+          ins('INSERT INTO approval_intents (request_id, user_id, intent_hash, created_at) VALUES (?, ?, ?, ?)', id, v.user_id, hash, v.created_at);
+        }
+        const submittedEvent = events.find((e) => e.targetId === id && e.action === 'request.submitted');
+        if (submittedEvent) submittedEvent.detail = { ...submittedEvent.detail, intentHash: hash };
+      }
+    }
 
     // 스테이킹 (모의법인 A만)
     ins("INSERT INTO staking_positions VALUES ('st-1', 'org-a', 'ETH', 'ETHEREUM', '모의 검증인 A', ?, ?, 'active', ?)", u('64', 'ETH'), u('0.182', 'ETH'), ago(140));

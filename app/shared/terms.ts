@@ -60,6 +60,48 @@ export const ROLE_LABEL: Record<Role, { label: string; description: string }> = 
   operator: { label: 'KODA 운영자', description: 'Market Insight 자료를 선별해 게시합니다.' },
 };
 
+/**
+ * 출금 전 점검(검토 단계와 승인 화면에 함께 보이는 항목). 점검은 보내도 되는지 판정하지 않고, 무엇을 어떤 기준으로 보았는지만 알린다.
+ * - pass(기준 이내): 정한 기준을 넘지 않았다는 뜻일 뿐 받는 곳이나 전송을 보증하지 않는다. 녹색을 쓰지 않는다.
+ * - caution(주의): 기준을 넘었다. 사유가 필요한 항목은 요청자가 진행 사유를 남겨야 승인 요청을 보낼 수 있다.
+ * - unknown(확인 불가): 자료가 없거나 오래되어 판단하지 못했다. 기준 이내로 보이지 않게 주의와 같은 색을 쓴다.
+ */
+export type CheckOutcome = 'pass' | 'caution' | 'unknown';
+export type CheckId = 'first_use' | 'amount_history' | 'balance_share' | 'recent_burst' | 'price';
+export interface RequestCheck {
+  id: CheckId;
+  /** 한 줄 판정 문장(예: '처음 보내는 주소입니다') */
+  label: string;
+  outcome: CheckOutcome;
+  /** 이번 요청에서 본 값과 권하는 행동 */
+  detail: string;
+  /** 판정 기준과 자료 범위. 기준값은 설계 가정이다 */
+  basis: string;
+  /** 주의일 때 요청자의 진행 사유(5자 이상)가 있어야 승인 요청을 보낼 수 있는지 */
+  requiresReason: boolean;
+  /** 제출 때 저장한 요청자 사유. 제출 전이거나 남기지 않았으면 null */
+  reason?: string | null;
+}
+export const CHECK_OUTCOME: Record<CheckOutcome, { label: string; tone: Tone }> = {
+  pass: { label: '기준 이내', tone: 'neutral' },
+  caution: { label: '주의', tone: 'warning' },
+  unknown: { label: '확인 불가', tone: 'warning' },
+};
+/** 진행 사유 최소 글자 수(주소 등록 사유·정지 사유와 같은 기준) */
+export const CHECK_REASON_MIN_LENGTH = 5;
+
+/** 감사 기록의 행동 이름. 감사 기록 화면과 CSV 내보내기가 함께 쓴다. 없는 코드는 코드 그대로 보인다. */
+export const ACTION_LABEL: Record<string, string> = {
+  'auth.login': '로그인', 'auth.logout': '로그아웃',
+  'address.created': '주소 등록 요청', 'address.findings_updated': '주소 점검 결과 갱신', 'address.activated': '주소 사용 시작', 'address.cooldown_stopped': '사용 대기 중 정지', 'address.approved': '주소 확인', 'address.rejected': '주소 거절', 'address.disabled': '주소 사용 중지',
+  'request.created': '요청 작성', 'request.updated': '요청 수정', 'request.reviewing': '검토 이동', 'request.back_to_draft': '작성으로 되돌림',
+  'request.submitted': '승인 요청', 'request.approved': '승인', 'request.rejected': '반려', 'request.cancelled': '취소',
+  'request.processing': '처리 시작', 'request.completed': '처리 완료', 'request.failed': '처리 실패',
+  'request.intent_tampered': '지문 불일치로 전달 중단',
+  'member.roles_changed': '역할 변경', 'audit.exported': '감사 기록 내보내기', 'insight.published': '리서치 게시', 'insight.hidden': '리서치 숨김',
+};
+export const actionLabel = (action: string) => ACTION_LABEL[action] ?? action;
+
 export const TX_TYPE: Record<string, string> = {
   deposit: '입금',
   withdrawal: '출금',

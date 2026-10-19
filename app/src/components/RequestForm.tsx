@@ -1,15 +1,100 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
+import { IconAlertTriangle, IconCircleCheck, IconHelpCircle } from '@tabler/icons-react';
 import { api, ApiError } from '../api.ts';
 import { useCatalog } from '../hooks.ts';
 import { useMe } from '../auth.tsx';
-import { AddressStrip, Field, fieldA11y, Notice, Term } from './ui.tsx';
+import { AddressStrip, Field, fieldA11y, Notice, Term, TextareaAuto } from './ui.tsx';
 import { amount as fmtAmount, dateTime, krw, krwShort } from '../format.ts';
 import { AmountError, formatGrouped, formatUnits, krwValue, parseUnits } from '../../shared/decimal.ts';
-import { GLOSSARY } from '../../shared/terms.ts';
+import { CHECK_OUTCOME, CHECK_REASON_MIN_LENGTH, GLOSSARY, type CheckOutcome, type RequestCheck } from '../../shared/terms.ts';
+import './request-checks.css';
 
 export interface RequestFormValue { assetCode: string; networkCode: string; addressId: string; amount: string; purpose: string }
+
+const OUTCOME_ICON: Record<CheckOutcome, typeof IconCircleCheck> = { pass: IconCircleCheck, caution: IconAlertTriangle, unknown: IconHelpCircle };
+
+/** '주의 1건 · 확인 불가 1건 · 기준 이내 3건' (0건인 결과는 쓰지 않는다) */
+export function checkSummary(items: RequestCheck[]): string {
+  return (['caution', 'unknown', 'pass'] as CheckOutcome[])
+    .map((o) => [o, items.filter((i) => i.outcome === o).length] as const)
+    .filter(([, n]) => n > 0)
+    .map(([o, n]) => `${CHECK_OUTCOME[o].label} ${n}건`)
+    .join(' · ');
+}
+
+/**
+ * 출금 전 점검 목록(F8·F13·F14). 항목마다 아이콘과 결과 글자를 함께 둔다(색만으로 구분하지 않음).
+ * - onReason을 주면 사유가 필요한 주의 항목 아래에 진행 사유 입력을 둔다(검토 단계).
+ * - showReasons면 제출 때 저장한 요청자 사유를 보인다(승인 화면).
+ * - compact(작성 화면 미리 보기)는 기준 이내 항목을 한 줄로 줄이고 기준 문장을 생략한다.
+ */
+export function CheckList({ items, title, intro, reasons, onReason, reasonError, showReasons, compact, footnote, level = 3 }: {
+  items: RequestCheck[]; title: string; level?: 2 | 3; intro?: string; reasons?: Record<string, string>; onReason?: (id: string, value: string) => void;
+  reasonError?: (id: string) => string | undefined; showReasons?: boolean; compact?: boolean; footnote?: string;
+}) {
+  const headId = useId();
+  return (
+    <div className={`rc-block${compact ? ' rc-compact' : ''}`}>
+      <div className="rc-head">
+        {level === 2 ? <h2 id={headId}>{title}</h2> : <h3 id={headId}>{title}</h3>}
+        <span className="rc-summary">{checkSummary(items)}</span>
+      </div>
+      {intro && <p className="rc-intro">{intro}</p>}
+      <ul className="rc-list" aria-labelledby={headId}>
+        {items.map((c) => {
+          const Icon = OUTCOME_ICON[c.outcome] ?? IconHelpCircle;
+          const fieldId = `check-reason-${c.id}`;
+          const outcomeLabel = CHECK_OUTCOME[c.outcome]?.label ?? c.outcome;
+          // '확인 불가(시세 없음)'처럼 결과 글자로 시작하는 문장은 결과 표시와 겹치지 않게 괄호 안만 보인다(결과 표시 + '시세 없음').
+          const shown = c.label.startsWith(`${outcomeLabel}(`) && c.label.endsWith(')') ? c.label.slice(outcomeLabel.length + 1, -1) : c.label;
+          return (
+            <li key={c.id} className={`rc-item rc-${c.outcome}`}>
+              <Icon size={18} aria-hidden="true" className="rc-icon" />
+              <div className="rc-body">
+                <p className="rc-line"><span className="rc-outcome">{outcomeLabel}</span><span className="rc-label">{shown}</span></p>
+                {(!compact || c.outcome !== 'pass') && <p className="rc-detail">{c.detail}</p>}
+                {!compact && <p className="rc-basis">기준: {c.basis}</p>}
+                {showReasons && c.reason && <div className="rc-reason"><b>요청자 진행 사유</b><p>{c.reason}</p></div>}
+                {onReason && c.requiresReason && (
+                  <Field label={`진행 사유: ${c.label}`} htmlFor={fieldId} required error={reasonError?.(c.id)} hint={`그대로 진행하는 이유를 ${CHECK_REASON_MIN_LENGTH}자 이상 적어 주세요. 승인자에게 함께 보입니다.`}>
+                    <TextareaAuto id={fieldId} rows={2} maxRows={6} maxLength={300} value={reasons?.[c.id] ?? ''} onChange={(e) => onReason(c.id, e.target.value)} />
+                  </Field>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {footnote && <p className="rc-footnote">{footnote}</p>}
+    </div>
+  );
+}
+
+/** 승인 대상 지문(F10): 승인 요청 때 고정한 내용의 지문과 한 줄 설명. 요청자·승인자 화면에 같은 값이 보인다. */
+export function IntentFingerprint({ display }: { display: string | null }) {
+  const labelId = useId();
+  return (
+    <div className="rc-intent" role="group" aria-labelledby={labelId}>
+      <span className="rc-intent-label" id={labelId}>승인 대상 지문</span>
+      {display
+        ? <span className="rc-intent-value">{display}</span>
+        : <span className="rc-intent-missing">기록 없음 · 지문을 기록하기 전에 승인 요청된 요청이라 승인할 수 없습니다</span>}
+      <p className="rc-intent-note">자산·수량·받는 주소·네트워크·메모·필요 승인 수를 묶어 만든 값으로, 승인 요청 뒤 이 중 하나라도 바뀌면 지문이 달라져 승인되지 않습니다.</p>
+    </div>
+  );
+}
+
+/** 입력이 멈춘 뒤에만 값을 넘긴다(수량을 칠 때마다 점검을 다시 부르지 않게). */
+function useSettled<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return settled;
+}
 
 /** 승인 기준 금액 표기: 정확한 기준값이므로 '약'을 붙이지 않는다. 100000000 → "1억 원" */
 export function krwThreshold(value: string): string {
@@ -21,7 +106,7 @@ export function krwThreshold(value: string): string {
 type Preview =
   | { kind: 'empty' }
   | { kind: 'invalid'; message: string }
-  | { kind: 'ok'; quantity: string; krw: bigint | null; priceAsOf: string | null; priceState: string };
+  | { kind: 'ok'; quantity: string; krw: bigint | null; priceAsOf: string | null; priceState: string; positive: boolean };
 
 /** 입력한 수량을 서버와 같은 규칙(shared/decimal)으로 읽어 본다. 쉼표 위치가 틀리면 여기서 바로 드러난다. */
 function readAmount(raw: string, precision: number | undefined, price: { krw: string | null; asOf: string | null; state: string }): Preview {
@@ -29,14 +114,42 @@ function readAmount(raw: string, precision: number | undefined, price: { krw: st
   try {
     const units = parseUnits(raw, precision);
     const krw = price.krw && price.state !== 'unavailable' ? krwValue(units, precision, price.krw) : null;
-    return { kind: 'ok', quantity: formatGrouped(formatUnits(units, precision)), krw, priceAsOf: price.asOf, priceState: price.state };
+    return { kind: 'ok', quantity: formatGrouped(formatUnits(units, precision)), krw, priceAsOf: price.asOf, priceState: price.state, positive: units > 0n };
   } catch (e) {
     if (e instanceof AmountError) return { kind: 'invalid', message: e.message };
     throw e;
   }
 }
 
-export function RequestForm({ value, onChange, error }: { value: RequestFormValue; onChange: (v: RequestFormValue) => void; error: unknown }) {
+/**
+ * 작성 화면의 출금 전 점검 미리 보기. 자산·네트워크·주소를 고르고 수량을 읽을 수 있으면 서버에 물어본다(저장하지 않음).
+ * 검토 단계와 승인 요청 때 서버가 같은 규칙으로 다시 계산하므로, 여기서 못 불러와도 작성은 막지 않는다.
+ */
+function ChecksPreview({ value, requestId, amountReadable }: { value: RequestFormValue; requestId?: string; amountReadable: boolean }) {
+  const amount = useSettled(value.amount.trim(), 400);
+  const ready = amountReadable && !!value.assetCode && !!value.networkCode && !!value.addressId && amount === value.amount.trim();
+  const q = useQuery({
+    queryKey: ['request-checks-preview', value.assetCode, value.networkCode, value.addressId, amount, requestId ?? ''],
+    queryFn: ({ signal }) => api<{ evaluatedAt: string; items: RequestCheck[] }>('/api/requests/checks-preview', {
+      method: 'POST', signal, body: { assetCode: value.assetCode, networkCode: value.networkCode, addressId: value.addressId, amount, ...(requestId ? { requestId } : {}) },
+    }),
+    enabled: ready,
+    retry: false,
+    refetchOnWindowFocus: false,
+    staleTime: 30_000,
+  });
+  if (!value.addressId || !amountReadable) return null;
+  if (q.isError) return <p className="muted small" style={{ margin: 0 }}>출금 전 점검 미리 보기를 불러오지 못했습니다. 검토 단계에서 다시 보여 드립니다.</p>;
+  if (!q.data) return null;
+  const needsReason = q.data.items.some((c) => c.requiresReason);
+  return (
+    <CheckList compact title="출금 전 점검 미리 보기" items={q.data.items}
+      intro={needsReason ? '주의 항목은 검토 단계에서 진행 사유를 적어야 승인 요청을 보낼 수 있습니다. 처음 보내는 주소라면 소액 시험 전송을 먼저 요청하는 방법도 있습니다.' : undefined}
+      footnote="점검 기준은 설계 가정이며, 검토 단계에서 기준과 함께 다시 보여 드립니다." />
+  );
+}
+
+export function RequestForm({ value, onChange, error, requestId }: { value: RequestFormValue; onChange: (v: RequestFormValue) => void; error: unknown; requestId?: string }) {
   const me = useMe();
   const cat = useCatalog();
   const bal = useQuery({ queryKey: ['balances'], queryFn: () => api('/api/balances') });
@@ -113,6 +226,7 @@ export function RequestForm({ value, onChange, error }: { value: RequestFormValu
         <Field label="요청 목적" htmlFor="purpose" required error={step3Err?.fieldError('purpose')} hint="승인자가 판단할 수 있게 근거 문서나 정산 건을 적으세요.">
           <input id="purpose" value={value.purpose} onChange={(e) => set({ purpose: e.target.value })} maxLength={200} />
         </Field>
+        <ChecksPreview value={value} requestId={requestId} amountReadable={preview.kind === 'ok' && preview.positive} />
       </fieldset>
     </>
   );

@@ -7,15 +7,8 @@ import { Badge, Empty, ErrorState, Loading, PageHeader, Pagination } from '../co
 import { DateInput } from '../components/DateInput.tsx';
 import { SearchField } from '../components/SearchField.tsx';
 import { dateTime } from '../format.ts';
-
-const ACTION_LABEL: Record<string, string> = {
-  'auth.login': '로그인', 'auth.logout': '로그아웃',
-  'address.created': '주소 등록 요청', 'address.findings_updated': '주소 점검 결과 갱신', 'address.activated': '주소 사용 시작', 'address.cooldown_stopped': '사용 대기 중 정지', 'address.approved': '주소 확인', 'address.rejected': '주소 거절', 'address.disabled': '주소 사용 중지',
-  'request.created': '요청 작성', 'request.updated': '요청 수정', 'request.reviewing': '검토 이동', 'request.back_to_draft': '작성으로 되돌림',
-  'request.submitted': '승인 요청', 'request.approved': '승인', 'request.rejected': '반려', 'request.cancelled': '취소',
-  'request.processing': '처리 시작', 'request.completed': '처리 완료', 'request.failed': '처리 실패',
-  'member.roles_changed': '역할 변경', 'audit.exported': '감사 기록 내보내기', 'insight.published': '리서치 게시', 'insight.hidden': '리서치 숨김',
-};
+// 행동 이름은 CSV 내보내기(서버)와 같은 단일 출처를 쓴다.
+import { actionLabel } from '../../shared/terms.ts';
 
 export function AuditPage() {
   const me = useMe();
@@ -52,7 +45,7 @@ export function AuditPage() {
       <form className="toolbar" role="search" noValidate onSubmit={(e) => e.preventDefault()}>
         <SearchField label="내용 검색" placeholder="내용·요청 번호 검색" value={state.q} onCommit={(v) => set({ q: v })} />
         <SearchField label="수행자 이름" placeholder="수행자 이름" value={state.actor} onCommit={(v) => set({ actor: v })} maxLength={50} icon={false} className="search-narrow" clearLabel="수행자 이름 지우기" />
-        <label><span className="sr-only">행동</span><select value={state.action} onChange={(e) => set({ action: e.target.value })}><option value="">모든 행동</option>{(q.data?.actions ?? []).map((a: string) => <option key={a} value={a}>{ACTION_LABEL[a] ?? a}</option>)}</select></label>
+        <label><span className="sr-only">행동</span><select value={state.action} onChange={(e) => set({ action: e.target.value })}><option value="">모든 행동</option>{(q.data?.actions ?? []).map((a: string) => <option key={a} value={a}>{actionLabel(a)}</option>)}</select></label>
         <label className="date-field"><span>시작일</span><DateInput commit="debounce" value={state.from} onValueChange={(v) => set({ from: v })} max={state.to || undefined} /></label>
         <label className="date-field"><span>종료일</span><DateInput commit="debounce" value={state.to} onValueChange={(v) => set({ to: v })} min={state.from || undefined} /></label>
         {filtered && <button type="button" className="btn btn-ghost" onClick={reset}>필터 초기화</button>}
@@ -72,7 +65,7 @@ export function AuditPage() {
                     <td className="num muted aud-no" data-label="번호">{e.orgSeq ?? e.seq}</td>
                     <td className="nowrap aud-when" data-label="일시 (KST)">{dateTime(e.createdAt)}</td>
                     <td className="aud-actor" data-label="수행자">{e.actorName}</td>
-                    <td className="nowrap aud-action">{ACTION_LABEL[e.action] ?? e.action}</td>
+                    <td className="nowrap aud-action">{actionLabel(e.action)}</td>
                     <td className="cell-wrap aud-summary">{e.summary}{e.detail?.reason && <div className="muted small">사유: {e.detail.reason}</div>}</td>
                   </tr>
                 ))}

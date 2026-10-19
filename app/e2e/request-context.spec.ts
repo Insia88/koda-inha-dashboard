@@ -80,7 +80,7 @@ test('받는 주소가 사용 중지된 승인 대기 요청: 서버 거부 안�
   const ab06 = await (await page.request.get('/api/addresses/ab-06')).json();
   const draft = await apiPost(page, '/api/requests', { assetCode: 'KAIA', networkCode: 'KAIA', addressId: 'ab-06', amount: '100', purpose: 'E2E 주소 중지 승인 불가 확인' });
   const rv = await apiPost(page, `/api/requests/${draft.id}/review`, { version: draft.version });
-  const sub = await apiPost(page, `/api/requests/${draft.id}/submit`, { version: rv.version, confirmTail: ab06.address.slice(-6), ackIrreversible: true });
+  const sub = await apiPost(page, `/api/requests/${draft.id}/submit`, { version: rv.version, confirmTail: ab06.address.slice(-6), ackIrreversible: true, checkReasons: { first_use: 'E2E 파트너와 전화로 주소를 대조했습니다' } });
   expect(sub.status).toBe('PENDING_APPROVAL');
   await logout(page);
 

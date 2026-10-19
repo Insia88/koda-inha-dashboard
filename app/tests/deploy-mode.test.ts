@@ -278,7 +278,7 @@ describe('공개 데모 앱', () => {
     const rt = await demoRuntime();
     const pending = await toPending(rt.app, 'u-a-han');
     const oh = api(rt.app, await login(rt.app, 'u-a-oh'));
-    const ap = await oh.post(`/api/requests/${pending.id}/approve`, { version: pending.version });
+    const ap = await oh.post(`/api/requests/${pending.id}/approve`, { version: pending.version, intentHash: pending.intentHash });
     expect(ap.status).toBe(200);
     expect(ap.body.status).toBe('PROCESSING');
     await sleep(1100); // 정산은 /api 요청 때 1초에 한 번까지만 돈다

@@ -22,7 +22,8 @@ async function submitRequest(c: TestCtx, userId: string, body: Record<string, un
   expect(cr.status, JSON.stringify(cr.body)).toBe(201);
   const rv = await a.post(`/api/requests/${cr.body.id}/review`, { version: cr.body.version });
   expect(rv.status, JSON.stringify(rv.body)).toBe(200);
-  const sub = await a.post(`/api/requests/${cr.body.id}/submit`, { version: rv.body.version, confirmTail: tail(cr.body.address.address), ackIrreversible: true });
+  // 처음 보내는 주소(모의법인 B의 ab-b1 등)는 출금 전 점검의 진행 사유가 필요하다(WP-11). 사유가 필요 없는 주소에는 무시된다.
+  const sub = await a.post(`/api/requests/${cr.body.id}/submit`, { version: rv.body.version, confirmTail: tail(cr.body.address.address), ackIrreversible: true, checkReasons: { first_use: '거래처와 전화로 주소를 대조했습니다' } });
   return { sub, id: cr.body.id as string, reviewVersion: rv.body.version as number };
 }
 
@@ -97,7 +98,7 @@ describe('유효한 승인 표만 집계', () => {
     const p = await toPending(ctx, 'u-a-han', { amount: '80000' }); // 80,000 USDC × 1,400 = 1.12억 원 → 2인 승인
     expect(p.requiredApprovals).toBe(2);
     const oh = api(ctx.app, await login(ctx.app, 'u-a-oh'));
-    const first = await oh.post(`/api/requests/${p.id}/approve`, { version: p.version });
+    const first = await oh.post(`/api/requests/${p.id}/approve`, { version: p.version, intentHash: p.intentHash });
     expect(first.status).toBe(200);
     expect(first.body.status).toBe('PENDING_APPROVAL');
     expect(first.body.approvedCount).toBe(1);
@@ -109,7 +110,7 @@ describe('유효한 승인 표만 집계', () => {
     expect(revoke.body.roles).toEqual([]);
 
     const seo = api(ctx.app, await login(ctx.app, 'u-a-seo'));
-    const second = await seo.post(`/api/requests/${p.id}/approve`, { version: first.body.version });
+    const second = await seo.post(`/api/requests/${p.id}/approve`, { version: first.body.version, intentHash: first.body.intentHash });
     expect(second.status).toBe(200);
     expect(second.body.status).toBe('PENDING_APPROVAL');
     expect(second.body.approvedCount).toBe(1);
@@ -123,7 +124,7 @@ describe('유효한 승인 표만 집계', () => {
     expect(dash.body.inProgress.find((x: any) => x.id === p.id).approved).toBe(1);
 
     const kang = api(ctx.app, await login(ctx.app, 'u-a-kang'));
-    const third = await kang.post(`/api/requests/${p.id}/approve`, { version: second.body.version });
+    const third = await kang.post(`/api/requests/${p.id}/approve`, { version: second.body.version, intentHash: second.body.intentHash });
     expect(third.status).toBe(200);
     expect(third.body.status).toBe('PROCESSING');
     expect(third.body.approvedCount).toBe(2);
@@ -141,7 +142,7 @@ describe('유효한 승인 표만 집계', () => {
   it('does not count the vote of a deactivated approver and never edits the stored approval', async () => {
     const p = await toPending(ctx, 'u-a-han', { amount: '80000' });
     const oh = api(ctx.app, await login(ctx.app, 'u-a-oh'));
-    expect((await oh.post(`/api/requests/${p.id}/approve`, { version: p.version })).status).toBe(200);
+    expect((await oh.post(`/api/requests/${p.id}/approve`, { version: p.version, intentHash: p.intentHash })).status).toBe(200);
     ctx.db.prepare("UPDATE users SET is_active = 0 WHERE id = 'u-a-oh'").run();
     const cur = await api(ctx.app, await login(ctx.app, 'u-a-seo')).get(`/api/requests/${p.id}`);
     expect(cur.body.approvedCount).toBe(0);
@@ -183,12 +184,12 @@ describe('사용 중지된 받는 주소로 가는 요청', () => {
     const hanDash = await api(ctx.app, await login(ctx.app, 'u-a-han')).get('/api/dashboard');
     expect(task(hanDash.body, 'my_blocked_requests')).toMatchObject({ count: 1, tone: 'danger', href: '/requests?view=blocked' });
 
-    const ap = await oh.post(`/api/requests/${p.id}/approve`, { version: got.body.version });
+    const ap = await oh.post(`/api/requests/${p.id}/approve`, { version: got.body.version, intentHash: got.body.intentHash });
     expect(ap.status).toBe(422);
     expect(ap.body.error.code).toBe('ADDRESS_NOT_ACTIVE');
     expect(reserved(ctx.db, 'w-a-eth', 'USDC')).toBe('100500000'); // 반려·취소 전까지 예약은 유지된다
 
-    const rj = await oh.post(`/api/requests/${p.id}/reject`, { version: got.body.version, reason: '받는 주소가 사용 중지되어 반려합니다' });
+    const rj = await oh.post(`/api/requests/${p.id}/reject`, { version: got.body.version, reason: '받는 주소가 사용 중지되어 반려합니다', intentHash: got.body.intentHash });
     expect(rj.status).toBe(200);
     expect(rj.body.status).toBe('REJECTED');
     expect(rj.body.blockedReason).toBeNull();
@@ -225,7 +226,7 @@ describe('커스터디 멱등', () => {
       const oh = api(app, await login(app, 'u-a-oh'));
       db.exec("CREATE TRIGGER wp02_fail_processing BEFORE INSERT ON audit_log WHEN NEW.action = 'request.processing' BEGIN SELECT RAISE(ABORT, 'simulated storage failure'); END;");
       const k = key();
-      const failed = await oh.post(`/api/requests/${p.id}/approve`, { version: p.version }, { 'idempotency-key': k });
+      const failed = await oh.post(`/api/requests/${p.id}/approve`, { version: p.version, intentHash: p.intentHash }, { 'idempotency-key': k });
       expect(failed.status).toBe(500);
       expect(failed.body.error.code).toBe('INTERNAL');
       expect(custody.calls).toBe(1);
@@ -234,7 +235,7 @@ describe('커스터디 멱등', () => {
       expect((db.prepare('SELECT COUNT(*) c FROM approvals WHERE request_id = ?').get(p.id) as any).c).toBe(0);
 
       db.exec('DROP TRIGGER wp02_fail_processing');
-      const retry = await oh.post(`/api/requests/${p.id}/approve`, { version: p.version }, { 'idempotency-key': k });
+      const retry = await oh.post(`/api/requests/${p.id}/approve`, { version: p.version, intentHash: p.intentHash }, { 'idempotency-key': k });
       expect(retry.status).toBe(200);
       expect(retry.body.status).toBe('PROCESSING');
       expect(custody.calls).toBe(2);
@@ -276,7 +277,7 @@ describe('감사 상세: 무엇을 승인했는지 남김', () => {
     expect(upd.before).toMatchObject({ amount: '100.5', addressId: 'ab-01', addressTail: tail(ab01.address), assetCode: 'USDC', networkCode: 'ETHEREUM' });
     expect(upd.after).toMatchObject({ amount: '80000', addressId: 'ab-07', addressTail: tail(ab07.address), addressLabel: ab07.label });
     const rv = await a.post(`/api/requests/${cr.body.id}/review`, { version: up.body.version });
-    const sub = await a.post(`/api/requests/${cr.body.id}/submit`, { version: rv.body.version, confirmTail: tail(ab07.address), ackIrreversible: true });
+    const sub = await a.post(`/api/requests/${cr.body.id}/submit`, { version: rv.body.version, confirmTail: tail(ab07.address), ackIrreversible: true, checkReasons: { first_use: '결제 대행사와 전화로 주소를 대조했습니다' } });
     expect(sub.status).toBe(200);
     const d = auditDetail(ctx.db, cr.body.id, 'request.submitted').detail;
     expect(d).toMatchObject({

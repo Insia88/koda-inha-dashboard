@@ -10,10 +10,28 @@ function readJson<T>(rel: string): T {
   return JSON.parse(readFileSync(path.join(APP_ROOT, rel), 'utf8')) as T;
 }
 
+/**
+ * 출금 전 점검 기준(설계 가정, KODA 정책 아님. docs/assumptions.md A-27·A-28). server/domain/checks.ts가 쓴다.
+ * 읽을 수 없는 값(숫자가 아님·0 이하)은 기준을 느슨하게 만들지 않도록 기본값(DEFAULT_WITHDRAWAL_CHECKS)으로 본다.
+ */
+export interface WithdrawalChecksPolicy {
+  /** 이번 수량이 같은 주소로 처리 완료된 과거 출금 중앙값의 몇 배를 넘으면 '주의'인지(기본 5) */
+  amountMedianMultiple: number;
+  /** 중앙값 비교에 필요한 과거 처리 완료 출금 수(기본 3). 이보다 적으면 '확인 불가' */
+  amountMedianMinHistory: number;
+  /** 사용 가능 수량 대비 이 비율(%) 이상을 한 번에 보내면 '주의'(기본 50) */
+  balanceSharePercent: number;
+  /** 같은 자산 출금 요청이 몰렸는지 보는 기간(분, 기본 60) */
+  burstWindowMinutes: number;
+  /** 그 기간에 이번 요청을 포함한 같은 자산 요청이 이 수 이상이면 '주의'(기본 3) */
+  burstCount: number;
+}
+
 export interface Policy {
   approval: { defaultRequiredApprovals: number; highValueThresholdKrw: string; highValueRequiredApprovals: number };
   /** cooldownHours: 두 번째 사람이 확인한 주소를 출금에 쓰기까지 기다리는 시간(설계 가정, 0이면 바로 사용) */
   addressBook: { requireSecondPersonReview: boolean; confirmTailLength: number; cooldownHours: number };
+  withdrawalChecks: WithdrawalChecksPolicy;
   priceStaleAfterMinutes: number;
   mockCustodyProcessingMs: number;
 }

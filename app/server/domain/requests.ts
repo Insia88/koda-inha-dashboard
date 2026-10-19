@@ -7,10 +7,15 @@ import type { AuthContext } from '../auth.ts';
 import type { AppConfig } from '../config.ts';
 import type { CustodyAdapter } from '../adapters/custody.ts';
 import { permissionsFor } from '../authz.ts';
+import { kstDateTime } from '../csv.ts';
 import { AmountError, formatUnits, krwValue, parsePositiveUnits } from '../../shared/decimal.ts';
-import { REQUEST_STATUS, type RequestStatus, type Role } from '../../shared/terms.ts';
+import { REQUEST_STATUS, type RequestCheck, type RequestStatus, type Role } from '../../shared/terms.ts';
 import { assertAssetOnNetwork, getAsset, getNetworkRule } from './catalog.ts';
 import { getAddressRow, likePattern } from './addresses.ts';
+import {
+  attachCheckReasons, computeChecks, INTENT_VERSION, intentFieldsOf, intentHashDisplay, intentHashOf, normalizeIntentAddress, parseStoredChecks, readPrice, serializeChecks,
+  type IntentRow,
+} from './checks.ts';
 
 export type RequestAction = 'edit' | 'review' | 'back_to_draft' | 'submit' | 'approve' | 'reject' | 'cancel';
 
@@ -23,12 +28,12 @@ export type ApprovalBasis = 'value_below_threshold' | 'value_at_or_above_thresho
 /** 승인 대기 요청이 승인될 수 없는 이유. 지금은 받는 주소가 사용 가능 상태가 아닌 경우뿐이다. */
 export type BlockedReason = 'ADDRESS_NOT_ACTIVE';
 
-/** 시세 기준 시각이 이보다 더 미래이면 잘못된 값으로 보고 지연과 같게 다룬다(시계 차이 허용 폭). */
-const PRICE_FUTURE_SKEW_MS = 5 * 60_000;
-
 /** 감사 기록에 남길 주소 끝자리 길이. 전체 주소는 남기지 않고 대조에 필요한 끝부분만 남긴다. */
 const AUDIT_TAIL_LENGTH = 6;
 const tailOf = (address: unknown) => String(address ?? '').slice(-AUDIT_TAIL_LENGTH);
+
+/** 승인 대상 지문 불일치를 기록하는 감사 기록의 수행자 이름(사람이 아닌 서버의 재확인). */
+export const INTENT_CHECK_ACTOR = '시스템(승인 대상 지문 재확인)';
 
 const OPEN: RequestStatus[] = ['DRAFT', 'REVIEW', 'PENDING_APPROVAL'];
 
@@ -43,17 +48,26 @@ export const TRANSITIONS: Record<RequestAction, { from: RequestStatus[]; to: Req
   cancel: { from: OPEN, to: 'CANCELLED' },
 };
 
-const SELECT = `SELECT r.*, a.precision, n.name network_name, w.name wallet_name, u.name creator_name,
-    ab.label address_label, ab.address address_value, ab.memo address_memo, ab.status address_status, ab.counterparty address_counterparty
+const SELECT = `SELECT r.*, a.precision, n.name network_name, n.family network_family, w.name wallet_name, u.name creator_name,
+    ab.label address_label, ab.address address_value, ab.memo address_memo, ab.status address_status, ab.counterparty address_counterparty, ab.active_from address_active_from,
+    ri.intent_hash intent_hash, ri.pre_checks pre_checks
   FROM withdrawal_requests r
   JOIN assets a ON a.code = r.asset_code
   JOIN networks n ON n.code = r.network_code
   JOIN wallets w ON w.id = r.wallet_id
   JOIN users u ON u.id = r.created_by
-  JOIN address_book ab ON ab.id = r.address_id`;
+  JOIN address_book ab ON ab.id = r.address_id
+  LEFT JOIN request_intents ri ON ri.request_id = r.id`;
 
 function approvalsOf(db: DB, id: string) {
-  return db.prepare('SELECT ap.user_id userId, u.name, ap.decision, ap.reason, ap.created_at createdAt FROM approvals ap JOIN users u ON u.id = ap.user_id WHERE ap.request_id = ? ORDER BY ap.created_at').all(id) as any[];
+  const rows = db.prepare(
+    `SELECT ap.user_id userId, u.name, ap.decision, ap.reason, ap.created_at createdAt, ai.intent_hash intentHash
+       FROM approvals ap JOIN users u ON u.id = ap.user_id
+       LEFT JOIN approval_intents ai ON ai.request_id = ap.request_id AND ai.user_id = ap.user_id
+      WHERE ap.request_id = ? ORDER BY ap.created_at`,
+  ).all(id) as any[];
+  // 표마다 그 사람이 결정할 때 본 승인 대상 지문(이 기능 도입 전 표는 null)
+  return rows.map((a) => ({ ...a, intentHash: a.intentHash ?? null, intentHashDisplay: intentHashDisplay(a.intentHash) }));
 }
 
 /** 지금 이 순간 출금 승인 권한이 있는 사람인지: 같은 조직의 활성 사용자이고 현재 역할에 request.approve가 있다. */
@@ -118,7 +132,8 @@ export function allowedActions(r: any, approvals: any[], auth: AuthContext): Req
   }
   if (!mine && auth.perms.has('request.approve') && can('approve') && !approvals.some((x) => x.userId === auth.user.id)) {
     // 받는 주소가 사용 가능 상태가 아니면 승인은 내보이지 않고 반려만 남긴다. 서버의 승인 거부(ADDRESS_NOT_ACTIVE)는 그대로 둔다.
-    if (r.address_status === 'ACTIVE') acts.push('approve');
+    // 승인 대상 지문이 없는 이전 요청(이 기능 도입 전 제출)도 승인할 수 없으므로 반려만 남긴다(서버는 INTENT_MISSING).
+    if (r.address_status === 'ACTIVE' && r.intent_hash) acts.push('approve');
     acts.push('reject');
   }
   return acts;
@@ -153,6 +168,10 @@ export function toRequestDto(db: DB, r: any, auth: AuthContext, withApprovals = 
     priceAsOfAtSubmit: (r.price_as_of_at_submit ?? null) as string | null,
     blockedReason: blockedReasonOf(r),
     krwValueAtSubmit: r.krw_value_at_submit as string | null,
+    /** 승인 대상 지문(제출 때 고정, 16진수 64자). 승인·반려 본문에 그대로 보낸다. 제출 전·이 기능 도입 전 요청은 null */
+    intentHash: (r.intent_hash ?? null) as string | null,
+    /** 화면 표시용 지문(앞 16자, 4자 묶음) */
+    intentHashDisplay: intentHashDisplay(r.intent_hash),
     createdBy: { id: r.created_by as string, name: r.creator_name as string },
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
@@ -172,12 +191,33 @@ function getRow(db: DB, orgId: string, id: string): any {
   return r;
 }
 
-export function getRequest(db: DB, auth: AuthContext, id: string) {
+/** 요청 행으로 출금 전 점검을 계산한다(작성·검토 중 요청은 볼 때마다, 제출 때는 저장용으로). */
+function checksForRow(db: DB, cfg: AppConfig, r: any, nowIso: string): RequestCheck[] {
+  return computeChecks(db, cfg.policy, {
+    requestId: r.id, orgId: r.org_id, walletId: r.wallet_id, assetCode: r.asset_code, networkCode: r.network_code,
+    amountUnits: BigInt(r.amount_units), precision: r.precision, address: normalizeIntentAddress(r.address_value, r.network_family), nowIso,
+  });
+}
+
+/**
+ * 화면에 보일 출금 전 점검. 작성·검토 중이면 지금 기준으로 다시 계산하고(stored=false),
+ * 승인 요청 뒤에는 제출 때 저장한 결과와 요청자 사유를 그대로 보여 준다(stored=true). 기록이 없는 이전 요청은 null.
+ */
+function checksView(db: DB, cfg: AppConfig, r: any): { evaluatedAt: string; stored: boolean; items: RequestCheck[] } | null {
+  if (r.status === 'DRAFT' || r.status === 'REVIEW') {
+    const at = now();
+    return { evaluatedAt: at, stored: false, items: checksForRow(db, cfg, r, at) };
+  }
+  const s = parseStoredChecks(r.pre_checks);
+  return s ? { evaluatedAt: s.evaluatedAt, stored: true, items: s.items } : null;
+}
+
+export function getRequest(db: DB, cfg: AppConfig, auth: AuthContext, id: string) {
   const r = getRow(db, auth.org.id, id);
   const dto = toRequestDto(db, r, auth);
   const timeline = db.prepare("SELECT action, actor_name actorName, summary, created_at createdAt FROM audit_log WHERE org_id = ? AND target_type = 'request' AND target_id = ? ORDER BY seq").all(auth.org.id, id);
   const balance = balanceFor(db, r.wallet_id, r.asset_code);
-  return { ...dto, timeline, available: formatUnits(balance.total - balance.reserved, r.precision) };
+  return { ...dto, timeline, available: formatUnits(balance.total - balance.reserved, r.precision), checks: checksView(db, cfg, r) };
 }
 
 export function listRequests(db: DB, auth: AuthContext, q: { status?: string; view?: string; q?: string; sort?: string; order?: string; page: number; pageSize: number }) {
@@ -228,10 +268,28 @@ function amountError(e: unknown): never {
   throw e;
 }
 
+/**
+ * 받는 주소가 사용 가능 상태가 아닐 때의 오류(422 ADDRESS_NOT_ACTIVE).
+ * 사용 대기(COOLING_DOWN)는 언제부터 쓸 수 있는지(KST)와, 요청하지 않은 등록이면 정지를 요청하라는 행동을 알린다.
+ */
+function addressNotActive(addr: { label: string; status: string; activeFrom: string | null }, withField: boolean): AppError {
+  const fields = withField ? [{ field: 'addressId', message: '사용 가능한 주소가 아닙니다.' }] : undefined;
+  if (addr.status === 'COOLING_DOWN') {
+    const message = addr.activeFrom
+      ? `'${addr.label}' 주소는 사용 대기 중입니다. ${kstDateTime(addr.activeFrom)} KST부터 출금 요청에 쓸 수 있습니다.`
+      : `'${addr.label}' 주소는 사용 대기 중이라 아직 출금 요청에 쓸 수 없습니다.`;
+    return new AppError(422, 'ADDRESS_NOT_ACTIVE', message,
+      '사용 가능해질 때까지 기다린 뒤 다시 요청하세요. 요청한 적 없는 등록이라면 승인자에게 사용 대기 중 정지를 요청하세요.',
+      withField ? [{ field: 'addressId', message: '사용 대기 중인 주소입니다.' }] : undefined,
+      { addressStatus: 'COOLING_DOWN', activeFrom: addr.activeFrom });
+  }
+  return new AppError(422, 'ADDRESS_NOT_ACTIVE', `'${addr.label}' 주소는 아직 사용할 수 없습니다(현재: ${addr.status === 'PENDING_REVIEW' ? '확인 대기' : '사용 불가'}).`, '두 번째 담당자의 주소 확인이 끝난 뒤 요청하세요.', fields);
+}
+
 /** 입력값 검증: 자산·네트워크·주소·수량. 저장 계층에 넣기 전 서버 기준으로 다시 확인한다. */
 function validateDraft(db: DB, auth: AuthContext, input: { assetCode: string; networkCode: string; addressId: string; amount: string }) {
   const asset = getAsset(db, input.assetCode);
-  getNetworkRule(db, input.networkCode);
+  const network = getNetworkRule(db, input.networkCode);
   assertAssetOnNetwork(db, input.assetCode, input.networkCode);
   let units: bigint;
   try { units = parsePositiveUnits(input.amount, asset.precision); } catch (e) { amountError(e); }
@@ -242,12 +300,10 @@ function validateDraft(db: DB, auth: AuthContext, input: { assetCode: string; ne
   if (addr.asset_code !== input.assetCode || addr.network_code !== input.networkCode) {
     throw new AppError(422, 'ADDRESS_NETWORK_MISMATCH', `선택한 주소는 ${addr.asset_code} / ${addr.network_name}용으로 등록되어 있어 이 요청(${input.assetCode} / ${input.networkCode})에 쓸 수 없습니다.`, '같은 자산·네트워크로 등록된 주소를 고르세요. 네트워크가 다르면 회수가 어려울 수 있습니다.', [{ field: 'addressId', message: '자산·네트워크가 다른 주소입니다.' }]);
   }
-  if (addr.status !== 'ACTIVE') {
-    throw new AppError(422, 'ADDRESS_NOT_ACTIVE', `'${addr.label}' 주소는 아직 사용할 수 없습니다(현재: ${addr.status === 'PENDING_REVIEW' ? '확인 대기' : '사용 불가'}).`, '두 번째 담당자의 주소 확인이 끝난 뒤 요청하세요.', [{ field: 'addressId', message: '사용 가능한 주소가 아닙니다.' }]);
-  }
+  if (addr.status !== 'ACTIVE') throw addressNotActive({ label: addr.label, status: addr.status, activeFrom: addr.active_from ?? null }, true);
   const wallet = db.prepare('SELECT id FROM wallets WHERE org_id = ? AND network_code = ?').get(auth.org.id, input.networkCode) as { id: string } | undefined;
   if (!wallet) throw new AppError(422, 'WALLET_NOT_FOUND', '이 네트워크의 조직 지갑이 없습니다.', '지갑 관리에서 지원 네트워크를 확인하세요.', [{ field: 'networkCode', message: '조직 지갑이 없는 네트워크입니다.' }]);
-  return { asset, units: units!, addr, walletId: wallet.id };
+  return { asset, units: units!, addr, walletId: wallet.id, family: network.family as string };
 }
 
 function assertAvailable(db: DB, walletId: string, assetCode: string, units: bigint, precision: number) {
@@ -285,7 +341,7 @@ function audit(db: DB, auth: AuthContext, r: any, action: string, summary: strin
   writeAudit(db, { orgId: auth.org.id, actorId: auth.user.id, actorName: auth.user.name, action, targetType: 'request', targetId: r.id, summary: `${r.ref_no} ${summary}`, detail });
 }
 
-export function createDraft(db: DB, auth: AuthContext, input: { assetCode: string; networkCode: string; addressId: string; amount: string; purpose: string }, idemKey: string | null) {
+export function createDraft(db: DB, cfg: AppConfig, auth: AuthContext, input: { assetCode: string; networkCode: string; addressId: string; amount: string; purpose: string }, idemKey: string | null) {
   if (!auth.perms.has('request.create')) throw Errors.forbidden('출금 요청 작성');
   const v = validateDraft(db, auth, input);
   const id = randomUUID();
@@ -297,10 +353,10 @@ export function createDraft(db: DB, auth: AuthContext, input: { assetCode: strin
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?)`,
   ).run(id, auth.org.id, refNo, v.walletId, input.assetCode, input.networkCode, v.units.toString(), input.addressId, input.purpose.trim(), auth.user.id, t, t, idemKey);
   writeAudit(db, { orgId: auth.org.id, actorId: auth.user.id, actorName: auth.user.name, action: 'request.created', targetType: 'request', targetId: id, summary: `${refNo} 출금 요청 작성: ${formatUnits(v.units, v.asset.precision)} ${input.assetCode} → ${v.addr.label}` });
-  return getRequest(db, auth, id);
+  return getRequest(db, cfg, auth, id);
 }
 
-export function updateDraft(db: DB, auth: AuthContext, id: string, input: { assetCode: string; networkCode: string; addressId: string; amount: string; purpose: string; version: number }) {
+export function updateDraft(db: DB, cfg: AppConfig, auth: AuthContext, id: string, input: { assetCode: string; networkCode: string; addressId: string; amount: string; purpose: string; version: number }) {
   return tx(db, () => {
     const r = lockRow(db, auth, id, 'edit', input.version);
     requireCreator(r, auth);
@@ -310,11 +366,26 @@ export function updateDraft(db: DB, auth: AuthContext, id: string, input: { asse
     const before = { assetCode: r.asset_code, networkCode: r.network_code, amount: formatUnits(r.amount_units, r.precision), addressId: r.address_id, addressLabel: r.address_label, addressTail: tailOf(r.address_value) };
     const after = { assetCode: input.assetCode, networkCode: input.networkCode, amount: formatUnits(v.units, v.asset.precision), addressId: input.addressId, addressLabel: v.addr.label, addressTail: tailOf(v.addr.address) };
     audit(db, auth, r, 'request.updated', '작성 내용 수정', { before, after });
-    return getRequest(db, auth, id);
+    return getRequest(db, cfg, auth, id);
   });
 }
 
-export function moveToReview(db: DB, auth: AuthContext, id: string, version: number) {
+/**
+ * 저장하기 전 작성 화면의 출금 전 점검 미리 보기. 아무것도 저장하지 않는다.
+ * requestId: 고치는 중인 초안이 있으면 그 요청을 과거 기록·건수에서 뺀다.
+ */
+export function previewChecks(db: DB, cfg: AppConfig, auth: AuthContext, input: { assetCode: string; networkCode: string; addressId: string; amount: string; requestId?: string }) {
+  if (!auth.perms.has('request.create')) throw Errors.forbidden('출금 전 점검');
+  const v = validateDraft(db, auth, input);
+  const evaluatedAt = now();
+  const items = computeChecks(db, cfg.policy, {
+    requestId: input.requestId ?? null, orgId: auth.org.id, walletId: v.walletId, assetCode: input.assetCode, networkCode: input.networkCode,
+    amountUnits: v.units, precision: v.asset.precision, address: normalizeIntentAddress(v.addr.address, v.family), nowIso: evaluatedAt,
+  });
+  return { evaluatedAt, items };
+}
+
+export function moveToReview(db: DB, cfg: AppConfig, auth: AuthContext, id: string, version: number) {
   return tx(db, () => {
     const r = lockRow(db, auth, id, 'review', version);
     requireCreator(r, auth);
@@ -322,21 +393,21 @@ export function moveToReview(db: DB, auth: AuthContext, id: string, version: num
     assertAvailable(db, r.wallet_id, r.asset_code, BigInt(r.amount_units), r.precision);
     bump(db, id, version, { status: 'REVIEW' });
     audit(db, auth, r, 'request.reviewing', '검토 단계로 이동');
-    return getRequest(db, auth, id);
+    return getRequest(db, cfg, auth, id);
   });
 }
 
-export function backToDraft(db: DB, auth: AuthContext, id: string, version: number) {
+export function backToDraft(db: DB, cfg: AppConfig, auth: AuthContext, id: string, version: number) {
   return tx(db, () => {
     const r = lockRow(db, auth, id, 'back_to_draft', version);
     requireCreator(r, auth);
     bump(db, id, version, { status: 'DRAFT' });
     audit(db, auth, r, 'request.back_to_draft', '수정을 위해 작성 단계로 되돌림');
-    return getRequest(db, auth, id);
+    return getRequest(db, cfg, auth, id);
   });
 }
 
-export function submitForApproval(db: DB, cfg: AppConfig, auth: AuthContext, id: string, input: { version: number; confirmTail: string }) {
+export function submitForApproval(db: DB, cfg: AppConfig, auth: AuthContext, id: string, input: { version: number; confirmTail: string; checkReasons?: Partial<Record<string, string>> }) {
   return tx(db, () => {
     const r = lockRow(db, auth, id, 'submit', input.version);
     requireCreator(r, auth);
@@ -347,6 +418,9 @@ export function submitForApproval(db: DB, cfg: AppConfig, auth: AuthContext, id:
     }
     const units = BigInt(r.amount_units);
     assertAvailable(db, r.wallet_id, r.asset_code, units, r.precision);
+    // 출금 전 점검(F8·F13·F14): 제출 시점에 다시 계산하고, 사유가 필요한 주의 항목마다 요청자 사유를 받는다(설계 가정 A-27·A-28).
+    const evaluatedAt = now();
+    const checks = attachCheckReasons(checksForRow(db, cfg, r, evaluatedAt), input.checkReasons);
     const quorum = decideRequiredApprovals(db, cfg, r.asset_code, units, r.precision);
     const eligible = eligibleApprovers(db, auth.org.id, r.created_by);
     if (eligible < quorum.required) {
@@ -355,10 +429,17 @@ export function submitForApproval(db: DB, cfg: AppConfig, auth: AuthContext, id:
         : `승인 가능한 사람이 ${eligible}명뿐이라 필요한 ${quorum.required}명을 채울 수 없습니다.`;
       throw new AppError(422, 'APPROVERS_INSUFFICIENT', message, '조직 관리자에게 승인자 추가를 요청하세요.', undefined, { eligibleApprovers: eligible, requiredApprovals: quorum.required, approvalBasis: quorum.basis });
     }
+    // 승인 대상 지문(F10): 무엇을 승인받는지(자산·네트워크·수량·받는 주소·메모·필요 승인 수)를 제출 때 고정한다(설계 가정 A-29).
+    const intentHash = intentHashOf(intentFieldsOf({ ...(r as IntentRow), required_approvals: quorum.required }));
+    const display = intentHashDisplay(intentHash);
     adjustReserved(db, r.wallet_id, r.asset_code, units);
     bump(db, id, input.version, { status: 'PENDING_APPROVAL', submitted_at: now(), required_approvals: quorum.required, krw_value_at_submit: quorum.krw?.toString() ?? null, approval_basis: quorum.basis, price_as_of_at_submit: quorum.priceAsOf });
+    // 지문과 점검 결과는 바꿀 수 없는 기록으로 한 번만 남긴다(migrations/006, 수정·삭제 트리거).
+    db.prepare('INSERT INTO request_intents (request_id, intent_version, intent_hash, pre_checks, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(id, INTENT_VERSION, intentHash, serializeChecks(evaluatedAt, checks), evaluatedAt);
     const note = quorum.basis === 'price_missing' ? ' · 시세를 확인할 수 없어 고액 기준 적용' : quorum.basis === 'price_stale' ? ' · 시세가 지연되어 고액 기준 적용' : '';
-    audit(db, auth, r, 'request.submitted', `승인 요청 (필요 승인 ${quorum.required}명${note})`, {
+    const cautions = checks.filter((c) => c.outcome !== 'pass');
+    audit(db, auth, r, 'request.submitted', `승인 요청 (필요 승인 ${quorum.required}명${note}) · 지문 ${display}`, {
       requiredApprovals: quorum.required,
       approvalBasis: quorum.basis,
       krwValue: quorum.krw?.toString() ?? null,
@@ -371,30 +452,113 @@ export function submitForApproval(db: DB, cfg: AppConfig, auth: AuthContext, id:
       addressLabel: r.address_label,
       addressTail: tailOf(r.address_value),
       memoSet: String(r.address_memo ?? '') !== '',
+      intentHash,
+      checks: checks.map((c) => ({ id: c.id, outcome: c.outcome, requiresReason: c.requiresReason })),
+      checkReasons: Object.fromEntries(cautions.filter((c) => c.reason).map((c) => [c.id, c.reason])),
     });
-    return getRequest(db, auth, id);
+    return getRequest(db, cfg, auth, id);
   });
 }
 
 /**
  * 필요 승인 수 결정 (설계 가정, A-03). 시세가 없거나 기준 시각이 priceStaleAfterMinutes보다 오래되었거나
  * 기준 시각을 믿을 수 없으면 평가액을 근거로 쓸 수 없으므로 고액 기준을 적용한다(fail closed).
- * 어떤 경우에도 기본 승인 수보다 적어지지 않는다.
+ * 어떤 경우에도 기본 승인 수보다 적어지지 않는다. 시세 판단은 출금 전 점검과 같은 함수(readPrice)를 쓴다.
  */
 export function decideRequiredApprovals(db: DB, cfg: AppConfig, assetCode: string, units: bigint, precision: number): { required: number; basis: ApprovalBasis; krw: bigint | null; priceAsOf: string | null } {
   const p = cfg.policy.approval;
   const high = Math.max(p.highValueRequiredApprovals, p.defaultRequiredApprovals);
-  const price = db.prepare('SELECT krw_price, as_of FROM prices WHERE asset_code = ?').get(assetCode) as { krw_price: string; as_of: string } | undefined;
-  if (!price) return { required: high, basis: 'price_missing', krw: null, priceAsOf: null };
-  const krw = krwValue(units, precision, price.krw_price);
-  const age = Date.now() - Date.parse(price.as_of);
-  const stale = !Number.isFinite(age) || age > cfg.policy.priceStaleAfterMinutes * 60_000 || age < -PRICE_FUTURE_SKEW_MS;
-  if (stale) return { required: high, basis: 'price_stale', krw, priceAsOf: price.as_of };
-  if (krw >= BigInt(p.highValueThresholdKrw)) return { required: high, basis: 'value_at_or_above_threshold', krw, priceAsOf: price.as_of };
-  return { required: p.defaultRequiredApprovals, basis: 'value_below_threshold', krw, priceAsOf: price.as_of };
+  const price = readPrice(db, assetCode, cfg.policy.priceStaleAfterMinutes);
+  if (price.kind === 'missing') return { required: high, basis: 'price_missing', krw: null, priceAsOf: null };
+  const krw = krwValue(units, precision, price.krwPrice);
+  if (price.kind === 'stale') return { required: high, basis: 'price_stale', krw, priceAsOf: price.asOf };
+  if (krw >= BigInt(p.highValueThresholdKrw)) return { required: high, basis: 'value_at_or_above_threshold', krw, priceAsOf: price.asOf };
+  return { required: p.defaultRequiredApprovals, basis: 'value_below_threshold', krw, priceAsOf: price.asOf };
 }
 
-export function approveRequest(db: DB, auth: AuthContext, custody: CustodyAdapter, id: string, version: number) {
+/** 승인·반려 본문의 지문 형식: 없으면(undefined) 거부, null은 지문이 없는 이전 요청을 반려할 때만 받는다. */
+export type ProvidedIntent = string | null | undefined;
+
+/**
+ * 승인·반려하려는 사람이 화면에서 본 지문이 제출 때 고정한 지문과 같은지 확인한다.
+ * - 본문에 지문이 없으면 422(필드 intentHash)
+ * - 지문이 없는 이전 요청: 승인은 409 INTENT_MISSING(대조할 수 없어 fail closed), 반려는 지문 null로만 허용
+ * - 다르면 409 INTENT_CHANGED
+ */
+function assertIntentMatches(r: any, provided: ProvidedIntent, kind: 'approve' | 'reject') {
+  if (provided === undefined || provided === '') {
+    throw new AppError(422, 'VALIDATION', '승인 대상 지문이 없습니다.', '화면을 새로 고쳐 승인 대상 지문을 확인한 뒤 다시 시도하세요.', [{ field: 'intentHash', message: '승인 대상 지문을 함께 보내야 합니다.' }]);
+  }
+  const stored = (r.intent_hash ?? null) as string | null;
+  if (!stored) {
+    if (kind === 'reject' && provided === null) return;
+    if (kind === 'approve') {
+      throw new AppError(409, 'INTENT_MISSING', '이 요청은 승인 대상 지문을 기록하기 전에 승인 요청되어 지금 내용과 대조할 수 없습니다.', '승인하지 말고 반려하세요. 요청자는 같은 내용으로 새 요청을 작성할 수 있습니다.');
+    }
+  }
+  if (provided === null || provided.trim().toLowerCase() !== stored) {
+    throw new AppError(409, 'INTENT_CHANGED', '결정하려던 내용과 지금 요청의 승인 대상 지문이 다릅니다.', '화면을 새로 고쳐 요청 내용과 승인 대상 지문을 다시 확인한 뒤 결정하세요.', undefined, { intentHashDisplay: intentHashDisplay(stored) });
+  }
+}
+
+export interface IntentTamperRecord {
+  orgId: string;
+  requestId: string;
+  refNo: string;
+  stage: 'approve' | 'handoff';
+  storedHash: string | null;
+  recomputedHash: string;
+  /** 정족수에 든 승인 표 중 요청의 지문과 다른 지문(또는 지문 없음)을 승인한 사람 */
+  mismatchedApproverIds: string[];
+  attemptedBy: { id: string; name: string };
+  current: Record<string, unknown>;
+}
+
+/**
+ * 저장된 요청 행으로 다시 계산한 지문이 제출 때 고정한 지문과 다르다(저장 계층에서 내용이 바뀜).
+ * 승인 트랜잭션은 되돌리고 커스터디로 넘기지 않는다. 호출 측(app.ts)이 되돌림 뒤 recordIntentTampered로 감사 기록을 남긴다.
+ * 응답에는 원인과 행동만 보낸다(record는 보내지 않는다).
+ */
+export class IntentTamperedError extends AppError {
+  constructor(readonly record: IntentTamperRecord) {
+    super(409, 'INTENT_TAMPERED', '요청 내용이 승인 요청 때 고정한 승인 대상 지문과 맞지 않아 처리하지 않았습니다.', '이 요청은 승인하지 말고 사유와 함께 반려하세요. 보안 담당자에게 알리세요.');
+  }
+}
+
+/** 지문 불일치 감사 기록. 승인 트랜잭션이 되돌려진 뒤 별도 트랜잭션에서 부른다(되돌림에 함께 지워지지 않게). */
+export function recordIntentTampered(db: DB, e: IntentTamperedError) {
+  const x = e.record;
+  writeAudit(db, {
+    orgId: x.orgId, actorId: null, actorName: INTENT_CHECK_ACTOR, action: 'request.intent_tampered', targetType: 'request', targetId: x.requestId,
+    summary: `${x.refNo} 승인 대상 지문 불일치로 ${x.stage === 'handoff' ? '커스터디 전달' : '승인'} 중단 (${x.attemptedBy.name} 승인 시도)`,
+    detail: {
+      stage: x.stage, storedHash: x.storedHash, recomputedHash: x.recomputedHash, mismatchedApproverIds: x.mismatchedApproverIds,
+      attemptedBy: x.attemptedBy, current: x.current, custodyCalled: false,
+    },
+  });
+}
+
+/**
+ * 지금 저장된 행으로 지문을 다시 계산해 제출 때 고정한 지문과 대조한다(커스터디 전달 직전 재확인).
+ * approverIds를 주면 그 사람들의 승인 표가 모두 같은 지문을 승인했는지도 본다.
+ */
+function assertIntentIntact(db: DB, auth: AuthContext, r: any, stage: 'approve' | 'handoff', approverIds: string[] = []) {
+  const recomputed = intentHashOf(intentFieldsOf(r as IntentRow));
+  const stored = (r.intent_hash ?? null) as string | null;
+  const votes = new Map((db.prepare('SELECT user_id, intent_hash FROM approval_intents WHERE request_id = ?').all(r.id) as { user_id: string; intent_hash: string | null }[]).map((v) => [v.user_id, v.intent_hash]));
+  const mismatched = approverIds.filter((uid) => !stored || votes.get(uid) !== stored);
+  if (stored && recomputed === stored && mismatched.length === 0) return;
+  throw new IntentTamperedError({
+    orgId: r.org_id, requestId: r.id, refNo: r.ref_no, stage, storedHash: stored, recomputedHash: recomputed, mismatchedApproverIds: mismatched,
+    attemptedBy: { id: auth.user.id, name: auth.user.name },
+    current: {
+      assetCode: r.asset_code, networkCode: r.network_code, amount: formatUnits(r.amount_units, r.precision), addressId: r.address_id,
+      addressLabel: r.address_label, addressTail: tailOf(r.address_value), memoSet: String(r.address_memo ?? '') !== '', requiredApprovals: r.required_approvals,
+    },
+  });
+}
+
+export function approveRequest(db: DB, cfg: AppConfig, auth: AuthContext, custody: CustodyAdapter, id: string, input: { version: number; intentHash?: string | null }) {
   return tx(db, () => {
     if (!auth.perms.has('request.approve')) throw Errors.forbidden('요청 승인');
     const r = getRow(db, auth.org.id, id);
@@ -404,40 +568,54 @@ export function approveRequest(db: DB, auth: AuthContext, custody: CustodyAdapte
     if (approvalsOf(db, id).some((a) => a.userId === auth.user.id)) {
       throw new AppError(409, 'ALREADY_DECIDED', '이미 이 요청에 결정을 남겼습니다.', '다른 승인자의 결정을 기다리세요.');
     }
-    lockRow(db, auth, id, 'approve', version);
+    lockRow(db, auth, id, 'approve', input.version);
+    // 화면에서 본 지문 = 제출 때 지문 = 지금 저장된 내용으로 다시 계산한 지문이어야 승인 표를 남긴다.
+    assertIntentMatches(r, input.intentHash, 'approve');
+    assertIntentIntact(db, auth, r, 'approve');
     if (r.address_status !== 'ACTIVE') {
+      if (r.address_status === 'COOLING_DOWN') throw addressNotActive({ label: r.address_label, status: r.address_status, activeFrom: r.address_active_from ?? null }, false);
       throw new AppError(422, 'ADDRESS_NOT_ACTIVE', '받는 주소가 더 이상 사용 가능 상태가 아닙니다.', '요청을 반려하고 주소 상태를 확인하세요.');
     }
-    db.prepare("INSERT INTO approvals (request_id, user_id, decision, created_at) VALUES (?, ?, 'approved', ?)").run(id, auth.user.id, now());
+    const decidedAt = now();
+    db.prepare("INSERT INTO approvals (request_id, user_id, decision, created_at) VALUES (?, ?, 'approved', ?)").run(id, auth.user.id, decidedAt);
+    db.prepare('INSERT INTO approval_intents (request_id, user_id, intent_hash, created_at) VALUES (?, ?, ?, ?)').run(id, auth.user.id, r.intent_hash, decidedAt);
     // 정족수는 지금 유효한 표만 센다. 승인 뒤 역할을 잃었거나 비활성화된 사람의 표는 빠진다.
     const validIds = validApproverIds(db, id);
     const valid = validIds.length;
     const notCounted = approvalsOf(db, id).filter((a) => a.decision === 'approved' && !validIds.includes(a.userId)).map((a) => a.userId as string);
-    audit(db, auth, r, 'request.approved', `승인 (유효 ${valid}/${r.required_approvals})`, { validApprovals: valid, required: r.required_approvals, notCountedApproverIds: notCounted });
+    const display = intentHashDisplay(r.intent_hash);
+    audit(db, auth, r, 'request.approved', `승인 (유효 ${valid}/${r.required_approvals}) · 지문 ${display}`, { validApprovals: valid, required: r.required_approvals, notCountedApproverIds: notCounted, intentHash: r.intent_hash });
     const snapshot = JSON.stringify(validIds);
     if (valid >= r.required_approvals) {
+      // 커스터디로 넘기기 직전: 지금 저장된 행을 다시 읽어 지문을 다시 계산하고, 정족수에 든 승인 표가 모두 같은 지문을 승인했는지 본다.
+      // 다르면 IntentTamperedError로 이 트랜잭션(승인 표 포함)을 되돌리고 커스터디를 부르지 않는다.
+      const fresh = getRow(db, auth.org.id, id);
+      assertIntentIntact(db, auth, fresh, 'handoff', validIds);
       // 커스터디 호출은 승인 트랜잭션 안, 상태 변경 바로 앞에 둔다. 뒤에서 실패해 되돌려지고 다시 시도되어도
       // 같은 멱등 키(요청 id)를 쓰므로 어댑터는 같은 접수 참조를 돌려준다.
       const idempotencyKey = id;
-      const { ref } = custody.submitWithdrawal({ requestId: id, idempotencyKey, assetCode: r.asset_code, networkCode: r.network_code, amountUnits: r.amount_units, address: r.address_value, memo: r.address_memo });
-      bump(db, id, version, { status: 'PROCESSING', processing_started_at: now(), custody_ref: ref, counted_approver_ids: snapshot });
+      const { ref } = custody.submitWithdrawal({
+        requestId: id, idempotencyKey, assetCode: fresh.asset_code, networkCode: fresh.network_code, amountUnits: fresh.amount_units,
+        address: fresh.address_value, memo: fresh.address_memo, intentHash: fresh.intent_hash,
+      });
+      bump(db, id, input.version, { status: 'PROCESSING', processing_started_at: now(), custody_ref: ref, counted_approver_ids: snapshot });
       writeAudit(db, {
         orgId: auth.org.id, actorId: null, actorName: custody.name, action: 'request.processing', targetType: 'request', targetId: id,
         summary: `${r.ref_no} 커스터디 처리 시작 (${ref})`,
         detail: {
-          idempotencyKey, custodyRef: ref, assetCode: r.asset_code, networkCode: r.network_code, amount: formatUnits(r.amount_units, r.precision),
-          addressId: r.address_id, addressLabel: r.address_label, addressTail: tailOf(r.address_value), memoSet: String(r.address_memo ?? '') !== '',
-          approverIds: validIds,
+          idempotencyKey, custodyRef: ref, assetCode: fresh.asset_code, networkCode: fresh.network_code, amount: formatUnits(fresh.amount_units, fresh.precision),
+          addressId: fresh.address_id, addressLabel: fresh.address_label, addressTail: tailOf(fresh.address_value), memoSet: String(fresh.address_memo ?? '') !== '',
+          approverIds: validIds, intentHash: fresh.intent_hash,
         },
       });
     } else {
-      bump(db, id, version, { counted_approver_ids: snapshot });
+      bump(db, id, input.version, { counted_approver_ids: snapshot });
     }
-    return getRequest(db, auth, id);
+    return getRequest(db, cfg, auth, id);
   });
 }
 
-export function rejectRequest(db: DB, auth: AuthContext, id: string, input: { version: number; reason: string }) {
+export function rejectRequest(db: DB, cfg: AppConfig, auth: AuthContext, id: string, input: { version: number; reason: string; intentHash?: string | null }) {
   return tx(db, () => {
     if (!auth.perms.has('request.approve')) throw Errors.forbidden('요청 반려');
     const r = getRow(db, auth.org.id, id);
@@ -448,15 +626,19 @@ export function rejectRequest(db: DB, auth: AuthContext, id: string, input: { ve
       throw new AppError(409, 'ALREADY_DECIDED', '이미 이 요청에 결정을 남겼습니다.', '다른 승인자의 결정을 기다리세요.');
     }
     lockRow(db, auth, id, 'reject', input.version);
-    db.prepare("INSERT INTO approvals (request_id, user_id, decision, reason, created_at) VALUES (?, ?, 'rejected', ?, ?)").run(id, auth.user.id, input.reason.trim(), now());
+    // 반려도 어떤 내용을 반려했는지 지문으로 묶는다. 지문이 맞지 않는 요청(내용이 바뀐 요청)을 반려하는 것은 막지 않는다(위험을 줄이는 행동).
+    assertIntentMatches(r, input.intentHash, 'reject');
+    const decidedAt = now();
+    db.prepare("INSERT INTO approvals (request_id, user_id, decision, reason, created_at) VALUES (?, ?, 'rejected', ?, ?)").run(id, auth.user.id, input.reason.trim(), decidedAt);
+    db.prepare('INSERT INTO approval_intents (request_id, user_id, intent_hash, created_at) VALUES (?, ?, ?, ?)').run(id, auth.user.id, r.intent_hash ?? null, decidedAt);
     adjustReserved(db, r.wallet_id, r.asset_code, -BigInt(r.amount_units));
     bump(db, id, input.version, { status: 'REJECTED', reject_reason: input.reason.trim(), completed_at: now(), counted_approver_ids: JSON.stringify(validApproverIds(db, id)) });
-    audit(db, auth, r, 'request.rejected', '반려', { reason: input.reason.trim() });
-    return getRequest(db, auth, id);
+    audit(db, auth, r, 'request.rejected', '반려', { reason: input.reason.trim(), intentHash: r.intent_hash ?? null });
+    return getRequest(db, cfg, auth, id);
   });
 }
 
-export function cancelRequest(db: DB, auth: AuthContext, id: string, version: number) {
+export function cancelRequest(db: DB, cfg: AppConfig, auth: AuthContext, id: string, version: number) {
   return tx(db, () => {
     const r = lockRow(db, auth, id, 'cancel', version);
     requireCreator(r, auth);
@@ -464,7 +646,7 @@ export function cancelRequest(db: DB, auth: AuthContext, id: string, version: nu
     if (wasPending) adjustReserved(db, r.wallet_id, r.asset_code, -BigInt(r.amount_units));
     bump(db, id, version, { status: 'CANCELLED', completed_at: now(), ...(wasPending ? { counted_approver_ids: JSON.stringify(validApproverIds(db, id)) } : {}) });
     audit(db, auth, r, 'request.cancelled', '요청자 취소');
-    return getRequest(db, auth, id);
+    return getRequest(db, cfg, auth, id);
   });
 }
 

@@ -12,6 +12,7 @@
 | S2 | 산학과제 Notion 허브 및 방문노트 | 페이지·기록 이름 (`dashboard.md`의 S2) |
 | S3 | KODA 고객 대시보드 이용가이드 (PDF 47쪽, 2025-10-23판) | **PDF 쪽 번호(p.N)만** 적는다. 기밀 고지가 있는 자료라 문구·화면 캡처·예시 데이터(이름·이메일·주소·금액)를 옮기지 않고 요지만 우리 말로 적는다. 원본과 분석 노트는 저장소 밖 로컬 자료로만 둔다. |
 | R1 | 독립 검수 (2026-10-19, 코드 대조) | 검수 항목 ID(예: COV-04, SEC-02). 원자료는 저장소 밖 로컬 자료 |
+| R2 | 출금·주소록 자산 보호 기능 도출 (2026-10-18, 사고 사례·수탁 관행·은행 관행 조사) | 기능 번호(F1~F18)와 표현 원칙(5장). 원자료는 저장소 밖 로컬 자료 |
 
 ## 방문 논의·검수에서 나온 문제
 
@@ -40,7 +41,7 @@
 | p.37–38 | 트래블룰 수취인 정보·거래소(VASP) 선택·확약서 제출이 필요하지만 제출 위치·상태가 화면에 없고, '거래소 등록 정보와 정확히 일치' 조건은 가이드에만 있다 | 모델링하지 않음(A-14, OPEN-002). 필요한 항목·상태·일치 규칙은 KODA 자료로 정한다 | 미해결 | 검증 안 됨 |
 | p.42, p.45 | 결재(회사 안 승인)와 요청(KODA 처리)이 다른 탭에 나뉘어 한 건이 어디까지 왔는지 한 화면에서 볼 수 없다 | 한 목록과 상세에서 작성→검토→승인 대기→처리 결과 4단계 레일로 보인다. 처리 결과 단계 안의 KODA 처리·블록체인 확정 구분은 없다(A-26) | 일부 | E2E `수직 흐름` |
 | p.43 | 삭제된 주소로 가는 출금이 승인 대기 목록에 경고 없이 남아 있다 | 서버가 승인을 거부(422 `ADDRESS_NOT_ACTIVE`). 승인 행동을 내보이지 않고 반려만 남기며(`blockedReason`), '내가 승인할 요청'과 건수에서 빼 `view=blocked`와 홈 할 일(위험 표시)로 따로 보인다. 예약 수량은 반려·취소 때까지 유지(A-17). 요청 상세의 반려 경로와 요청 목록의 '승인할 수 없는 요청' 보기 탭은 아직 없다(후속 화면 작업) | 일부 | API `rejects approval when the destination address was disabled after submission`, `request-integrity.test.ts` `stops offering approve, moves the request to view=blocked and the blocked tasks, and still refuses approval on the server` |
-| p.44 | 날짜 형식이 세 가지(슬래시, 오전/오후, 두 줄)로 섞여 있다 | 화면의 날짜·시각은 `YYYY-MM-DD HH:mm`(KST) 한 형식(`src/format.ts`). 감사 기록 CSV는 아직 UTC 원값을 내보낸다(후속) | 일부 | 검증 안 됨(코드 확인만) |
+| p.44 | 날짜 형식이 세 가지(슬래시, 오전/오후, 두 줄)로 섞여 있다 | 화면의 날짜·시각은 `YYYY-MM-DD HH:mm`(KST) 한 형식(`src/format.ts`). 2026-10-19(WP-11): 감사 기록 CSV도 `YYYY-MM-DD HH:mm:ss` 한국 시간(머리글 '시각(한국 시간)')으로 내보내고, 화면과 같은 행동 이름 열을 원래 코드 열 옆에 둔다 | 해결 | `request-checks.test.ts` `exports KST times with a 한국 시간 header, a Korean action label column next to the raw code, and neutralised formulas`·`formats KST timestamps to the second`. 화면 날짜 형식 자체는 검증 안 됨(코드 확인만) |
 | p.45 | '처리됨'이 KODA 서명인지 블록체인 확정인지 정의가 없고, 거래 해시·완료 시각이 없다 | '처리 완료' 설명에 "모의 커스터디가 완료를 알린 상태, 블록체인 확정을 완료 기준으로 삼을지는 KODA와 정할 항목"을 명시(A-26). 완료 증빙(거래 해시·확정 수) 표시는 없다 | 일부 | `glossary.test.ts` `defines 처리 완료 as the mock custody's report, with the completion basis left to KODA` |
 | p.42–44 | 상태에 'n차 승인됨' 자리표시자가 그대로 보여 몇 명이 승인했고 몇 명이 더 필요한지 알 수 없다 | '승인 x/y'(지금 유효한 승인 수 / 필요한 승인 수)로 홈 진행 중 요청과 요청 상세에 표시. 권한을 잃었거나 비활성화된 사람의 승인은 세지 않는다(A-03, A-15). 용어 설명 `GLOSSARY.approvalCount` | 해결 | API `requires two distinct approvers above the high-value threshold and handles concurrent approvals`, `request-integrity.test.ts` `drops the vote of an approver whose role was removed, then a third valid approver completes the quorum`. 화면 문구 자체는 자동 검사 없음 |
 
@@ -56,5 +57,22 @@
 | 감사 해시가 수행자 이름을 보호하지 않음, 최근 기록 삭제를 찾을 기준이 없음 (R1) | 해시 v2, 검증 결과에 조직 안 위치(`brokenAtNo`)와 `headHash` | A-24 | `audit-chain.test.ts` 27건 |
 | 보호된 공개 데모가 필요하지만 기존 안전 잠금이 호스팅 실행을 막음 (R1) | `DEMO_PUBLIC=1` 명시 때만 공개 데모, 인스턴스 메모리 데이터, 생성 한도 | A-22, A-23, DEC-001 | `deploy-mode.test.ts` 20건. 실제 배포 검증은 하지 않음 |
 | 전체 재실행 (97ecd92 + 용어·문서 보강) | — | — | `npm run typecheck` 통과, `npm test` 9개 파일 163건 통과, `npm run build` 성공, E2E 39건 통과(axe 15화면 위반 0건 포함, 2026-10-19) |
+
+## 자산 보호 기능 (R2, wave 3A·WP-11)
+
+표현 원칙(R2 5장): 어떤 화면도 주소나 전송이 '안전하다'·'검증됐다'고 쓰지 않고, 무엇을 어떤 기준으로 보았는지만 쓴다. 확인할 수 없는 상태는 기준 이내처럼 보이지 않게 한다. 효과(사고 감소 등)는 측정하지 않았다.
+
+| 기능 (R2) | 개선 | 가정 | 상태 | 검증 (자동 테스트) |
+| --- | --- | --- | --- | --- |
+| F7 신규 주소 대기시간과 취소 (WP-10) | 확인 뒤 기본 24시간 '사용 대기', 대기 중 출금 요청 거부, 등록·확인·관리 권한자 누구나 사유와 함께 바로 정지, 홈 경고. WP-11: 대기 중 주소로 요청하면 사용 가능 시각(KST)과 '기다리거나 승인자에게 정지 요청' 안내 | A-31 | 해결(대기 단축 보호 F17은 미구현) | `address-lifecycle.test.ts` `사용 대기(확인 뒤 대기 시간)` 7건·`사용 대기 중 정지` 3건·`홈의 사용 대기 알림`·`사용 대기 시드(ab-14)`, `request-checks.test.ts` `says the address is in its waiting period, when it becomes usable in KST, and to wait or ask an approver to stop it`, E2E `address-lifecycle.spec.ts` `사용 대기: 홈 알림 → 목록 필터 → 상세의 사용 가능 시각(KST)·…`·`사용 대기 중 정지: …` |
+| F15 다른 채널 확인 기록 (WP-10) | 받은 경로·다시 확인한 경로·확인 상대를 남기고 같은 경로 거부, 확인 담당자 화면과 감사 상세에 표시 | A-32 | 일부(소유 증명 서명·거래처 연락처 디렉터리 없음) | `address-lifecycle.test.ts` `다른 경로 확인 기록` 3건 |
+| F4 유사 주소 + 0원·소액 입금 오염 (WP-10) | 최근 90일 소액 입금을 보낸 주소와 같으면 등록·확인 거부, 앞·뒤만 같으면 경고, 활동 내역 위험 표시(복사 버튼 없음) | A-33, A-07 | 해결 | `address-lifecycle.test.ts` `0원·소액 입금 주소 오염 점검` 6건, E2E `주소 오염 의심: 0원 입금에 위험 배지·설명, …` |
+| 공개 데모 서명 세션 (WP-13) | 인스턴스가 바뀌어도 로그인 유지(HMAC 서명 무상태 쿠키), 로컬은 저장소 세션 유지 | A-23 | 해결(서버 폐기 불가는 한계로 기록) | `demo-session.test.ts` 11건 |
+| F8 쉬운 말 출금 검토 화면 (WP-11) | 검토 단계 확인 카드와 승인자 결정 카드에 출금 전 점검 목록(아이콘 + 결과 글자 + 기준), 결정 카드에 '블록체인 전송은 … 은행 착오송금처럼 되돌려 받는 절차도 없습니다' 안내. 작성 화면 미리 보기 | A-28 | 일부(수수료·거래 종류·받는 VASP 표시 없음) | `request-checks.test.ts` `returns the five checks in a fixed order, each with label, detail and basis`·`never shows an unknown result as within the criterion, and uses no safety or verification wording`, E2E `request-checks.spec.ts` `요청자: 작성 미리 보기와 검토 단계의 점검, …`·`390px` |
+| F10 승인 내용 지문 고정 (WP-11) | 제출 때 지문 고정(바꿀 수 없는 기록), 요청자·승인자 화면에 같은 '승인 대상 지문', 승인·반려 본문 대조(409 `INTENT_CHANGED`), 승인 표마다 지문 기록, 승인할 때·커스터디 전달 직전 재계산(409 `INTENT_TAMPERED` + 감사 기록, 커스터디 미호출), 커스터디 입력에 지문 전달 | A-29, A-30 | 일부(승인 유효기간·KODA 서명 응답 대조·전 승인자 즉시 알림 없음) | `request-checks.test.ts` `승인 대상 지문: 계산` 4건·`승인 대상 지문: 제출·승인·반려` 3건·`커스터디 전달 직전 재확인(지문 변조)` 4건, E2E `승인자 화면에 보인 지문이 서버의 지문과 다르면 승인되지 않고(409), 원인과 행동을 보인다` |
+| F13 금액·패턴 이상 경고 (WP-11) | 과거 출금 중앙값 5배 초과·사용 가능 수량 50% 이상은 주의 + 진행 사유 필수(422 `CHECK_REASON_REQUIRED`), 최근 60분 같은 자산 요청 3건 이상은 주의, 시세 없음·지연은 확인 불가. 사유는 승인자에게 보인다 | A-27, A-28 | 일부(승인자 추가 요구 없음, 기준은 설계 가정) | `request-checks.test.ts` `amount vs history: …`·`balance share: …`·`recent burst: …`·`price: missing or stale is unknown, never within the criterion`·`requires a reason of 5+ characters for each caution that needs one, …` |
+| F14 첫 거래 시험 전송 안내 (WP-11) | 처음 보내는 주소는 '처음 보내는 주소입니다' 주의, 소액 시험 전송을 먼저 하는 방법 안내(성공해도 이후 전송을 보증하지 않음), 진행 사유 필수 | A-27, A-28 | 일부(시험 전송 마법사·본 전송 잠금·시험/본 거래 연결 없음) | `request-checks.test.ts` `first use: caution with a small test transfer suggestion and a required reason; …`, E2E `request-checks.spec.ts` 첫 테스트 |
+| 감사 기록 CSV 한국 시간 (WP-11) | `시각(한국 시간)` 열, 화면과 같은 행동 이름 열 + 원래 코드 열, 수식 무력화 유지 | A-24 | 해결 | `request-checks.test.ts` `exports KST times with a 한국 시간 header, …` |
+| 전체 재실행 (WP-11, 2026-10-19) | — | — | — | `npm run typecheck` 통과, `npm test` 14개 파일 254건 통과, `npm run build`·`npm run check:vercel` 통과, E2E 76건 통과(axe 포함, `request-checks.spec.ts` 3건 포함). 1440·390px 화면 캡처로 작성 미리 보기·검토 카드·결정 카드·감사 기록을 눈으로 확인(가로 넘침 없음) |
 
 개인 제안(고객사별 맞춤 리서치)은 핵심 기능에 넣지 않고 꺼진 실험으로만 구현했다(`experiments.md`).

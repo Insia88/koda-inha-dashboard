@@ -1,0 +1,50 @@
+/* 출금 전 점검과 승인 대상 지문(WP-11). 토큰은 styles.css :root(DESIGN.md)와 같다.
+   결과는 색만으로 구분하지 않는다: 항목마다 아이콘 + 결과 글자(주의·확인 불가·기준 이내)를 함께 둔다.
+   '기준 이내'는 녹색을 쓰지 않는다(받는 곳·전송을 보증하는 표시가 아니다). '확인 불가'는 주의와 같은 색을 쓴다. */
+
+.rc-block { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.rc-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--s3); }
+.rc-head h2, .rc-head h3 { margin: 0; }
+.rc-head h3 { font-size: 15px; }
+.rc-summary { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.rc-intro { margin: 0; font-size: 14px; color: var(--ink-2); }
+
+.rc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.rc-item { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: var(--s2); padding: var(--s3); border: 1px solid var(--line); border-left-width: 4px; border-radius: var(--radius-sm); background: var(--surface); min-width: 0; }
+.rc-pass { border-left-color: var(--line-strong); }
+.rc-caution { border-left-color: var(--warning); background: #fffaf0; }
+.rc-unknown { border-left-color: var(--warning); background: #fffaf0; }
+.rc-icon { margin-top: 2px; flex: none; }
+.rc-pass .rc-icon { color: var(--neutral); }
+.rc-caution .rc-icon, .rc-unknown .rc-icon { color: var(--warning); }
+
+.rc-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.rc-line { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--s2); }
+.rc-outcome { flex: none; font-size: 12px; font-weight: 700; padding: 0 8px; border-radius: 999px; line-height: 20px; white-space: nowrap; }
+.rc-pass .rc-outcome { background: var(--neutral-soft); color: var(--neutral); }
+.rc-caution .rc-outcome, .rc-unknown .rc-outcome { background: var(--warning-soft); color: var(--warning); border: 1px solid #efd29b; }
+.rc-label { font-weight: 700; min-width: 0; }
+.rc-detail { margin: 0; font-size: 14px; color: var(--ink-2); }
+.rc-basis { margin: 0; font-size: 12px; color: var(--ink-3); }
+.rc-reason { margin: 2px 0 0; padding: var(--s2) var(--s3); border-left: 3px solid var(--line-strong); background: var(--paper); font-size: 14px; }
+.rc-reason b { display: block; font-size: 12px; color: var(--ink-2); }
+.rc-reason p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rc-body .field { margin-top: 4px; }
+
+/* 작성 화면의 미리 보기: 입력과 구분선으로 나누고, 기준 이내 항목은 한 줄로 줄인다 */
+.rc-compact { border-top: 1px solid var(--line); padding-top: var(--s4); margin-top: var(--s2); }
+.rc-compact .rc-item { padding: var(--s2) var(--s3); }
+.rc-compact .rc-line { font-size: 14px; }
+.rc-footnote { margin: 0; font-size: 12px; color: var(--ink-3); }
+
+/* 승인 대상 지문 */
+.rc-intent { display: flex; flex-direction: column; gap: 4px; padding: var(--s3) var(--s4); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: #fbfcfc; min-width: 0; }
+.rc-intent-label { font-size: 13px; font-weight: 700; color: var(--ink-2); }
+.rc-intent-value { font-family: var(--mono); font-size: 20px; font-weight: 700; letter-spacing: 0.04em; color: var(--ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.rc-intent-missing { font-weight: 700; color: var(--warning); }
+.rc-intent-note { margin: 0; font-size: 13px; color: var(--ink-2); }
+/* 정의 목록 안의 지문(결정 카드가 없는 화면) */
+.rc-intent-inline { font-family: var(--mono); font-weight: 700; letter-spacing: 0.03em; white-space: nowrap; }
+
+/* 결정 카드 안의 되돌릴 수 없음 안내 */
+.rc-irreversible { margin: 0; }
