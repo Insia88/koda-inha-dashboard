@@ -36,8 +36,17 @@ export function AuditPage() {
       />
       <div className="audit-integrity" role="status">
         {verify.data ? (verify.data.ok ? <Badge tone="success">무결성 확인됨</Badge> : <Badge tone="danger">무결성 오류</Badge>) : <Badge tone="neutral">무결성 확인 중</Badge>}
-        <span className="small muted">{verify.data ? (verify.data.ok ? `기록 ${verify.data.count}건의 해시 연결이 끊김 없이 이어집니다.` : `${verify.data.brokenAtSeq}번 기록에서 해시가 맞지 않습니다. 보안 담당자에게 알리세요.`) : ''}</span>
+        <span className="small muted">{verify.data ? (verify.data.ok ? `기록 ${verify.data.count}건의 해시 연결이 끊김 없이 이어집니다.` : `${verify.data.brokenAtNo ?? verify.data.brokenAtSeq}번 기록에서 해시가 맞지 않습니다. 보안 담당자에게 알리세요.`) : ''}</span>
       </div>
+      {/* 확인 범위: 체인 중간의 수정·삭제는 찾지만, 가장 최근 기록의 삭제는 앱 밖에 보관한 값과 대조해야 드러난다. */}
+      {verify.data?.ok && (
+        <div className="audit-scope small">
+          <p>이 확인은 기록 사이의 수정·삭제를 찾아냅니다. 가장 최근 기록을 지운 경우는 찾지 못하므로, 기록 건수와 마지막 기록 해시를 앱 밖에 따로 보관해 두었다가 다음 확인 때 대조해야 합니다.</p>
+          {verify.data.headHash && (
+            <p className="audit-anchor">보관용 값: 기록 {verify.data.count}건 · 마지막 기록 해시 <span className="mono">{verify.data.headHash}</span></p>
+          )}
+        </div>
+      )}
       <form className="toolbar" role="search" noValidate onSubmit={(e) => e.preventDefault()}>
         <SearchField label="내용 검색" placeholder="내용·요청 번호 검색" value={state.q} onCommit={(v) => set({ q: v })} />
         <SearchField label="수행자 이름" placeholder="수행자 이름" value={state.actor} onCommit={(v) => set({ actor: v })} maxLength={50} icon={false} className="search-narrow" clearLabel="수행자 이름 지우기" />
@@ -51,17 +60,18 @@ export function AuditPage() {
       ) : (
         <>
           <div className="table-wrap">
-            <table className="table">
+            {/* 번호는 이 조직 안의 기록 순서(orgSeq)다. 좁은 화면(≤560px)에서는 행마다 카드로 쌓인다. */}
+            <table className="table table-stack aud-table">
               <caption className="sr-only">감사 기록</caption>
-              <thead><tr><th scope="col" className="num">순번</th><th scope="col">일시 (KST)</th><th scope="col">수행자</th><th scope="col">행동</th><th scope="col">내용</th></tr></thead>
+              <thead><tr><th scope="col" className="num">번호</th><th scope="col">일시 (KST)</th><th scope="col">수행자</th><th scope="col">행동</th><th scope="col">내용</th></tr></thead>
               <tbody>
                 {q.data.items.map((e: any) => (
                   <tr key={e.id}>
-                    <td className="num muted">{e.seq}</td>
-                    <td className="nowrap">{dateTime(e.createdAt)}</td>
-                    <td>{e.actorName}</td>
-                    <td className="nowrap">{ACTION_LABEL[e.action] ?? e.action}</td>
-                    <td className="cell-wrap">{e.summary}{e.detail?.reason && <div className="muted small">사유: {e.detail.reason}</div>}</td>
+                    <td className="num muted aud-no" data-label="번호">{e.orgSeq ?? e.seq}</td>
+                    <td className="nowrap aud-when" data-label="일시 (KST)">{dateTime(e.createdAt)}</td>
+                    <td className="aud-actor" data-label="수행자">{e.actorName}</td>
+                    <td className="nowrap aud-action">{ACTION_LABEL[e.action] ?? e.action}</td>
+                    <td className="cell-wrap aud-summary">{e.summary}{e.detail?.reason && <div className="muted small">사유: {e.detail.reason}</div>}</td>
                   </tr>
                 ))}
               </tbody>

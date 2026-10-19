@@ -50,7 +50,11 @@ export function AddressDetailPage() {
   const hasLookalike = findings.some((f) => f.code === 'ADDRESS_LOOKALIKE');
   const n = me.policy.confirmTailLength;
   const midLabel = `원본 주소의 가운데 ${CONFIRM_MIDDLE_LENGTH}자리 (고유부 ${a.middle.start}~${a.middle.end}번째)`;
+  const bodyPrefix: string = String(a.address).match(/^MOCK-[A-Z]+-/)?.[0] ?? "'MOCK-계열-'";
   const openCount: number = a.openRequestCount ?? 0;
+  // 확인하는 사이 비슷한 주소가 새로 확인되면(409 LOOKALIKE_UPDATED) review의 onError가 주소를 다시 불러오고,
+  // 카드 위쪽 점검 결과·글자 비교가 새 내용으로 바뀐다. 새로 고치라고 안내하지 않는다(입력값 유지).
+  const lookalikeUpdated = err?.status === 409 && err.code === 'LOOKALIKE_UPDATED';
 
   return (
     <div className="page page-narrow">
@@ -84,11 +88,15 @@ export function AddressDetailPage() {
           <h2 id="review-h">주소 확인</h2>
           {findings.length > 0 && (
             <>
-              <p className="verify-label">등록할 때 서버가 점검한 결과</p>
+              <p className="verify-label">이 주소의 점검 결과</p>
               <Findings findings={findings} />
               <LookalikeComparisons address={a.address} findings={findings} candidateLabel="이 주소" />
             </>
           )}
+          <div className="verify-box">
+            <div className="verify-label">확인할 주소 — 가운데를 포함한 전체 글자를 받는 곳의 원본과 한 글자씩 대조하세요</div>
+            <AddressStrip address={a.address} memo={a.memo} memoLabel={a.networkCode === 'XRPL' ? '데스티네이션 태그' : '메모'} verify />
+          </div>
           <ol className="steps-text">
             <li>받는 곳에 별도로 연락해 자산·네트워크·주소를 확인합니다. 등록자가 전달한 자료만으로 확인하지 마세요.</li>
             <li>위 주소의 가운데를 포함한 전체 글자를 원본과 한 글자씩 대조합니다.</li>
@@ -98,14 +106,21 @@ export function AddressDetailPage() {
           <Field label={`원본 주소의 끝 ${n}자리`} htmlFor="tail" error={err?.fieldError('confirmTail')}>
             <input id="tail" className="mono" value={tail} onChange={(e) => setTail(e.target.value)} maxLength={20} autoComplete="off" spellCheck={false} onPaste={blockPaste} onDrop={blockPaste} />
           </Field>
-          <Field label={midLabel} htmlFor="middle" error={err?.fieldError('confirmMiddle')} hint="화면의 주소를 보지 말고 받는 곳에서 받은 원본 주소에서 이 위치의 글자를 보고 입력하세요.">
+          <Field label={midLabel} htmlFor="middle" error={err?.fieldError('confirmMiddle')}
+            hint={`고유부는 주소에서 ${bodyPrefix} 다음부터 센 글자입니다. 위 테두리는 위치만 알려 줍니다. 글자는 화면이 아니라 받는 곳에서 받은 원본 주소의 같은 위치를 보고 입력하세요.`}>
             <input id="middle" className="mono" value={middle} onChange={(e) => setMiddle(e.target.value)} maxLength={20} autoComplete="off" spellCheck={false} onPaste={blockPaste} onDrop={blockPaste} />
           </Field>
           <Field label={hasLookalike ? '확인 메모 (확인한 방법)' : '메모 (거절 시 필수)'} htmlFor="note" required={hasLookalike} error={err?.fieldError('note')}
             hint={hasLookalike ? '비슷한 기존 주소가 있어 확인할 때도 메모가 필요합니다. 받는 곳에 어떤 연락 수단으로 전체 주소를 확인했는지 5자 이상 적어 주세요. 거절하면 등록자에게 사유가 보입니다.' : '거절하면 등록자에게 사유가 보입니다.'}>
             <TextareaAuto id="note" rows={2} maxRows={6} value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
           </Field>
-          <ApiErrorNotice error={review.error} />
+          {lookalikeUpdated ? (
+            <Notice tone="warning" role="alert" title={err.body.message}>
+              {q.isFetching
+                ? '갱신된 점검 결과를 불러오는 중입니다.'
+                : '갱신된 점검 결과와 글자 비교를 위에 다시 표시했습니다. 비교 내용을 확인한 뒤 다시 대조하고, 어떻게 확인했는지 메모를 남겨 주세요. 입력한 내용은 그대로 남아 있습니다.'}
+            </Notice>
+          ) : <ApiErrorNotice error={review.error} />}
           <div className="form-actions">
             <button className="btn btn-danger-outline" onClick={() => review.mutate('reject')} disabled={review.isPending}>등록 거절</button>
             <button className="btn btn-primary" onClick={() => review.mutate('approve')} disabled={review.isPending || !tail || !middle}>대조 완료 · 사용 가능으로 확인</button>

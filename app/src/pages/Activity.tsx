@@ -36,19 +36,20 @@ export function ActivityPage() {
       ) : (
         <>
           <div className="table-wrap">
-            <table className="table">
+            {/* 좁은 화면(≤560px)에서는 행마다 레이블이 붙은 카드로 쌓인다(table-stack, data-label). */}
+            <table className="table table-stack act-table">
               <caption className="sr-only">자산 활동 내역</caption>
               <thead><tr><th scope="col">일시 (KST)</th><th scope="col">종류</th><th scope="col">상대방</th><th scope="col" className="num">수량</th><th scope="col">네트워크 · 지갑</th><th scope="col">상태</th><th scope="col">참조</th></tr></thead>
               <tbody>
                 {q.data.items.map((t: any) => (
                   <tr key={t.id}>
-                    <td className="nowrap">{dateTime(t.occurredAt)}</td>
-                    <td><span className={`dir dir-${t.type}`}>{TX_TYPE[t.type]}</span></td>
-                    <td className="cell-wrap">{t.counterparty}</td>
-                    <td className="num nowrap">{t.type === 'withdrawal' ? '−' : '+'}{amount(t.amount, t.assetCode)}</td>
-                    <td className="small">{t.networkName}<div className="muted">{t.walletName}</div></td>
-                    <td><Badge tone={TX_STATUS[t.status]!.tone}>{TX_STATUS[t.status]!.label}</Badge></td>
-                    <td className="small mono">{t.requestId ? <Link to={`/requests/${t.requestId}`} state={{ back: `/activity?${qs}` }}>{t.requestRef}</Link> : t.txRef}</td>
+                    <td className="nowrap act-when" data-label="일시 (KST)">{dateTime(t.occurredAt)}</td>
+                    <td className="act-type"><span className={`dir dir-${t.type}`}>{TX_TYPE[t.type]}</span></td>
+                    <td className="cell-wrap act-cp" data-label="상대방">{t.counterparty}</td>
+                    <td className="num nowrap act-amt">{t.type === 'withdrawal' ? '−' : '+'}{amount(t.amount, t.assetCode)}</td>
+                    <td className="small act-net" data-label="네트워크 · 지갑">{t.networkName}<div className="muted">{t.walletName}</div></td>
+                    <td className="act-status" data-label="상태"><Badge tone={TX_STATUS[t.status]!.tone}>{TX_STATUS[t.status]!.label}</Badge></td>
+                    <td className="small mono act-ref" data-label="참조">{t.requestId ? <Link to={`/requests/${t.requestId}`} state={{ back: `/activity?${qs}` }}>{t.requestRef}</Link> : t.txRef}</td>
                   </tr>
                 ))}
               </tbody>

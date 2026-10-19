@@ -133,7 +133,7 @@ export function AddressNewPage() {
           {formatOk && (
             <div className="verify-box">
               <div className="verify-label">입력한 주소 — 가운데를 포함한 전체 글자를 받는 곳의 원본과 한 글자씩 대조하세요</div>
-              <AddressStrip address={f.address.trim()} memo={f.memo} memoLabel={network?.memoLabel} />
+              <AddressStrip address={f.address.trim()} memo={f.memo} memoLabel={network?.memoLabel} verify />
             </div>
           )}
           <Field label={`주소 끝 ${n}자리를 원본을 보고 다시 입력`} htmlFor="confirmTail" required error={fe('confirmTail')} hint="붙여 넣은 값이 아니라 받는 곳이 보낸 원본 문서를 보고 입력하세요.">

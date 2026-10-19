@@ -1,6 +1,6 @@
 # 제3자 구성요소 고지
 
-이 앱은 아래 오픈소스 패키지를 정확한 버전으로 고정해 사용한다(`package.json`, `package-lock.json`). 각 패키지의 저작권·라이선스 원문은 `node_modules/<패키지>/LICENSE`에 포함되어 배포된다. 빌드 결과물(`dist/`)에는 런타임 의존성 중 React, React DOM, React Router, TanStack Query, Zod, Tabler Icons(사용한 아이콘만)가 번들된다.
+이 앱은 아래 오픈소스 패키지를 정확한 버전으로 고정해 사용한다(`package.json`, `package-lock.json`). 각 패키지의 저작권·라이선스 원문은 `node_modules/<패키지>/LICENSE`에 포함되어 배포된다. 빌드 결과물(`dist/`)에는 런타임 의존성 중 React, React DOM, React Router, TanStack Query, Zod, Tabler Icons(사용한 아이콘만)가 번들되고, Pretendard 글꼴 파일(가변 글꼴 동적 서브셋 woff2)과 그 라이선스 원문이 함께 들어간다.
 
 | 패키지 | 버전 | 라이선스 | 도입 이유 |
 | --- | --- | --- | --- |
@@ -23,9 +23,9 @@
 | fast-check | 4.10.2 | MIT | 수량 파싱 속성 기반 테스트(개발 도구, 배포물에 포함하지 않음) |
 | @fast-check/vitest | 0.5.0 | MIT | fast-check를 Vitest 테스트로 실행(개발 도구, 배포물에 포함하지 않음) |
 | esbuild | 0.28.2 | MIT | 서버 코드 번들(`build:api`, 빌드 도구). tsx가 잠근 버전과 같은 버전으로 고정 |
-| pretendard | 1.3.9 | OFL-1.1 | 화면 서체(Pretendard). 화면에서 불러온 글꼴 파일은 빌드 결과물(`dist/`)에 번들되어 외부 CDN을 쓰지 않는다 |
+| pretendard | 1.3.9 | OFL-1.1 | 화면 서체(Pretendard Variable). `src/main.tsx`가 `pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css`를 불러오고, 빌드 때 그 CSS가 가리키는 woff2 파일(92개)이 `dist/assets/`에 번들된다. 화면은 같은 출처에서만 글꼴을 내려받고 외부 CDN을 쓰지 않는다 |
 
-Pretendard는 SIL Open Font License 1.1로 배포된다(Copyright (c) 2021, Kil Hyung-jin, Reserved Font Name Pretendard). 라이선스 원문은 `node_modules/pretendard/dist/LICENSE.txt`에 있다. 글꼴 파일만 따로 판매하지 않고, 글꼴을 수정해 배포할 때는 예약된 글꼴 이름 "Pretendard"를 쓰지 않는다. 글꼴 파일을 `dist/`에 함께 배포할 때는 이 저작권 고지와 라이선스를 함께 둔다(OFL 1.1 제2조).
+Pretendard는 SIL Open Font License 1.1로 배포된다(Copyright (c) 2021, Kil Hyung-jin, Reserved Font Name Pretendard). 라이선스 원문은 `node_modules/pretendard/dist/LICENSE.txt`에 있고, 같은 파일을 `public/fonts/PRETENDARD-LICENSE.txt`로 복사해 두어 빌드 결과물에는 `dist/fonts/PRETENDARD-LICENSE.txt`로 글꼴 파일과 함께 들어간다(OFL 1.1 제2조). 번들된 CSS는 압축 과정에서 원본 CSS 머리말의 저작권 주석이 빠지므로, 이 별도 파일이 고지 역할을 한다. 패키지 버전을 바꾸면 이 파일도 새 버전의 원문으로 다시 복사한다. 글꼴 파일만 따로 판매하지 않고, 글꼴을 수정해 배포할 때는 예약된 글꼴 이름 "Pretendard"를 쓰지 않는다.
 
 fast-check(Copyright (c) 2017 Nicolas DUBIEN), @fast-check/vitest(Copyright (c) 2020 Nicolas DUBIEN), esbuild(Copyright (c) 2020 Evan Wallace)는 테스트·빌드에만 쓰며 배포물에 포함하지 않는다.
 

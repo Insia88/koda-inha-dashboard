@@ -5,6 +5,7 @@ import { useMe } from '../auth.tsx';
 import { ApiErrorNotice, ErrorState, Loading, Notice, PageHeader } from '../components/ui.tsx';
 import { krwShort } from '../format.ts';
 import { ROLE_LABEL, type Role } from '../../shared/terms.ts';
+import { CONFIRM_MIDDLE_LENGTH } from '../../shared/address-rules.ts';
 
 const ROLES: Role[] = ['requester', 'approver', 'auditor', 'admin'];
 
@@ -30,16 +31,17 @@ export function OrgPage() {
         <p className="muted small">한 사람이 요청자와 승인자 역할을 함께 가질 수 있지만, 자기 요청과 자기가 등록한 주소는 승인할 수 없습니다.</p>
       </section>
       <div className="table-wrap">
-        <table className="table">
+        {/* 좁은 화면(≤560px)에서는 구성원마다 레이블이 붙은 카드로 쌓인다. */}
+        <table className="table table-stack">
           <caption className="sr-only">구성원 목록</caption>
           <thead><tr><th scope="col">이름</th><th scope="col">직함</th><th scope="col">이메일 (모의)</th><th scope="col">역할</th>{canManage && <th scope="col"><span className="sr-only">작업</span></th>}</tr></thead>
           <tbody>
             {members.data.map((m: any) => (
               <tr key={m.id}>
                 <th scope="row">{m.name}{m.id === me.user.id && <span className="muted small"> (나)</span>}</th>
-                <td>{m.title}</td>
-                <td className="small">{m.email}</td>
-                <td>
+                <td data-label="직함">{m.title}</td>
+                <td className="small" data-label="이메일 (모의)">{m.email}</td>
+                <td className="stack-full" data-label="역할">
                   {editing?.id === m.id ? (
                     <fieldset className="role-edit">
                       <legend className="sr-only">{m.name} 역할</legend>
@@ -50,7 +52,7 @@ export function OrgPage() {
                   ) : m.roles.map((r: Role) => ROLE_LABEL[r].label).join(', ') || <span className="muted">역할 없음</span>}
                 </td>
                 {canManage && (
-                  <td className="nowrap">
+                  <td className="nowrap stack-full">
                     {editing?.id === m.id ? (
                       <><button className="btn btn-primary btn-sm" onClick={() => save.mutate()} disabled={save.isPending}>저장</button> <button className="btn btn-sm" onClick={() => { setEditing(null); save.reset(); }}>취소</button></>
                     ) : <button className="btn btn-sm" onClick={() => { save.reset(); setEditing({ id: m.id, roles: m.roles, rolesVersion: m.rolesVersion }); }}>역할 변경</button>}
@@ -69,7 +71,7 @@ export function OrgPage() {
           <Notice tone="info">아래 값은 개발용 설계 가정입니다. 실제 KODA 승인 정책·한도는 확인되지 않았습니다.</Notice>
           <ul>
             <li>출금 요청: 기본 {policy.data.approval.defaultRequiredApprovals}명 승인, 원화 평가액 {krwShort(policy.data.approval.highValueThresholdKrw)} 이상은 서로 다른 {policy.data.approval.highValueRequiredApprovals}명 승인</li>
-            <li>주소 등록: {policy.data.addressBook.requireSecondPersonReview ? '등록자가 아닌 승인자의 확인 필요' : '확인 없이 사용'} · 주소 끝 {policy.data.addressBook.confirmTailLength}자리 재입력</li>
+            <li>주소 등록: {policy.data.addressBook.requireSecondPersonReview ? '등록자가 아닌 승인자의 확인 필요' : '확인 없이 사용'} · 등록할 때와 확인할 때 원본을 보고 주소 끝 {policy.data.addressBook.confirmTailLength}자리와 가운데 {CONFIRM_MIDDLE_LENGTH}자리를 다시 입력</li>
           </ul>
         </section>
       )}

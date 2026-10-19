@@ -13,7 +13,11 @@ export interface Me {
   roleLabels: string[];
   permissions: string[];
   csrfToken: string;
-  environment: { name: string; authMode: string; custody: string; custodyIsMock: boolean; dataIsMock: boolean };
+  /** mode·instanceId·seededAt는 실행 형태(api.ts DeploymentInfo)와 같은 값이다. 공개 데모에서만 화면에 쓰인다. */
+  environment: {
+    name: string; authMode: string; custody: string; custodyIsMock: boolean; dataIsMock: boolean;
+    mode?: 'local' | 'public-demo'; instanceId?: string; seededAt?: string | null;
+  };
   policy: { confirmTailLength: number; approval: { defaultRequiredApprovals: number; highValueThresholdKrw: string; highValueRequiredApprovals: number } };
   insight: { experiments: { holdingRelatedFilter: boolean } };
 }

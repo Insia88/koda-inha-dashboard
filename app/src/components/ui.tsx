@@ -4,7 +4,7 @@ import { IconAlertTriangle, IconInfoCircle, IconLock, IconRefresh, IconCircleChe
 import { ApiError } from '../api.ts';
 import { DateInput } from './DateInput.tsx';
 import type { Tone } from '../../shared/terms.ts';
-import { chunkAddress } from '../../shared/address-rules.ts';
+import { chunkAddress, middleSegment } from '../../shared/address-rules.ts';
 import { dateTime, relative } from '../format.ts';
 
 export const APP_TITLE = 'KODA 법인 대시보드 (개발 환경)';
@@ -83,18 +83,43 @@ export function Empty({ title, children, action }: { title: string; children?: R
   );
 }
 
-/** 주소 대조 띠: 4자 묶음, 앞·뒤 묶음 강조. 육안 대조를 돕지만 안전성을 보증하지 않는다. */
-export function AddressStrip({ address, memo, memoLabel, compact }: { address: string; memo?: string | null; memoLabel?: string | null; compact?: boolean }) {
-  const chunks = chunkAddress(address);
+/** 한 묶음(4자)을 가운데 확인 구간 안·밖으로 나눈다. from·to는 고유부 기준 0부터 센 위치(to 제외). */
+function splitChunk(chunk: string, offset: number, from: number, to: number): { text: string; inside: boolean }[] {
+  const parts: { text: string; inside: boolean }[] = [];
+  [...chunk].forEach((ch, i) => {
+    const inside = offset + i >= from && offset + i < to;
+    const last = parts[parts.length - 1];
+    if (last && last.inside === inside) last.text += ch; else parts.push({ text: ch, inside });
+  });
+  return parts;
+}
+
+/**
+ * 주소 대조 띠: 4자 묶음.
+ * - 기본(상세·확인 화면): 모든 묶음을 같은 굵기·대비로 보여 준다. 앞·뒤만 읽는 습관을 만들지 않기 위해서다.
+ * - compact(목록): 첫·끝 묶음만(…로 연결).
+ * - verify: 원본을 보고 다시 입력할 가운데 구간(middleSegment)을 테두리로 표시한다.
+ * 육안 대조를 돕는 표시일 뿐 안전성을 보증하지 않는다.
+ */
+export function AddressStrip({ address, memo, memoLabel, compact, verify }: { address: string; memo?: string | null; memoLabel?: string | null; compact?: boolean; verify?: boolean }) {
+  const chunks = chunkAddress(address.trim());
   const [prefix, ...body] = chunks[0]?.startsWith('MOCK') ? chunks : ['', ...chunks];
   const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const mid = verify && !compact ? middleSegment(address) : null;
   return (
-    <span className={`addr ${compact ? 'addr-compact' : ''}`}>
+    <span className={`addr ${compact ? 'addr-compact' : ''} ${mid ? 'addr-verifying' : ''}`}>
       <span className="addr-code" aria-label={`주소 ${address}`}>
         {prefix && <span className="addr-prefix">{prefix}</span>}
-        {body.map((c, i) => (
-          <span key={i} className={i < 1 || i >= body.length - 1 ? 'addr-key' : 'addr-mid'}>{c}</span>
-        ))}
+        {body.map((c, i) => {
+          if (compact) return <span key={i} className={i < 1 || i >= body.length - 1 ? 'addr-key' : 'addr-mid'}>{c}</span>;
+          if (!mid) return <span key={i} className="addr-chunk">{c}</span>;
+          const parts = splitChunk(c, i * 4, mid.start - 1, mid.end);
+          return (
+            <span key={i} className="addr-chunk">
+              {parts.map((p, j) => (p.inside ? <span key={j} className="addr-verify">{p.text}</span> : <span key={j}>{p.text}</span>))}
+            </span>
+          );
+        })}
       </span>
       {!compact && (
         <button type="button" className="btn btn-ghost btn-xs" onClick={async () => {
@@ -105,6 +130,12 @@ export function AddressStrip({ address, memo, memoLabel, compact }: { address: s
         </button>
       )}
       {memo ? <span className="addr-memo">{memoLabel ?? '메모'} <b>{memo}</b></span> : null}
+      {mid && mid.text && (
+        <span className="addr-verify-note">
+          <span className="addr-verify-key" aria-hidden="true" />
+          테두리 친 글자는 원본에서 확인해 다시 입력할 가운데 {mid.text.length}자리(고유부 {mid.start}~{mid.end}번째)입니다.
+        </span>
+      )}
       {copy === 'failed' && <span className="addr-copy-failed">복사하지 못했습니다. 브라우저의 클립보드 권한을 확인하거나 주소를 직접 선택해 복사하세요.</span>}
       <span className="sr-only" aria-live="polite">{copy === 'copied' ? '주소를 복사했습니다' : copy === 'failed' ? '주소를 복사하지 못했습니다' : ''}</span>
     </span>
@@ -115,10 +146,10 @@ export function DataStamp({ asOf, state, source, label = '기준' }: { asOf: str
   const tone: Tone = state === 'stale' ? 'warning' : state === 'unavailable' ? 'danger' : 'neutral';
   const stateLabel = state === 'stale' ? '시세 지연' : state === 'unavailable' ? '시세 없음' : state === 'mock' ? '모의 데이터' : null;
   return (
+    // 항목 사이 구분점(·)은 CSS(.stamp > span + span::before)가 넣는다. 줄이 바뀐 첫 항목 앞에는 보이지 않는다.
     <span className="stamp">
-      <span>{label} {dateTime(asOf)} KST</span>
-      {asOf && <span className="muted">({relative(asOf)})</span>}
-      {source && <span className="muted">· {source}</span>}
+      <span>{label} {dateTime(asOf)} KST{asOf && <span className="muted"> ({relative(asOf)})</span>}</span>
+      {source && <span className="muted">{source}</span>}
       {stateLabel && <Badge tone={tone}>{stateLabel}</Badge>}
     </span>
   );

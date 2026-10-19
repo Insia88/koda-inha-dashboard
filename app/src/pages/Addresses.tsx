@@ -9,6 +9,9 @@ import { SearchField } from '../components/SearchField.tsx';
 import { date } from '../format.ts';
 import { ADDRESS_STATUS, type AddressStatus } from '../../shared/terms.ts';
 
+/** 목록 조회가 한 번에 돌려주는 최대 건수(서버와 같은 값). 넘으면 잘린 사실을 알린다. */
+const ADDRESS_LIST_LIMIT = 500;
+
 export function AddressesPage() {
   const me = useMe();
   const cat = useCatalog();
@@ -60,12 +63,18 @@ export function AddressesPage() {
       {q.isPending ? <Loading /> : q.error ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : (
         <>
           <p className="result-count" aria-live="polite">{filtered ? `조건에 맞는 주소 ${q.data.items.length}개 (전체 ${q.data.totalInOrg}개)` : `전체 ${q.data.totalInOrg}개`}</p>
+          {q.data.items.length >= ADDRESS_LIST_LIMIT && q.data.totalInOrg > ADDRESS_LIST_LIMIT && (
+            <Notice tone="warning" title={`주소를 ${ADDRESS_LIST_LIMIT}개까지만 표시합니다`}>
+              선택한 정렬 순서로 처음 {ADDRESS_LIST_LIMIT}개만 보입니다. 나머지 주소는 검색이나 필터로 좁혀 찾으세요.
+            </Notice>
+          )}
           {q.data.items.length === 0 ? (
             filtered ? <Empty title="조건에 맞는 주소가 없습니다" action={<button className="btn" onClick={() => set({ q: '', status: '', assetCode: '', networkCode: '' })}>필터 초기화</button>}>검색어나 필터를 바꿔 보세요.</Empty>
               : <Empty title="등록된 주소가 없습니다" action={me.permissions.includes('address.create') ? <Link className="btn btn-primary" to="/addresses/new">첫 주소 등록</Link> : undefined}>출금하려면 받는 곳 주소를 먼저 등록하고 다른 담당자의 확인을 받아야 합니다.</Empty>
           ) : (
             <div className="table-wrap">
-              <table className="table">
+              {/* 좁은 화면(≤560px)에서는 주소마다 카드로 쌓이고, 상태 배지는 이름 옆 첫 줄에 둔다. */}
+              <table className="table table-stack adr-table">
                 <caption className="sr-only">주소록 목록</caption>
                 <thead><tr><th scope="col">이름 · 받는 곳</th><th scope="col">자산 / 네트워크</th><th scope="col">주소</th><th scope="col">상태</th><th scope="col">등록</th></tr></thead>
                 <tbody>
@@ -73,14 +82,14 @@ export function AddressesPage() {
                     const st = ADDRESS_STATUS[a.status as AddressStatus];
                     return (
                       <tr key={a.id}>
-                        <th scope="row" className="cell-wrap">
+                        <th scope="row" className="cell-wrap adr-name">
                           <Link to={`/addresses/${a.id}`} state={{ back: `/addresses?${qs}` }} className="row-link">{a.label}</Link>
                           <div className="muted small">{a.counterparty}</div>
                         </th>
-                        <td><span className="asset-code">{a.assetCode}</span> / {a.networkName}</td>
-                        <td><AddressStrip address={a.address} memo={a.memo} compact /></td>
-                        <td><Badge tone={st.tone} title={st.description}>{st.label}</Badge>{a.allowedActions.includes('review') && <div className="small action-hint">내 확인 필요</div>}</td>
-                        <td className="nowrap small">{date(a.createdAt)}<div className="muted">{a.createdBy.name}</div></td>
+                        <td className="adr-asset" data-label="자산 / 네트워크"><span className="asset-code">{a.assetCode}</span> / {a.networkName}</td>
+                        <td className="adr-addr" data-label="주소"><AddressStrip address={a.address} memo={a.memo} compact /></td>
+                        <td className="adr-status"><Badge tone={st.tone} title={st.description}>{st.label}</Badge>{a.allowedActions.includes('review') && <div className="small action-hint">내 확인 필요</div>}</td>
+                        <td className="nowrap small adr-created" data-label="등록">{date(a.createdAt)}<div className="muted">{a.createdBy.name}</div></td>
                       </tr>
                     );
                   })}

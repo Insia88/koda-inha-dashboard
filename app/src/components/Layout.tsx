@@ -5,8 +5,8 @@ import {
   IconHome, IconWallet, IconListDetails, IconChecklist, IconStack2, IconBuildingBank, IconAddressBook, IconCoins,
   IconUsers, IconShieldCheck, IconNews, IconLogout, IconMenu2, IconX, IconFlask,
 } from '@tabler/icons-react';
-import { acknowledgeDemoReset, api, DEMO_INSTANCE_CHANGED, isDemoResetPending, type DeploymentInfo } from '../api.ts';
-import { useMe } from '../auth.tsx';
+import { acknowledgeDemoReset, api, DEMO_INSTANCE_CHANGED, isDemoResetPending } from '../api.ts';
+import { useMe, type Me } from '../auth.tsx';
 import { dateTime } from '../format.ts';
 import { Notice } from './ui.tsx';
 
@@ -47,9 +47,11 @@ export function useDemoReset(): [boolean, () => void] {
   return [pending, acknowledge];
 }
 
-function EnvRibbon({ env }: { env: { custody: string } & DeploymentInfo }) {
+function EnvRibbon({ env }: { env: Me['environment'] }) {
   const narrow = useNarrow();
   if (env.mode !== 'public-demo') {
+    // 좁은 화면에서는 네 가지 고지(개발 환경·개발용 로그인·모의 데이터·모의 커스터디)를 남기고 뒤 문장만 줄인다.
+    if (narrow) return <span><b>개발 환경</b> · 개발용 로그인 · 모의 데이터 · {env.custody}</span>;
     return <span><b>개발 환경</b> · 개발용 로그인 · 모의 데이터 · {env.custody} — 실제 자산 전송이나 운영 인증이 일어나지 않습니다.</span>;
   }
   const t = seededTime(env.seededAt);
@@ -65,11 +67,13 @@ export function Layout() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [demoReset, acknowledgeReset] = useDemoReset();
-  const env = me.environment as typeof me.environment & DeploymentInfo;
+  const env = me.environment;
   const firstRender = useRef(true);
   const can = (p: string) => me.permissions.includes(p);
   const dash = useQuery({ queryKey: ['dashboard'], queryFn: () => api('/api/dashboard'), enabled: can('dashboard.read'), refetchInterval: 15_000 });
   const taskCount = (k: string) => dash.data?.tasks.find((t: any) => t.kind === k)?.count ?? 0;
+  // 메뉴 배지는 내가 바로 처리할 수 있는 일만 센다: 승인할 요청(승인자)과 제출 전 내 요청(요청자).
+  // 받는 주소가 사용 중지되어 승인할 수 없는 요청은 홈의 별도 위험 항목으로 보여 주고 배지에는 더하지 않는다.
 
   useEffect(() => {
     setOpen(false);
@@ -127,11 +131,14 @@ export function Layout() {
           {open ? <IconX size={20} aria-hidden="true" /> : <IconMenu2 size={20} aria-hidden="true" />}
         </button>
         <img src="/koda-logo.svg" alt="KODA" className="logo" width={117} height={26} />
-        <span className="org-name" title={me.org.name}>{me.org.name}{me.org.isMock && <span className="mock-tag">모의</span>}</span>
+        <span className="org-name">
+          <span className="org-name-text" title={me.org.name}>{me.org.name}</span>
+          {me.org.isMock && <span className="mock-tag">모의</span>}
+        </span>
         <div className="topbar-user">
           <span className="user-name">{me.user.name}</span>
           <span className="user-roles">{me.roleLabels.join(' · ')}</span>
-          <button className="btn btn-ghost" onClick={logout}><IconLogout size={16} aria-hidden="true" />로그아웃</button>
+          <button className="btn btn-ghost btn-logout" onClick={logout}><IconLogout size={16} aria-hidden="true" /><span className="btn-logout-text">로그아웃</span></button>
         </div>
       </header>
       <nav id="sidenav" className="sidenav" aria-label="주 메뉴">
@@ -147,7 +154,7 @@ export function Layout() {
                     <NavLink to={i.to} end={i.end ?? i.to === '/insights'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                       <i.icon size={18} aria-hidden="true" />
                       <span>{i.label}</span>
-                      {i.badge ? <span className="nav-badge" aria-label={`처리할 일 ${i.badge}건`}>{i.badge}</span> : null}
+                      {i.badge ? <span className="nav-badge"><span aria-hidden="true">{i.badge}</span><span className="sr-only">처리할 일 {i.badge}건</span></span> : null}
                     </NavLink>
                   </li>
                 ))}
