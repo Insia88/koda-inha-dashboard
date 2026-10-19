@@ -9,7 +9,9 @@ const { app } = rt;
 const priceTimer = cfg.mockPriceFeed ? setInterval(() => rt.refreshPrices(), 60_000) : null;
 rt.refreshPrices();
 
-const worker = setInterval(() => rt.settle(), 1000);
+// 1초마다: 모의 커스터디 정산, 사용 대기 시간이 끝난 주소를 사용 가능으로 전환(주소 목록·상세 조회도 읽기 전에 전환한다).
+const worker = setInterval(() => { rt.settle(); rt.activateAddresses(); }, 1000);
+rt.activateAddresses();
 
 const shutdown = async () => {
   clearInterval(worker);

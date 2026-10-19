@@ -33,6 +33,8 @@ const ago = (days: number, hours = 0) => new Date(Date.now() - days * 86400_000 
 const MOCK_KRW_PRICE: Record<string, string> = { BTC: '100000000', ETH: '4000000', USDC: '1400', KAIA: '200', XRP: '3000' };
 /** config/policy.json approval.highValueThresholdKrw와 같은 값(설계 가정). tests/seed.test.ts가 둘이 같은지 확인한다. */
 const SEED_HIGH_VALUE_THRESHOLD_KRW = 100_000_000n;
+/** config/policy.json addressBook.cooldownHours 기본값과 같은 값(설계 가정). tests/address-lifecycle.test.ts가 둘이 같은지 확인한다. */
+export const SEED_COOLDOWN_HOURS = 24;
 
 /** 출금 거래의 상대방: 자산·네트워크마다 같은 자산·네트워크로 등록된 주소록 이름만 쓴다. */
 const WITHDRAWAL_COUNTERPARTY: Record<string, string> = {
@@ -137,13 +139,20 @@ export function seed(db: DB) {
       ['ab-12', 'org-a', '모의 거래소 J 입금 (Kaia)', '모의 거래소 J', 'KAIA', 'KAIA', '', 'ACTIVE', 'u-a-han', 'u-a-oh', 30, null],
       ['ab-b1', 'org-b', '모의 거래소 K 입금 (USDC)', '모의 거래소 K', 'USDC', 'ETHEREUM', '', 'ACTIVE', 'u-b-bae', 'u-b-lim', 20, null],
     ];
+    // 다른 경로 확인 기록(받은 경로 → 다시 확인한 경로, 확인한 상대·연락처). 이 기록 방식 도입 뒤 등록된 확인 대기 주소에만 둔다.
+    // 그 전에 등록된 주소는 기록이 없다(NULL, 화면에는 '기록 없음'). 가상의 연락처이며 실제 사람·번호가 아니다.
+    const outOfBand: Record<string, { receivedVia: string; verifiedVia: string; verifiedWith: string }> = {
+      'ab-08': { receivedVia: 'document', verifiedVia: 'registered_phone', verifiedWith: '모의 거래처 G 재무팀 대표번호(거래처 등록 연락처)' },
+      'ab-09': { receivedVia: 'messenger', verifiedVia: 'video_call', verifiedWith: '모의 그룹사 C 자금팀장과 영상 통화' },
+    };
     for (const [id, org, label, cp, asset, net, memo, status, by, rev, days, note] of book) {
       const fam = net === 'BITCOIN' ? 'BTC' : net === 'XRPL' ? 'XRP' : 'EVM';
       const at = ago(days);
       const revAt = rev ? ago(days - 0.5 > 0 ? days - 0.5 : 0, 0) : null;
-      ins('INSERT INTO address_book (id, org_id, label, counterparty, asset_code, network_code, address, memo, status, created_by, created_at, reviewed_by, reviewed_at, review_note, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        id, org, label, cp, asset, net, mockAddress(fam, `book:${id}`), memo, status, by, at, rev, revAt, note, rev ? 2 : 1);
-      events.push({ at, orgId: org, actorId: by, actorName: name(by), action: 'address.created', targetType: 'address', targetId: id, summary: `주소 등록 요청: ${label} (${asset}/${net})` });
+      const oob = outOfBand[id] ?? null;
+      ins('INSERT INTO address_book (id, org_id, label, counterparty, asset_code, network_code, address, memo, status, created_by, created_at, reviewed_by, reviewed_at, review_note, version, received_via, verified_via, verified_with) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        id, org, label, cp, asset, net, mockAddress(fam, `book:${id}`), memo, status, by, at, rev, revAt, note, rev ? 2 : 1, oob?.receivedVia ?? null, oob?.verifiedVia ?? null, oob?.verifiedWith ?? null);
+      events.push({ at, orgId: org, actorId: by, actorName: name(by), action: 'address.created', targetType: 'address', targetId: id, summary: `주소 등록 요청: ${label} (${asset}/${net})`, ...(oob ? { detail: { outOfBand: oob } } : {}) });
       if (rev && revAt) {
         const approved = status !== 'REJECTED';
         events.push({ at: revAt, orgId: org, actorId: rev, actorName: name(rev), action: approved ? 'address.approved' : 'address.rejected', targetType: 'address', targetId: id, summary: `${approved ? '주소 확인 완료' : '주소 등록 거절'}: ${label}`, detail: note ? { reason: note } : {} });
@@ -161,9 +170,11 @@ export function seed(db: DB) {
       const { findings, normalized } = checkAddress(db, 'org-a', { assetCode: 'USDC', networkCode: 'KAIA', address, memo: '' });
       const matches = lookalikeMatchesOf(findings);
       const reason = '정산 파트너 B 담당자가 이메일로 입금 주소 변경을 안내해 등록합니다. 메신저로 주소 앞·뒤 글자를 확인했습니다.';
+      // 다시 확인한 연락처가 주소를 보낸 이메일에 적힌 것이라, 확인 담당자가 기록을 보고 다시 확인해야 하는 예시다.
+      const oob = { receivedVia: 'email', verifiedVia: 'other', verifiedWith: '변경 안내 이메일에 적힌 담당자 메신저 계정' };
       const at = ago(0, 7);
-      ins('INSERT INTO address_book (id, org_id, label, counterparty, asset_code, network_code, address, memo, status, created_by, created_at, check_findings, lookalike_reason, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        id, 'org-a', label, '모의 정산 파트너 B', 'USDC', 'KAIA', normalized, '', 'PENDING_REVIEW', 'u-a-kang', at, JSON.stringify(findings), matches.length ? reason : null, 1);
+      ins('INSERT INTO address_book (id, org_id, label, counterparty, asset_code, network_code, address, memo, status, created_by, created_at, check_findings, lookalike_reason, version, received_via, verified_via, verified_with) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        id, 'org-a', label, '모의 정산 파트너 B', 'USDC', 'KAIA', normalized, '', 'PENDING_REVIEW', 'u-a-kang', at, JSON.stringify(findings), matches.length ? reason : null, 1, oob.receivedVia, oob.verifiedVia, oob.verifiedWith);
       events.push({
         at, orgId: 'org-a', actorId: 'u-a-kang', actorName: name('u-a-kang'), action: 'address.created', targetType: 'address', targetId: id,
         summary: `주소 등록 요청: ${label} (USDC/KAIA)`,
@@ -173,7 +184,37 @@ export function seed(db: DB) {
           ruleVersion: LOOKALIKE_RULE_VERSION,
           lookalike: matches.map((m) => ({ id: m.id, label: m.label, status: m.status, prefix: m.prefix, suffix: m.suffix })),
           lookalikeReason: matches.length ? reason : null,
+          outOfBand: oob,
         },
+      });
+    }
+
+    // 사용 대기 예시: 26시간 전 등록, 2시간 전 두 번째 담당자 확인 → 기본 대기 24시간이 지나는 22시간 뒤부터 사용 가능.
+    // 대기 시간은 config/policy.json addressBook.cooldownHours의 기본값(24, 설계 가정)과 같게 둔다. 실행 설정이 달라도 이 행은 바꾸지 않는다.
+    {
+      const id = 'ab-14';
+      const label = '신규 거래처 L 정산 주소';
+      const address = mockAddress('EVM', `book:${id}`);
+      const { findings, normalized } = checkAddress(db, 'org-a', { assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '' });
+      const oob = { receivedVia: 'email', verifiedVia: 'registered_phone', verifiedWith: '모의 거래처 L 재무팀 대표번호(거래처 등록 연락처)' };
+      const at = ago(1, 2);
+      const revAt = ago(0, 2);
+      const activeFrom = new Date(Date.parse(revAt) + SEED_COOLDOWN_HOURS * 3600_000).toISOString();
+      ins('INSERT INTO address_book (id, org_id, label, counterparty, asset_code, network_code, address, memo, status, created_by, created_at, reviewed_by, reviewed_at, review_note, version, check_findings, lookalike_reason, active_from, received_via, verified_via, verified_with) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        id, 'org-a', label, '모의 거래처 L', 'USDC', 'ETHEREUM', normalized, '', 'COOLING_DOWN', 'u-a-han', at, 'u-a-seo', revAt, null, 2, JSON.stringify(findings), null, activeFrom, oob.receivedVia, oob.verifiedVia, oob.verifiedWith);
+      events.push({
+        at, orgId: 'org-a', actorId: 'u-a-han', actorName: name('u-a-han'), action: 'address.created', targetType: 'address', targetId: id,
+        summary: `주소 등록 요청: ${label} (USDC/ETHEREUM)`,
+        detail: {
+          assetCode: 'USDC', networkCode: 'ETHEREUM', addressTail: normalized.slice(-6), memoSet: false,
+          warnings: findings.filter((f) => f.level === 'warning').map((f) => f.code),
+          ruleVersion: LOOKALIKE_RULE_VERSION, lookalike: [], lookalikeReason: null, outOfBand: oob,
+        },
+      });
+      events.push({
+        at: revAt, orgId: 'org-a', actorId: 'u-a-seo', actorName: name('u-a-seo'), action: 'address.approved', targetType: 'address', targetId: id,
+        summary: `주소 확인 완료: ${label} (사용 대기 ${SEED_COOLDOWN_HOURS}시간)`,
+        detail: { ruleVersion: LOOKALIKE_RULE_VERSION, findings: findings.map((f) => f.code), lookalike: [], cooldown: { hours: SEED_COOLDOWN_HOURS, activeFrom } },
       });
     }
 
@@ -222,7 +263,8 @@ export function seed(db: DB) {
       }
     }
 
-    // 거래 내역: 모의법인 A 137건(완료된 요청 1건 포함), B 5건 — 탐색 검증용 가정이며 실제 사용량이 아니다.
+    // 거래 내역: 모의법인 A 138건(완료된 요청 1건, 주소 오염 예시 0원 입금 1건 포함), B 5건 — 탐색 검증용 가정이며 실제 사용량이 아니다.
+    const TX_COLUMNS = 'id, org_id, wallet_id, type, asset_code, network_code, amount_units, counterparty, status, occurred_at, request_id, tx_ref';
     const r = rng(20261016);
     const pick = <T,>(arr: readonly T[]) => arr[Math.floor(r() * arr.length)]!;
     const flows = [
@@ -235,7 +277,7 @@ export function seed(db: DB) {
     ] as const;
     const outLabels = ['모의 거래소 A 입금 (USDC)', '정산 파트너 B (Kaia USDC)', '운영비 정산 (ETH)', '그룹사 BTC 보관 이전용', '카이아 생태계 파트너', '모의 거래소 A 입금 (XRP)'];
     const inLabels = ['모의 거래소 A', '모의 그룹사 C', '외부 입금 (모의)', '모의 정산 파트너 B'];
-    ins("INSERT INTO transactions VALUES ('tx-wr-1', 'org-a', 'w-a-eth', 'withdrawal', 'USDC', 'ETHEREUM', ?, '모의 거래소 A 입금 (USDC)', 'completed', ?, 'wr-1', 'MOCK-CUSTODY-SEED0001')", u('50000', 'USDC'), ago(20, -3));
+    ins(`INSERT INTO transactions (${TX_COLUMNS}) VALUES ('tx-wr-1', 'org-a', 'w-a-eth', 'withdrawal', 'USDC', 'ETHEREUM', ?, '모의 거래소 A 입금 (USDC)', 'completed', ?, 'wr-1', 'MOCK-CUSTODY-SEED0001')`, u('50000', 'USDC'), ago(20, -3));
     for (let i = 0; i < 136; i++) {
       const f = pick(flows);
       const roll = r();
@@ -251,11 +293,18 @@ export function seed(db: DB) {
       // 출금 상대방은 같은 자산·네트워크로 등록된 주소록 이름으로 정한다. 예전 순서를 지키려고 pick은 그대로 부르고 결과는 쓰지 않는다.
       if (type === 'withdrawal') pick(outLabels);
       const cp = type === 'deposit' ? pick(inLabels) : type === 'withdrawal' ? WITHDRAWAL_COUNTERPARTY[`${flow.asset}/${flow.net}`]! : '모의 검증인 보상';
-      ins('INSERT INTO transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)', `tx-a-${String(i + 1).padStart(3, '0')}`, 'org-a', flow.w, type, flow.asset, flow.net, u(amount, flow.asset), cp, status, occurred, `MOCK-TX-A${String(i + 1).padStart(4, '0')}`);
+      ins(`INSERT INTO transactions (${TX_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`, `tx-a-${String(i + 1).padStart(3, '0')}`, 'org-a', flow.w, type, flow.asset, flow.net, u(amount, flow.asset), cp, status, occurred, `MOCK-TX-A${String(i + 1).padStart(4, '0')}`);
     }
     for (let i = 0; i < 5; i++) {
-      ins("INSERT INTO transactions VALUES (?, 'org-b', 'w-b-eth', 'deposit', ?, 'ETHEREUM', ?, '외부 입금 (모의)', 'completed', ?, NULL, ?)", `tx-b-${i + 1}`, i % 2 ? 'ETH' : 'USDC', i % 2 ? u('2', 'ETH') : u('10000', 'USDC'), ago(10 + i * 7), `MOCK-TX-B${i + 1}`);
+      ins(`INSERT INTO transactions (${TX_COLUMNS}) VALUES (?, 'org-b', 'w-b-eth', 'deposit', ?, 'ETHEREUM', ?, '외부 입금 (모의)', 'completed', ?, NULL, ?)`, `tx-b-${i + 1}`, i % 2 ? 'ETH' : 'USDC', i % 2 ? u('2', 'ETH') : u('10000', 'USDC'), ago(10 + i * 7), `MOCK-TX-B${i + 1}`);
     }
+
+    // 주소 오염 예시(0원 입금): 3일 전, 주소록 ab-07(해외 법인 결제 대행사, USDC/Ethereum, 사용 가능)과 고유부 앞 4자·뒤 6자가 같고
+    // 가운데가 모두 다른 모의 주소가 0 USDC를 보냈다. 거래 내역에서 이 주소를 복사해 등록하면 ADDRESS_POISON_SUSPECTED로 막힌다.
+    // ab-01·ab-02를 본뜨지 않는다(그 주소들의 유사 주소를 만드는 다른 검사와 겹치지 않게). 난수를 쓰지 않아 위 모의 값은 바뀌지 않는다.
+    // id는 'tx-a-' 접두를 쓰지 않는다(tests/seed.test.ts가 그 접두의 무작위 행 136건을 그대로인지 확인한다).
+    ins(`INSERT INTO transactions (${TX_COLUMNS}, counterparty_address) VALUES ('tx-dust-a1', 'org-a', 'w-a-eth', 'deposit', 'USDC', 'ETHEREUM', '0', '알 수 없는 보낸 주소 (모의)', 'completed', ?, NULL, 'MOCK-TX-DUST01', ?)`,
+      ago(3), lookalikeOf(mockAddress('EVM', 'book:ab-07'), 'dust:ab-07', 4, 6));
 
     // 스테이킹 (모의법인 A만)
     ins("INSERT INTO staking_positions VALUES ('st-1', 'org-a', 'ETH', 'ETHEREUM', '모의 검증인 A', ?, ?, 'active', ?)", u('64', 'ETH'), u('0.182', 'ETH'), ago(140));

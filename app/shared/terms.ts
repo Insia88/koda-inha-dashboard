@@ -18,13 +18,38 @@ export const REQUEST_STATUS: Record<RequestStatus, { label: string; tone: Tone; 
 
 export const REQUEST_STEPS = ['작성', '검토', '승인 대기', '처리 결과'] as const;
 
-export type AddressStatus = 'PENDING_REVIEW' | 'ACTIVE' | 'REJECTED' | 'DISABLED';
+export type AddressStatus = 'PENDING_REVIEW' | 'COOLING_DOWN' | 'ACTIVE' | 'REJECTED' | 'DISABLED';
 export const ADDRESS_STATUS: Record<AddressStatus, { label: string; tone: Tone; description: string }> = {
   PENDING_REVIEW: { label: '확인 대기', tone: 'warning', description: '등록자가 아닌 다른 담당자의 확인을 기다립니다. 확인 전에는 출금 요청에 쓸 수 없습니다.' },
+  COOLING_DOWN: { label: '사용 대기', tone: 'info', description: '두 사람의 확인을 마쳤고, 정해진 대기 시간이 지나면 출금 요청에 쓸 수 있습니다. 요청하지 않은 등록이면 대기 중에 바로 정지하세요.' },
   ACTIVE: { label: '사용 가능', tone: 'success', description: '두 사람이 입력 내용을 확인했습니다. 주소의 소유자나 안전성을 보증하는 표시는 아닙니다.' },
   REJECTED: { label: '등록 거절', tone: 'danger', description: '확인 담당자가 등록을 거절했습니다. 사유를 확인하고 다시 등록하세요.' },
   DISABLED: { label: '사용 중지', tone: 'neutral', description: '더 이상 출금 요청에 쓸 수 없는 주소입니다. 이 주소로 가는 승인 대기 요청은 승인할 수 없고, 반려하거나 취소해야 예약 수량이 풀립니다.' },
 };
+
+/**
+ * 주소를 받은 경로 / 다시 확인한 경로(다른 경로 확인 기록). 두 값이 같으면 다른 경로로 확인한 것으로 보지 않는다.
+ * 선택지는 설계 가정이며 KODA가 정한 확인 절차가 아니다.
+ */
+export type ReceivedVia = 'email' | 'messenger' | 'document' | 'phone' | 'in_person' | 'other';
+export type VerifiedVia = 'registered_phone' | 'in_person' | 'video_call' | 'signed_document' | 'other';
+export const RECEIVED_VIA: Record<ReceivedVia, string> = {
+  email: '이메일',
+  messenger: '메신저',
+  document: '문서(공문·인보이스)',
+  phone: '전화',
+  in_person: '직접 만나서',
+  other: '기타',
+};
+export const VERIFIED_VIA: Record<VerifiedVia, string> = {
+  registered_phone: '미리 등록된 연락처로 전화',
+  in_person: '직접 만나서',
+  video_call: '영상 통화',
+  signed_document: '서명·날인된 문서',
+  other: '기타',
+};
+export const RECEIVED_VIA_VALUES = Object.keys(RECEIVED_VIA) as [ReceivedVia, ...ReceivedVia[]];
+export const VERIFIED_VIA_VALUES = Object.keys(VERIFIED_VIA) as [VerifiedVia, ...VerifiedVia[]];
 
 export type Role = 'admin' | 'requester' | 'approver' | 'auditor' | 'operator';
 export const ROLE_LABEL: Record<Role, { label: string; description: string }> = {

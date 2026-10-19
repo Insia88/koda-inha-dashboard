@@ -222,6 +222,9 @@ test('주소 등록 오류: 끝자리 불일치 시 해당 입력으로 포커�
   await page.getByRole('textbox', { name: /^받는 곳/ }).fill('모의 포커스 거래처');
   await page.getByLabel(/주소 끝 6자리/).fill('123456');
   await page.getByLabel(/가운데 8자리/).fill('55556666');
+  await page.getByRole('combobox', { name: /^받은 경로/ }).selectOption('email');
+  await page.getByRole('combobox', { name: /^다시 확인한 경로/ }).selectOption('registered_phone');
+  await page.getByRole('textbox', { name: /^확인한 상대·연락처/ }).fill('모의 거래처 재무팀 대표번호');
   await page.getByLabel(/별도 연락 수단/).check();
   await page.getByLabel(/보증하지 않는다는/).check();
   await page.getByRole('button', { name: '확인 요청 보내기' }).click();

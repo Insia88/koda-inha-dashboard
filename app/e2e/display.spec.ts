@@ -129,7 +129,7 @@ test('주소 확인 중 비슷한 주소가 새로 확인되면 점검 결과를
   const laterLabel = `E2E 나중 유사 ${stamp}`;
   const create = (address: string, label: string, extra: Record<string, unknown> = {}) => apiPost(page, '/api/addresses', {
     assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '', label, counterparty: '모의 표시 점검 거래처',
-    confirmTail: address.slice(-6), confirmMiddle: middleSegment(address).text, lookalikeReason: '', ackNotVerified: true, ackOutOfBandConfirmed: true, ...extra,
+    confirmTail: address.slice(-6), confirmMiddle: middleSegment(address).text, lookalikeReason: '', ackNotVerified: true, ackOutOfBandConfirmed: true, receivedVia: 'email', verifiedVia: 'registered_phone', verifiedWith: '모의 상대방 재무팀 대표번호', ...extra,
   });
 
   await loginAs(page, '한지수');

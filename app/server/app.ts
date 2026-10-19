@@ -14,12 +14,12 @@ import { writeAudit, verifyChain } from './audit.ts';
 import { toCsv } from './csv.ts';
 import type { CustodyAdapter } from './adapters/custody.ts';
 import { getCatalog } from './domain/catalog.ts';
-import { checkAddress, createAddress, disableAddress, getAddressRow, listAddresses, reviewAddress, toAddressDto } from './domain/addresses.ts';
+import { assertCanStopCooling, checkAddress, createAddress, disableAddress, getAddressRow, listAddresses, reviewAddress, stopCoolingAddress, toAddressDto } from './domain/addresses.ts';
 import { approveRequest, backToDraft, cancelRequest, createDraft, getRequest, listRequests, moveToReview, rejectRequest, submitForApproval, updateDraft } from './domain/requests.ts';
 import { readIdemKey, withIdempotency } from './domain/idempotency.ts';
 import * as rm from './domain/readmodels.ts';
 import {
-  addressCheckSchema, addressCreateSchema, addressReviewSchema, insightCreateSchema, insightStatusSchema, pageQuery,
+  addressCheckSchema, addressCreateSchema, addressReviewSchema, addressStopSchema, insightCreateSchema, insightStatusSchema, pageQuery,
   requestDraftSchema, requestRejectSchema, requestSubmitSchema, requestUpdateSchema, roleUpdateSchema, versionSchema,
 } from '../shared/schemas.ts';
 import { ROLE_LABEL } from '../shared/terms.ts';
@@ -230,6 +230,13 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
     const a = requirePerm(req, 'address.disable', '주소 사용 중지');
     const { id } = parse(idParam, req.params);
     return disableAddress(db, a, id, parse(versionSchema, req.body).version);
+  });
+  // 사용 대기 중 정지: 주소 등록·확인·사용 중지 권한 중 하나만 있으면 된다(위험을 줄이는 행동). 사유 5자 이상.
+  app.post('/api/addresses/:id/stop', async (req) => {
+    const a = requireAuth(req);
+    assertCanStopCooling(a);
+    const { id } = parse(idParam, req.params);
+    return stopCoolingAddress(db, a, id, parse(addressStopSchema, req.body));
   });
 
   // ---------- 출금 요청 ----------

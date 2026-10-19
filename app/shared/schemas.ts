@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RECEIVED_VIA_VALUES, VERIFIED_VIA_VALUES } from './terms.ts';
 
 /**
  * 짝이 맞지 않는 UTF-16 서로게이트(잘린 이모지 등)가 없는 올바른 문자열인지 판정한다.
@@ -43,6 +44,17 @@ export const addressCreateSchema = addressCheckSchema.extend({
   lookalikeReason: text(z.string().trim().max(300, '등록 사유는 300자 이내로 입력하세요.'), '등록 사유').optional().default(''),
   ackNotVerified: z.literal(true, { message: '형식 점검이 주소의 안전성을 보증하지 않는다는 점을 확인하세요.' }),
   ackOutOfBandConfirmed: z.literal(true, { message: '받는 곳과 별도 연락 수단으로 주소를 대조했는지 확인하세요.' }),
+  // 다른 경로 확인 기록: 어느 경로로 주소를 받았고, 그와 다른 어느 경로로 누구와 다시 확인했는지 남긴다.
+  // 두 경로가 같은지는 등록 처리(createAddress)가 OUT_OF_BAND_SAME_CHANNEL로 거절한다.
+  receivedVia: z.enum(RECEIVED_VIA_VALUES, { message: '주소를 받은 경로를 고르세요.' }),
+  verifiedVia: z.enum(VERIFIED_VIA_VALUES, { message: '주소를 다시 확인한 경로를 고르세요.' }),
+  verifiedWith: trimmed(100, '확인한 상대·연락처'),
+});
+
+/** 사용 대기 중 정지: 위험을 줄이는 행동이라 바로 적용하되, 왜 멈췄는지 남긴다. */
+export const addressStopSchema = z.object({
+  version: z.number().int().positive(),
+  reason: text(z.string().trim().min(5, '정지 사유를 5자 이상 입력하세요.').max(300, '정지 사유는 300자 이내로 입력하세요.'), '정지 사유'),
 });
 
 export const addressReviewSchema = z.object({

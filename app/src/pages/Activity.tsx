@@ -6,7 +6,43 @@ import { Badge, Empty, ErrorState, Loading, PageHeader, Pagination } from '../co
 import { DateInput } from '../components/DateInput.tsx';
 import { SearchField } from '../components/SearchField.tsx';
 import { amount, dateTime } from '../format.ts';
-import { TX_STATUS, TX_TYPE } from '../../shared/terms.ts';
+import { ADDRESS_STATUS, TX_STATUS, TX_TYPE, type AddressStatus } from '../../shared/terms.ts';
+import { chunkAddress } from '../../shared/address-rules.ts';
+import '../components/address-lifecycle.css';
+
+interface PoisonFlag { reason: 'dust'; lookalike: { id: string; label: string; status: string; prefix: number; suffix: number } | null }
+
+/**
+ * 주소 오염 의심 입금을 보낸 주소. 4자 묶음으로 전체를 같은 굵기로 보여 주되 복사 버튼은 두지 않는다
+ * (거래 내역에서 주소를 복사해 쓰게 만드는 것이 이 공격의 목적이다).
+ */
+function PoisonSender({ address }: { address: string }) {
+  const chunks = chunkAddress(address.trim());
+  const [prefix, ...body] = chunks[0]?.startsWith('MOCK') ? chunks : ['', ...chunks];
+  return (
+    <span className="addr lc-poison-addr">
+      <span className="addr-code" aria-label={`보낸 주소 ${address}`}>
+        {prefix && <span className="addr-prefix">{prefix}</span>}
+        {body.map((c, i) => <span key={i} className="addr-chunk">{c}</span>)}
+      </span>
+    </span>
+  );
+}
+
+function PoisonNote({ flag, address }: { flag: PoisonFlag; address: string | null }) {
+  const look = flag.lookalike;
+  return (
+    <div className="lc-poison">
+      <Badge tone="danger">주소 오염 의심</Badge>
+      {address && <PoisonSender address={address} />}
+      <p className="lc-poison-text">
+        0원·소액 입금으로 거래 내역에 비슷한 주소를 남기는 공격에서 자주 보이는 기록입니다.
+        {look && ` 주소록의 '${look.label}'(${ADDRESS_STATUS[look.status as AddressStatus]?.label ?? look.status})와 앞 ${look.prefix}자·뒤 ${look.suffix}자가 같습니다.`}
+        {' '}이 주소를 복사해 쓰지 말고, 출금은 주소록에서 확인을 마친 주소만 고르세요.
+      </p>
+    </div>
+  );
+}
 
 export function ActivityPage() {
   const cat = useCatalog();
@@ -45,7 +81,10 @@ export function ActivityPage() {
                   <tr key={t.id}>
                     <td className="nowrap act-when" data-label="일시 (KST)">{dateTime(t.occurredAt)}</td>
                     <td className="act-type"><span className={`dir dir-${t.type}`}>{TX_TYPE[t.type]}</span></td>
-                    <td className="cell-wrap act-cp" data-label="상대방">{t.counterparty}</td>
+                    <td className="cell-wrap act-cp" data-label="상대방">
+                      {t.counterparty}
+                      {t.poison && <PoisonNote flag={t.poison} address={t.counterpartyAddress} />}
+                    </td>
                     <td className="num nowrap act-amt">{t.type === 'withdrawal' ? '−' : '+'}{amount(t.amount, t.assetCode)}</td>
                     <td className="small act-net" data-label="네트워크 · 지갑">{t.networkName}<div className="muted">{t.walletName}</div></td>
                     <td className="act-status" data-label="상태"><Badge tone={TX_STATUS[t.status]!.tone}>{TX_STATUS[t.status]!.label}</Badge></td>

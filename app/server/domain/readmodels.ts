@@ -6,7 +6,7 @@ import type { AuthContext } from '../auth.ts';
 import type { AppConfig } from '../config.ts';
 import { formatUnits, krwValue } from '../../shared/decimal.ts';
 import { ROLE_LABEL, type Role } from '../../shared/terms.ts';
-import { likePattern } from './addresses.ts';
+import { activateDueAddresses, canStopCooling, likePattern, poisonFlags } from './addresses.ts';
 import { validApprovals } from './requests.ts';
 
 export function priceState(db: DB, cfg: AppConfig) {
@@ -59,6 +59,8 @@ export function dashboard(db: DB, cfg: AppConfig, auth: AuthContext) {
   const me = auth.user.id;
   const tasks: { kind: string; count: number; title: string; description: string; href: string; tone: string }[] = [];
   const count = (sql: string, ...args: any[]) => (db.prepare(sql).get(...args) as { c: number }).c;
+  // 대기 시간이 끝난 주소가 '사용 대기'로 세어지지 않도록 먼저 상태를 맞춘다.
+  activateDueAddresses(db);
   if (auth.perms.has('request.approve')) {
     // 받는 주소가 사용 가능 상태인 요청만 '승인할 요청'으로 센다. 나머지는 아래 '승인할 수 없는 요청'으로 따로 보인다.
     const undecided = "r.org_id = ? AND r.status = 'PENDING_APPROVAL' AND r.created_by <> ? AND NOT EXISTS (SELECT 1 FROM approvals x WHERE x.request_id = r.id AND x.user_id = ?)";
@@ -70,6 +72,16 @@ export function dashboard(db: DB, cfg: AppConfig, auth: AuthContext) {
   if (auth.perms.has('address.review')) {
     const c = count("SELECT COUNT(*) c FROM address_book WHERE org_id = ? AND status = 'PENDING_REVIEW' AND created_by <> ?", org, me);
     tasks.push({ kind: 'review_addresses', count: c, title: '확인할 새 주소', description: '확인 전에는 출금에 쓸 수 없습니다. 받는 곳에 별도로 연락해 주소를 대조하세요.', href: '/addresses?status=PENDING_REVIEW', tone: 'warning' });
+  }
+  if (canStopCooling(auth)) {
+    // 주소 등록·확인·사용 중지 권한이 있는 사람 모두에게 보인다. 요청하지 않은 등록이면 대기 중에 정지할 수 있다.
+    const cooling = count("SELECT COUNT(*) c FROM address_book WHERE org_id = ? AND status = 'COOLING_DOWN'", org);
+    tasks.push({
+      kind: 'cooling_addresses', count: cooling,
+      title: `새 받는 주소 ${cooling}건이 사용 대기 중입니다 — 요청하지 않은 등록이면 정지하세요`,
+      description: '두 사람이 확인한 주소도 대기 시간이 지나야 출금에 쓸 수 있습니다. 등록을 요청한 적이 없거나 받는 곳에서 확인되지 않았다면 대기 중에 바로 정지하세요.',
+      href: '/addresses?status=COOLING_DOWN', tone: 'warning',
+    });
   }
   if (auth.perms.has('request.create')) {
     const drafts = count("SELECT COUNT(*) c FROM withdrawal_requests WHERE org_id = ? AND created_by = ? AND status IN ('DRAFT','REVIEW')", org, me);
@@ -95,16 +107,18 @@ export function dashboard(db: DB, cfg: AppConfig, auth: AuthContext) {
   ).all(org) as any[];
   const inProgressCount = count("SELECT COUNT(*) c FROM withdrawal_requests WHERE org_id = ? AND status IN ('REVIEW','PENDING_APPROVAL','PROCESSING')", org);
   const recent = db.prepare(
-    `SELECT t.id, t.type, t.asset_code, t.amount_units, a.precision, t.status, t.occurred_at, t.counterparty, n.name network_name
+    `SELECT t.id, t.type, t.asset_code, t.amount_units, a.precision, t.status, t.occurred_at, t.counterparty, t.counterparty_address, n.name network_name
        FROM transactions t JOIN assets a ON a.code = t.asset_code JOIN networks n ON n.code = t.network_code WHERE t.org_id = ? ORDER BY t.occurred_at DESC LIMIT 5`,
   ).all(org) as any[];
+  const recentPoison = poisonFlags(db, org, recent);
   return {
     holdings: holdings(db, cfg, org),
     tasks,
     // 승인 대기 중인 요청의 승인 수는 지금 유효한 표만 센다(요청 상세의 approvedCount와 같은 기준).
     inProgress: inProgress.map((r) => ({ id: r.id, refNo: r.ref_no, status: r.status, assetCode: r.asset_code, amount: formatUnits(r.amount_units, r.precision), creatorName: r.creator_name, addressLabel: r.address_label, approved: r.status === 'PENDING_APPROVAL' ? validApprovals(db, r.id) : r.approved, requiredApprovals: r.required_approvals, updatedAt: r.updated_at })),
     inProgressCount,
-    recentActivity: recent.map((t) => ({ id: t.id, type: t.type, assetCode: t.asset_code, amount: formatUnits(t.amount_units, t.precision), status: t.status, occurredAt: t.occurred_at, counterparty: t.counterparty, networkName: t.network_name })),
+    // 소액(0원 포함) 입금에는 주소 오염 의심 표시를 붙인다. 보낸 주소는 홈에 보이지 않는다(활동 내역에서 복사 버튼 없이 보여 준다).
+    recentActivity: recent.map((t) => ({ id: t.id, type: t.type, assetCode: t.asset_code, amount: formatUnits(t.amount_units, t.precision), status: t.status, occurredAt: t.occurred_at, counterparty: t.counterparty, networkName: t.network_name, poison: recentPoison.get(t.id) ?? null })),
   };
 }
 
@@ -125,9 +139,16 @@ export function activity(db: DB, auth: AuthContext, q: { type?: string; assetCod
     `SELECT t.*, a.precision, n.name network_name, wl.name wallet_name, r.ref_no FROM transactions t JOIN assets a ON a.code = t.asset_code JOIN networks n ON n.code = t.network_code JOIN wallets wl ON wl.id = t.wallet_id LEFT JOIN withdrawal_requests r ON r.id = t.request_id
       WHERE ${w} ORDER BY ${sort}, t.id LIMIT ? OFFSET ?`,
   ).all(...args, q.pageSize, (q.page - 1) * q.pageSize) as any[];
+  const poison = poisonFlags(db, auth.org.id, rows);
   return {
     total, page: q.page, pageSize: q.pageSize,
-    items: rows.map((t) => ({ id: t.id, type: t.type, assetCode: t.asset_code, networkName: t.network_name, walletName: t.wallet_name, amount: formatUnits(t.amount_units, t.precision), counterparty: t.counterparty, status: t.status, occurredAt: t.occurred_at, txRef: t.tx_ref, requestId: t.request_id, requestRef: t.ref_no })),
+    items: rows.map((t) => ({
+      id: t.id, type: t.type, assetCode: t.asset_code, networkName: t.network_name, walletName: t.wallet_name, amount: formatUnits(t.amount_units, t.precision), counterparty: t.counterparty, status: t.status, occurredAt: t.occurred_at, txRef: t.tx_ref, requestId: t.request_id, requestRef: t.ref_no,
+      /** 입금을 보낸 주소(기록된 경우만). 화면은 복사 버튼 없이 보여 준다. */
+      counterpartyAddress: (t.counterparty_address as string | null) ?? null,
+      /** 소액(0원 포함) 입금이면 주소 오염 의심 표시 */
+      poison: poison.get(t.id) ?? null,
+    })),
   };
 }
 

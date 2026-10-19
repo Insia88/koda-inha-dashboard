@@ -7,9 +7,14 @@ import { seed } from '../server/seed.ts';
 
 export interface TestCtx { app: FastifyInstance; db: DB; custody: MockCustodyAdapter }
 
-export async function makeApp(opts: { processingMs?: number; rateLimitMax?: number; loginRateLimitMax?: number; holdingRelated?: boolean } = {}): Promise<TestCtx> {
+/**
+ * cooldownHours: 주소 확인 뒤 사용 대기 시간. 기존 흐름(확인 즉시 사용 가능)을 그대로 검사하도록 기본 0으로 둔다.
+ * 사용 대기를 검사할 때만 값을 준다(tests/address-lifecycle.test.ts).
+ */
+export async function makeApp(opts: { processingMs?: number; rateLimitMax?: number; loginRateLimitMax?: number; holdingRelated?: boolean; cooldownHours?: number } = {}): Promise<TestCtx> {
   const cfg = loadConfig({ dbPath: ':memory:', logLevel: 'silent', serveClient: false, rateLimitMax: opts.rateLimitMax ?? 10000, ...(opts.loginRateLimitMax ? { loginRateLimitMax: opts.loginRateLimitMax } : {}) });
   cfg.policy.mockCustodyProcessingMs = opts.processingMs ?? 0;
+  cfg.policy.addressBook.cooldownHours = opts.cooldownHours ?? 0;
   cfg.insightPolicy.experiments.holdingRelatedFilter = opts.holdingRelated ?? false;
   const db = openDb(':memory:');
   migrate(db);

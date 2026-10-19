@@ -9,10 +9,16 @@ import { useFocusFirstError } from '../lib/forms.ts';
 import { useUnsavedGuard } from '../lib/unsaved.tsx';
 import { Findings } from '../components/Findings.tsx';
 import { LookalikeComparisons } from '../components/AddressCompare.tsx';
-import { GLOSSARY } from '../../shared/terms.ts';
+import { GLOSSARY, RECEIVED_VIA, VERIFIED_VIA } from '../../shared/terms.ts';
 import { checkAddressFormat, CONFIRM_MIDDLE_LENGTH, middleSegment, XRPL_TAG_PATTERN, type Finding, type NetworkRule } from '../../shared/address-rules.ts';
+import { LifecycleSteps, useAddressPolicy } from './AddressDetail.tsx';
+import '../components/address-lifecycle.css';
 
-const EMPTY = { assetCode: '', networkCode: '', address: '', memo: '', label: '', counterparty: '', confirmTail: '', confirmMiddle: '', lookalikeReason: '', ackNotVerified: false, ackOutOfBandConfirmed: false };
+const EMPTY = {
+  assetCode: '', networkCode: '', address: '', memo: '', label: '', counterparty: '', confirmTail: '', confirmMiddle: '', lookalikeReason: '',
+  receivedVia: '', verifiedVia: '', verifiedWith: '',
+  ackNotVerified: false, ackOutOfBandConfirmed: false,
+};
 
 /** 원본을 보고 직접 입력해야 하는 값: 붙여넣기·끌어 놓기를 막는다. */
 const blockPaste = (e: ClipboardEvent | DragEvent) => e.preventDefault();
@@ -20,6 +26,7 @@ const blockPaste = (e: ClipboardEvent | DragEvent) => e.preventDefault();
 export function AddressNewPage() {
   const me = useMe();
   const cat = useCatalog();
+  const policy = useAddressPolicy();
   const nav = useNavigate();
   const qc = useQueryClient();
   const n = me.policy.confirmTailLength;
@@ -83,6 +90,9 @@ export function AddressNewPage() {
   const err = m.error instanceof ApiError ? m.error : null;
   useFocusFirstError(formRef, m.error);
   const fe = (name: string) => (touched || err ? err?.fieldError(name) : undefined);
+  // 받은 경로와 같은 경로로는 다시 확인한 것으로 보지 않는다(등록 때 다시 검사). 고르는 즉시 알린다.
+  const sameChannel = !!f.receivedVia && f.receivedVia === f.verifiedVia;
+  const sameChannelText = '받은 경로와 같은 경로입니다. 주소를 받은 경로와 다른 경로로 다시 확인하세요.';
 
   if (cat.isPending) return <Loading />;
 
@@ -149,6 +159,27 @@ export function AddressNewPage() {
               <TextareaAuto id="lookalikeReason" rows={2} maxRows={6} value={f.lookalikeReason} onChange={(e) => set({ lookalikeReason: e.target.value })} maxLength={300} />
             </Field>
           )}
+        </fieldset>
+
+        <fieldset className="form-step" disabled={!formatOk}>
+          <legend><span className="step-no">4</span>어떤 경로로 받고, 어떻게 다시 확인했나요?</legend>
+          <p className="field-hint">주소를 받은 경로만으로는 확인이 되지 않습니다. 이메일·메신저가 도용되면 주소와 연락처가 함께 바뀔 수 있으니, 미리 알고 있던 다른 경로로 다시 확인하고 기록을 남기세요. 확인 담당자와 감사 기록에 남습니다.</p>
+          <Field label="받은 경로" htmlFor="receivedVia" required error={fe('receivedVia')}>
+            <select id="receivedVia" value={f.receivedVia} onChange={(e) => set({ receivedVia: e.target.value })}>
+              <option value="">받은 경로 선택</option>
+              {Object.entries(RECEIVED_VIA).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </Field>
+          <Field label="다시 확인한 경로" htmlFor="verifiedVia" required error={fe('verifiedVia') ?? (sameChannel ? sameChannelText : undefined)}
+            hint="받은 경로와 달라야 합니다. 예: 이메일로 받았다면 거래처로 미리 등록해 둔 대표번호로 전화합니다. 받은 메시지에 적힌 연락처는 쓰지 마세요.">
+            <select id="verifiedVia" value={f.verifiedVia} onChange={(e) => set({ verifiedVia: e.target.value })}>
+              <option value="">다시 확인한 경로 선택</option>
+              {Object.entries(VERIFIED_VIA).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </Field>
+          <Field label="확인한 상대·연락처" htmlFor="verifiedWith" required error={fe('verifiedWith')} hint="누구와 어떤 연락처로 확인했는지 적습니다. 예: 거래처 재무팀 담당자, 거래처 등록 대표번호 (100자 이내)">
+            <input id="verifiedWith" value={f.verifiedWith} onChange={(e) => set({ verifiedWith: e.target.value })} maxLength={100} autoComplete="off" />
+          </Field>
           <div className="checks">
             <label className="check"><input type="checkbox" checked={f.ackOutOfBandConfirmed} onChange={(e) => set({ ackOutOfBandConfirmed: e.target.checked })} aria-invalid={fe('ackOutOfBandConfirmed') ? true : undefined} aria-describedby={fe('ackOutOfBandConfirmed') ? 'ack-error' : undefined} />받는 곳과 전화 등 별도 연락 수단으로 자산·네트워크·주소{network?.memoRequired ? '·태그' : ''}를 확인했습니다.</label>
             <label className="check"><input type="checkbox" checked={f.ackNotVerified} onChange={(e) => set({ ackNotVerified: e.target.checked })} aria-invalid={fe('ackNotVerified') ? true : undefined} aria-describedby={fe('ackNotVerified') ? 'ack-error' : undefined} />형식 점검과 담당자 확인은 주소의 주인이나 안전성을 보증하지 않는다는 점을 이해했습니다.</label>
@@ -162,7 +193,14 @@ export function AddressNewPage() {
           <button type="submit" className="btn btn-primary" disabled={m.isPending || !formatOk}>{m.isPending ? '등록 중…' : '확인 요청 보내기'}</button>
         </div>
         {guard.guardDialog}
-        <p className="muted small">등록하면 '확인 대기' 상태가 되고, 등록자가 아닌 승인자가 원본과 대조한 뒤 '사용 가능'으로 바꿉니다.</p>
+        <div className="lc-flow muted small">
+          <p>
+            {policy.data?.addressBook?.cooldownHours === 0
+              ? "등록하면 '확인 대기' 상태가 되고, 등록자가 아닌 승인자가 원본과 대조해 확인하면 '사용 가능'이 됩니다."
+              : "등록하면 '확인 대기' 상태가 됩니다. 등록자가 아닌 승인자가 원본과 대조해 확인하면 '사용 대기'가 되고, 대기 시간이 지나야 '사용 가능'이 되어 출금 요청에 쓸 수 있습니다. 대기 중에 요청하지 않은 등록이 보이면 바로 정지할 수 있습니다."}
+          </p>
+          <LifecycleSteps hours={policy.data?.addressBook?.cooldownHours} />
+        </div>
       </form>
     </div>
   );

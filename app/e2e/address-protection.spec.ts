@@ -61,6 +61,9 @@ test('유사 주소: 등록자는 비교를 보고 사유를 남기고, 승인�
   await page.getByLabel('원본 주소의 가운데 8자리 (고유부 17~24번째)').fill(p.middle);
   expect(await pasteBlocked(page, '#confirmTail')).toBe(true);
   expect(await pasteBlocked(page, '#confirmMiddle')).toBe(true);
+  await page.getByRole('combobox', { name: /^받은 경로/ }).selectOption('email');
+  await page.getByRole('combobox', { name: /^다시 확인한 경로/ }).selectOption('registered_phone');
+  await page.getByRole('textbox', { name: /^확인한 상대·연락처/ }).fill('모의 거래처 재무팀 대표번호');
   await page.getByLabel(/별도 연락 수단/).check();
   await page.getByLabel(/보증하지 않는다는/).check();
   await page.getByRole('button', { name: '확인 요청 보내기' }).click();

@@ -259,7 +259,7 @@ describe('주소록', () => {
     const chk = await han.post('/api/addresses/check', { assetCode: 'USDC', networkCode: 'ETHEREUM', address: NEW_EVM, memo: '' });
     expect(chk.status).toBe(200);
     expect(chk.body.findings.map((f: any) => f.code)).toContain('ADDRESS_SHARED_FORMAT');
-    const body = { label: '신규 테스트 주소', counterparty: '테스트 상대방', assetCode: 'USDC', networkCode: 'ETHEREUM', address: NEW_EVM, memo: '', confirmTail: tail(NEW_EVM), confirmMiddle: middle(NEW_EVM), ackNotVerified: true, ackOutOfBandConfirmed: true };
+    const body = { label: '신규 테스트 주소', counterparty: '테스트 상대방', assetCode: 'USDC', networkCode: 'ETHEREUM', address: NEW_EVM, memo: '', confirmTail: tail(NEW_EVM), confirmMiddle: middle(NEW_EVM), ackNotVerified: true, ackOutOfBandConfirmed: true, receivedVia: 'email', verifiedVia: 'registered_phone', verifiedWith: '모의 상대방 재무팀 대표번호' };
     const cr = await han.post('/api/addresses', body);
     expect(cr.status).toBe(201);
     expect(cr.body.address.status).toBe('PENDING_REVIEW');
@@ -278,7 +278,7 @@ describe('주소록', () => {
   });
   it('rejects network mismatch, missing memo and wrong confirmation tail', async () => {
     const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
-    const base = { label: 'x', counterparty: 'y', confirmTail: '000000', confirmMiddle: '00000000', ackNotVerified: true, ackOutOfBandConfirmed: true, memo: '' };
+    const base = { label: 'x', counterparty: 'y', confirmTail: '000000', confirmMiddle: '00000000', ackNotVerified: true, ackOutOfBandConfirmed: true, memo: '', receivedVia: 'email', verifiedVia: 'registered_phone', verifiedWith: '모의 상대방 재무팀 대표번호' };
     const mm = await han.post('/api/addresses', { ...base, assetCode: 'BTC', networkCode: 'BITCOIN', address: NEW_EVM });
     expect(mm.body.error.code).toBe('ADDRESS_NETWORK_MISMATCH');
     expect(mm.body.error.message).toContain('Ethereum');
@@ -292,7 +292,7 @@ describe('주소록', () => {
   });
   it('rejects a wrong middle segment at create and at review (CONFIRM_MIDDLE_MISMATCH)', async () => {
     const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
-    const body = { label: '가운데 확인 주소', counterparty: '모의 상대방', assetCode: 'USDC', networkCode: 'ETHEREUM', address: NEW_EVM, memo: '', confirmTail: tail(NEW_EVM), ackNotVerified: true, ackOutOfBandConfirmed: true };
+    const body = { label: '가운데 확인 주소', counterparty: '모의 상대방', assetCode: 'USDC', networkCode: 'ETHEREUM', address: NEW_EVM, memo: '', confirmTail: tail(NEW_EVM), ackNotVerified: true, ackOutOfBandConfirmed: true, receivedVia: 'email', verifiedVia: 'registered_phone', verifiedWith: '모의 상대방 재무팀 대표번호' };
     const missing = await han.post('/api/addresses', body);
     expect(missing.status).toBe(422);
     expect(missing.body.error.fields.map((f: any) => f.field)).toContain('confirmMiddle');
@@ -320,9 +320,10 @@ describe('주소록', () => {
   });
   it('filters and returns an empty result without error', async () => {
     const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
-    // 시드: 모의법인 A 주소 13건(ab-02의 유사 주소 예시 ab-13 포함), 확인 대기 3건(ab-08, ab-09, ab-13)
-    expect((await han.get('/api/addresses')).body.items.length).toBe(13);
+    // 시드: 모의법인 A 주소 14건(ab-02의 유사 주소 예시 ab-13, 사용 대기 예시 ab-14 포함), 확인 대기 3건(ab-08, ab-09, ab-13), 사용 대기 1건(ab-14)
+    expect((await han.get('/api/addresses')).body.items.length).toBe(14);
     expect((await han.get('/api/addresses?status=PENDING_REVIEW')).body.items.length).toBe(3);
+    expect((await han.get('/api/addresses?status=COOLING_DOWN')).body.items.length).toBe(1);
     expect((await han.get('/api/addresses?q=' + encodeURIComponent('존재하지않는검색어'))).body.items).toEqual([]);
     expect((await han.get('/api/addresses?q=%25')).body.items).toEqual([]);
   });
@@ -331,11 +332,12 @@ describe('주소록', () => {
 describe('목록 탐색', () => {
   it('paginates activity with first/last page and filters', async () => {
     const a = api(ctx.app, await login(ctx.app, 'u-a-han'));
+    // 시드: 모의법인 A 거래 138건(주소 오염 예시 0원 입금 1건 포함)
     const p1 = await a.get('/api/activity?page=1&pageSize=25');
-    expect(p1.body.total).toBe(137);
+    expect(p1.body.total).toBe(138);
     expect(p1.body.items.length).toBe(25);
     const last = await a.get('/api/activity?page=6&pageSize=25');
-    expect(last.body.items.length).toBe(12);
+    expect(last.body.items.length).toBe(13);
     const beyond = await a.get('/api/activity?page=99&pageSize=25');
     expect(beyond.body.items).toEqual([]);
     const bad = await a.get('/api/activity?pageSize=13');
@@ -358,7 +360,7 @@ describe('감사 기록', () => {
   });
   it('exports CSV for auditors with formula neutralisation and audits the export', async () => {
     const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
-    await han.post('/api/addresses', { label: '=HYPERLINK("http://evil")', counterparty: '+cmd', assetCode: 'USDC', networkCode: 'ETHEREUM', address: NEW_EVM, memo: '', confirmTail: tail(NEW_EVM), confirmMiddle: middle(NEW_EVM), ackNotVerified: true, ackOutOfBandConfirmed: true });
+    await han.post('/api/addresses', { label: '=HYPERLINK("http://evil")', counterparty: '+cmd', assetCode: 'USDC', networkCode: 'ETHEREUM', address: NEW_EVM, memo: '', confirmTail: tail(NEW_EVM), confirmMiddle: middle(NEW_EVM), ackNotVerified: true, ackOutOfBandConfirmed: true, receivedVia: 'email', verifiedVia: 'registered_phone', verifiedWith: '모의 상대방 재무팀 대표번호' });
     const aud = await login(ctx.app, 'u-a-moon');
     const res = await ctx.app.inject({ method: 'GET', url: '/api/audit/export.csv', headers: { cookie: aud.cookie } });
     expect(res.statusCode).toBe(200);

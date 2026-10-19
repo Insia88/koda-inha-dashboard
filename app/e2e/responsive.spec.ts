@@ -144,7 +144,7 @@ test.describe('390px 긴 이름(띄어쓰기 없음)', () => {
     await loginAs(page, '한지수');
     const created = await apiPost(page, '/api/addresses', {
       assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '', label, counterparty,
-      confirmTail: address.slice(-6), confirmMiddle: middleSegment(address).text, lookalikeReason: '', ackNotVerified: true, ackOutOfBandConfirmed: true,
+      confirmTail: address.slice(-6), confirmMiddle: middleSegment(address).text, lookalikeReason: '', ackNotVerified: true, ackOutOfBandConfirmed: true, receivedVia: 'email', verifiedVia: 'registered_phone', verifiedWith: '모의 상대방 재무팀 대표번호',
     });
     const id: string = created.address.id;
     await check(`/addresses/${id}`, '한지수', 'section.card .addr-chunk');

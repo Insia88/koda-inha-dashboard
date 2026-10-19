@@ -25,7 +25,7 @@ function poisonOf(address: string, head: number, tailLen: number, shift = 1) {
 function createBody(address: string, extra: Record<string, unknown> = {}) {
   return {
     label: '후속 점검 주소', counterparty: '모의 상대방', assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '',
-    confirmTail: tail(address), confirmMiddle: middle(address), ackNotVerified: true, ackOutOfBandConfirmed: true, ...extra,
+    confirmTail: tail(address), confirmMiddle: middle(address), ackNotVerified: true, ackOutOfBandConfirmed: true, receivedVia: 'email', verifiedVia: 'registered_phone', verifiedWith: '모의 상대방 재무팀 대표번호', ...extra,
   };
 }
 

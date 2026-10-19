@@ -6,8 +6,10 @@ import { useMe } from '../auth.tsx';
 import { useCatalog, useUrlState } from '../hooks.ts';
 import { AddressStrip, Badge, Empty, ErrorState, Loading, Notice, PageHeader } from '../components/ui.tsx';
 import { SearchField } from '../components/SearchField.tsx';
-import { date } from '../format.ts';
+import { date, dateTime } from '../format.ts';
 import { ADDRESS_STATUS, type AddressStatus } from '../../shared/terms.ts';
+import { timeLeft, useNow } from './AddressDetail.tsx';
+import '../components/address-lifecycle.css';
 
 /** 목록 조회가 한 번에 돌려주는 최대 건수(서버와 같은 값). 넘으면 잘린 사실을 알린다. */
 const ADDRESS_LIST_LIMIT = 500;
@@ -18,6 +20,7 @@ export function AddressesPage() {
   const { state, set, qs } = useUrlState({ q: '', status: '', assetCode: '', networkCode: '', sort: 'status' });
   const q = useQuery({ queryKey: ['addresses', qs], queryFn: ({ signal }) => api(`/api/addresses?${new URLSearchParams(Object.entries(state).filter(([, v]) => v)).toString()}`, { signal }), placeholderData: (p) => p });
   const filtered = !!(state.q || state.status || state.assetCode || state.networkCode);
+  const now = useNow();
 
   return (
     <div className="page">
@@ -29,6 +32,11 @@ export function AddressesPage() {
       <Notice tone="info" title="주소록의 '사용 가능'은 주소가 안전하다는 뜻이 아닙니다">
         두 사람이 입력 내용을 확인했다는 기록입니다. 블록체인 전송은 되돌릴 수 없으니 받는 곳과 별도 연락 수단으로 주소를 대조하세요.
       </Notice>
+      {state.status === 'COOLING_DOWN' && (
+        <Notice tone="warning" title="사용 대기 중인 주소입니다">
+          두 사람의 확인을 마쳤지만 대기 시간이 지나야 출금 요청에 쓸 수 있습니다. 등록을 요청한 적이 없거나 받는 곳에서 확인되지 않은 주소가 있으면 주소를 열어 대기 중에 정지하세요.
+        </Notice>
+      )}
 
       <form className="toolbar" role="search" noValidate onSubmit={(e) => e.preventDefault()}>
         <SearchField label="주소 검색" placeholder="이름·받는 곳·주소 일부로 검색" value={state.q} onCommit={(v) => set({ q: v })} />
@@ -88,7 +96,15 @@ export function AddressesPage() {
                         </th>
                         <td className="adr-asset" data-label="자산 / 네트워크"><span className="asset-code">{a.assetCode}</span> / {a.networkName}</td>
                         <td className="adr-addr" data-label="주소"><AddressStrip address={a.address} memo={a.memo} compact /></td>
-                        <td className="adr-status"><Badge tone={st.tone} title={st.description}>{st.label}</Badge>{a.allowedActions.includes('review') && <div className="small action-hint">내 확인 필요</div>}</td>
+                        <td className="adr-status">
+                          <Badge tone={st.tone} title={st.description}>{st.label}</Badge>
+                          {a.allowedActions.includes('review') && <div className="small action-hint">내 확인 필요</div>}
+                          {a.status === 'COOLING_DOWN' && a.activeFrom && (
+                            <div className="small lc-list-when">
+                              <span>{dateTime(a.activeFrom)}부터</span> <span>({Date.parse(a.activeFrom) <= now ? '곧 사용 가능' : `${timeLeft(a.activeFrom, now)} 남음`})</span>
+                            </div>
+                          )}
+                        </td>
                         <td className="nowrap small adr-created" data-label="등록">{date(a.createdAt)}<div className="muted">{a.createdBy.name}</div></td>
                       </tr>
                     );

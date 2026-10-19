@@ -315,7 +315,7 @@ describe('GET /api/audit/verify', () => {
     try {
       const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
       const address = 'MOCK-EVM-' + '1234567890ABCDEF1234567890ABCDEF12345678';
-      const cr = await han.post('/api/addresses', { label: '거래처\ud800', counterparty: '테스트 상대방', assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '', confirmTail: address.slice(-6), confirmMiddle: middleSegment(address).text, ackNotVerified: true, ackOutOfBandConfirmed: true });
+      const cr = await han.post('/api/addresses', { label: '거래처\ud800', counterparty: '테스트 상대방', assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '', confirmTail: address.slice(-6), confirmMiddle: middleSegment(address).text, ackNotVerified: true, ackOutOfBandConfirmed: true, receivedVia: 'email', verifiedVia: 'registered_phone', verifiedWith: '모의 상대방 재무팀 대표번호' });
       // 깨진 문자열은 입력 검증에서 거부되어 업무 표와 감사 요약에 닿지 않는다(마지막 기록은 로그인 그대로).
       expect(cr.status).toBe(422);
       expect(cr.body.error.fields).toContainEqual({ field: 'label', message: brokenTextMessage('주소 이름') });

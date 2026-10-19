@@ -45,7 +45,7 @@ describe('상태 설명', () => {
       COMPLETED: '처리 완료', REJECTED: '반려', CANCELLED: '취소', FAILED: '처리 실패',
     });
     expect(Object.fromEntries(Object.entries(ADDRESS_STATUS).map(([k, v]) => [k, v.label]))).toEqual({
-      PENDING_REVIEW: '확인 대기', ACTIVE: '사용 가능', REJECTED: '등록 거절', DISABLED: '사용 중지',
+      PENDING_REVIEW: '확인 대기', COOLING_DOWN: '사용 대기', ACTIVE: '사용 가능', REJECTED: '등록 거절', DISABLED: '사용 중지',
     });
   });
 

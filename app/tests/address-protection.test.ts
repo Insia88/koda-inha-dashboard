@@ -25,7 +25,7 @@ async function addressOf(s: Session, id: string): Promise<string> {
 function createBody(address: string, extra: Record<string, unknown> = {}) {
   return {
     label: '유사 주소 테스트', counterparty: '모의 상대방', assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '',
-    confirmTail: tail(address), confirmMiddle: middle(address), ackNotVerified: true, ackOutOfBandConfirmed: true, ...extra,
+    confirmTail: tail(address), confirmMiddle: middle(address), ackNotVerified: true, ackOutOfBandConfirmed: true, receivedVia: 'email', verifiedVia: 'registered_phone', verifiedWith: '모의 상대방 재무팀 대표번호', ...extra,
   };
 }
 

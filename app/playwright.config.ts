@@ -35,7 +35,8 @@ export default defineConfig({
       url: `http://127.0.0.1:${PORT}/api/healthz`,
       reuseExistingServer: false,
       timeout: 60_000,
-      env: { PORT: String(PORT), DB_PATH: process.env.E2E_DB ?? './data/e2e.sqlite', MOCK_CUSTODY_PROCESSING_MS: '1500', LOG_LEVEL: 'warn', RATE_LIMIT_MAX: '5000', LOGIN_RATE_LIMIT_MAX: '300' },
+      // ADDRESS_COOLDOWN_HOURS=0: 기존 흐름(주소 확인 즉시 사용 가능)을 그대로 검사한다. 사용 대기는 시드의 사용 대기 주소(ab-14)로 검사한다(e2e/address-lifecycle.spec.ts).
+      env: { PORT: String(PORT), DB_PATH: process.env.E2E_DB ?? './data/e2e.sqlite', MOCK_CUSTODY_PROCESSING_MS: '1500', LOG_LEVEL: 'warn', RATE_LIMIT_MAX: '5000', LOGIN_RATE_LIMIT_MAX: '300', ADDRESS_COOLDOWN_HOURS: '0' },
     },
   }),
 });

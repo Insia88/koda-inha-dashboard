@@ -1,6 +1,7 @@
 // 개발 환경 주소 규칙. 실제 네트워크 주소 형식이 아니라 "MOCK-" 접두의 모의 형식만 허용한다.
 // 네트워크별 실제 형식·체크섬 검증 어댑터는 아직 구현되지 않았다(docs/operations.md '주소 검증' 참고).
-// 아래 기준(유사 주소 판정, 가운데 8자리 재입력)은 설계 가정이며 KODA가 확정한 정책이 아니다.
+// 아래 기준(유사 주소 판정, 가운데 8자리 재입력, 소액 입금 기준·비교 기간)은 설계 가정이며 KODA가 확정한 정책이 아니다.
+import { parseUnits } from './decimal.ts';
 
 export type AddressFamily = 'MOCK_BTC' | 'MOCK_EVM' | 'MOCK_XRP';
 
@@ -38,13 +39,25 @@ export interface LookalikeFindingMatch {
   prefix: number;
   suffix: number;
 }
+/** 주소 오염 의심 점검에 걸린 최근 소액 입금(같은 조직 거래 내역 기준). 보낸 주소 전체는 담지 않는다. */
+export interface DustFindingMatch {
+  txRef: string;
+  occurredAt: string;
+  assetCode: string;
+  networkCode: string;
+  /** 표시용 수량(예: "0") */
+  amount: string;
+  /** 비슷한 주소일 때만: 고유부 앞·뒤에서 같은 글자 수 */
+  prefix?: number;
+  suffix?: number;
+}
 export interface Finding {
   code: string;
   level: FindingLevel;
   message: string;
   action?: string;
   /** 화면이 요청할 때만 쓰는 부가 정보. 기본 표시(Findings)는 message·action만 쓴다. */
-  data?: { matches?: LookalikeFindingMatch[] };
+  data?: { matches?: LookalikeFindingMatch[]; dust?: DustFindingMatch[] };
 }
 
 export function normalizeAddress(address: string, family: AddressFamily): string {
@@ -156,6 +169,39 @@ export function middleSegment(address: string): { text: string; start: number; e
   const len = Math.min(CONFIRM_MIDDLE_LENGTH, body.length);
   const from = Math.max(0, Math.floor((body.length - CONFIRM_MIDDLE_LENGTH) / 2));
   return { text: body.slice(from, from + len), start: from + 1, end: from + len };
+}
+
+/**
+ * 주소 오염(0원·소액 입금) 비교 기간. 주소 등록 점검은 최근 이 기간의 입금만 본다(설계 가정).
+ */
+export const POISON_LOOKBACK_DAYS = 90;
+
+/**
+ * 소액(더스트) 입금 기준(설계 가정, KODA 정책 아님). 수량이 0이거나 이 값보다 작은 입금을
+ * 주소 오염 공격에서 자주 보이는 입금으로 본다. 목록에 없는 자산은 0인 입금만 해당한다.
+ */
+export const DUST_THRESHOLD: Readonly<Record<string, string>> = {
+  BTC: '0.00001',
+  ETH: '0.00001',
+  USDC: '0.01',
+  KAIA: '0.01',
+  XRP: '0.01',
+};
+
+/** 입금 수량(최소 단위)이 소액 기준에 해당하는지. 0 이하이면 항상 해당한다. */
+export function isDustAmount(units: bigint | string, precision: number, assetCode: string): boolean {
+  const u = typeof units === 'string' ? BigInt(units) : units;
+  if (u <= 0n) return true;
+  const t = DUST_THRESHOLD[assetCode];
+  if (!t) return false;
+  return u < parseUnits(t, precision);
+}
+
+/** 같은 주소인지(접두·대소문자 무시). 모의 형식은 고유부를 대문자로 비교한다. */
+export function sameAddress(a: string, b: string): boolean {
+  const x = a.trim().toUpperCase();
+  const y = b.trim().toUpperCase();
+  return x.length > 0 && x === y;
 }
 
 /** 육안 대조용으로 4자씩 묶는다. */

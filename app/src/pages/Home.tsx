@@ -8,6 +8,7 @@ import { Badge, DataStamp, Empty, ErrorState, Loading, PageHeader, StatusRail, T
 import { AllocationBar } from '../components/AllocationBar.tsx';
 import { amount, dateTime, krw, krwShort, relative } from '../format.ts';
 import { GLOSSARY, REQUEST_STATUS, TX_STATUS, TX_TYPE, type RequestStatus } from '../../shared/terms.ts';
+import '../components/address-lifecycle.css';
 
 /** 홈 '진행 중인 요청'의 상태 묶음. 결재 및 요청 화면의 '진행 중' 칩과 같다. */
 const IN_PROGRESS_STATUSES = 'REVIEW,PENDING_APPROVAL,PROCESSING';
@@ -109,6 +110,7 @@ export function HomePage() {
                   <span className="recent-cp" title={t.counterparty}>{t.counterparty}</span>
                   <span className="num">{t.type === 'withdrawal' ? '−' : '+'}{amount(t.amount, t.assetCode)}</span>
                   <Badge tone={TX_STATUS[t.status]!.tone}>{TX_STATUS[t.status]!.label}</Badge>
+                  {t.poison && <span className="lc-poison-flag">주소 오염 의심 · 보낸 주소를 복사하지 마세요</span>}
                   <span className="muted small">{dateTime(t.occurredAt)}</span>
                 </li>
               ))}

@@ -27,6 +27,9 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   // 앞·뒤만 같게 만든 가짜 주소를 가려내기 위한 가운데 8자리 재입력(고유부 17~24번째)
   await expect(page.getByLabel('원본 주소의 가운데 8자리 (고유부 17~24번째)')).toBeVisible();
   await page.getByLabel(/가운데 8자리/).fill('ABCDEF01');
+  await page.getByRole('combobox', { name: /^받은 경로/ }).selectOption('email');
+  await page.getByRole('combobox', { name: /^다시 확인한 경로/ }).selectOption('registered_phone');
+  await page.getByRole('textbox', { name: /^확인한 상대·연락처/ }).fill('모의 거래처 재무팀 대표번호');
   await page.getByLabel(/별도 연락 수단/).check();
   await page.getByLabel(/보증하지 않는다는/).check();
   await page.getByRole('button', { name: '확인 요청 보내기' }).click();

@@ -5,6 +5,7 @@ import { migrate, openDb, type DB } from './db.ts';
 import { buildApp } from './app.ts';
 import { MockCustodyAdapter, type CustodyAdapter } from './adapters/custody.ts';
 import { settleProcessing } from './domain/requests.ts';
+import { activateDueAddresses } from './domain/addresses.ts';
 import { seed } from './seed.ts';
 
 /** 모의 시세 기준 시각을 이보다 오래되면 갱신한다(가격 값은 바꾸지 않는다). */
@@ -22,9 +23,11 @@ export interface Runtime {
   seeded: boolean;
   /** PROCESSING 요청을 모의 커스터디 결과로 정산한다. */
   settle(): void;
+  /** 사용 대기 시간이 끝난 주소를 사용 가능으로 바꾼다(주소마다 감사 기록). */
+  activateAddresses(): void;
   /** 모의 시세 기준 시각 갱신. maxAgeMs를 주면 그보다 오래된 값만 갱신한다. MOCK_PRICE_FEED=off면 아무것도 하지 않는다. */
   refreshPrices(maxAgeMs?: number): void;
-  /** 요청 시점 백그라운드 작업: 정산 + 60초보다 오래된 시세 기준 시각 갱신. */
+  /** 요청 시점 백그라운드 작업: 정산 + 사용 대기 종료 + 60초보다 오래된 시세 기준 시각 갱신. */
   tick(): void;
   close(): Promise<void>;
 }
@@ -58,6 +61,9 @@ export async function createRuntime(cfg: AppConfig, custodyOverride?: CustodyAda
     const settle = () => {
       try { settleProcessing(db, custody); } catch (e) { app?.log.error({ err: (e as Error).message }, 'settle failed'); }
     };
+    const activateAddresses = () => {
+      try { activateDueAddresses(db, new Date().toISOString()); } catch (e) { app?.log.error({ err: (e as Error).message }, 'address activation failed'); }
+    };
     const refreshPrices = (maxAgeMs = 0) => {
       if (!cfg.mockPriceFeed) return;
       const t = Date.now();
@@ -66,13 +72,14 @@ export async function createRuntime(cfg: AppConfig, custodyOverride?: CustodyAda
     };
     const tick = () => {
       settle();
+      activateAddresses();
       try { refreshPrices(PRICE_REFRESH_MS); } catch (e) { app?.log.error({ err: (e as Error).message }, 'price refresh failed'); }
     };
 
     app = await buildApp({ cfg, db, custody, runtime: { instanceId, seededAt, tick } });
     const built = app;
     return {
-      cfg, db, custody, app: built, instanceId, seededAt, seeded, settle, refreshPrices, tick,
+      cfg, db, custody, app: built, instanceId, seededAt, seeded, settle, activateAddresses, refreshPrices, tick,
       close: async () => { await built.close(); db.close(); },
     };
   } catch (e) {
