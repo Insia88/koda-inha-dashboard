@@ -2,8 +2,8 @@
 //
 // 사용:
 //   VERCEL_AUTOMATION_BYPASS_SECRET=<자동화 우회 값> node scripts/smoke-deploy.mjs https://<보호된 미리보기 주소>
-//   node scripts/smoke-deploy.mjs https://<보호 없는 주소> --public   # 보호 없는 공개가 decisions.md에 결정으로 기록된 경우에만.
-//                                                                    # 보호 없음은 WARN으로 남고 통과로 세지 않는다(배포 확인 기준 7 통과 아님).
+//   node scripts/smoke-deploy.mjs https://<보호 없는 주소> --public   # 보호 없는 공개가 decisions.md에 결정으로 기록된 주소만(운영 별칭, DEC-004).
+//                                                                    # 보호 없음은 WARN으로 남고 통과로 세지 않는다. 이 경고 1건뿐이면 공개 주소 기준 통과.
 //   node scripts/smoke-deploy.mjs --local [포트]   # 먼저 `npm run build:vercel`. 빌드된 함수(api/index.mjs)를
 //                                                  # VERCEL=1 DEMO_PUBLIC=1로 127.0.0.1:<포트>(기본 4418)에 띄워 검사한 뒤 닫는다.
 //                                                  # DEMO_SESSION_SECRET이 없으면 이번 실행에만 쓰는 무작위 값을 만든다.
@@ -150,7 +150,7 @@ const CDN_ONLY = LOCAL ? 'CDN(vercel.json) 동작이라 로컬 함수 검사에�
 console.log(`배포 확인 대상: ${BASE}${LOCAL ? ' (로컬 함수)' : ''}\n`);
 
 // 1. 보호가 켜져 있어야 한다. 꺼져 있으면 더 진행하지 않는다.
-//    --public: 보호 없는 주소를 공개로 둔다는 결정이 docs/decisions.md에 기록된 경우에만 쓴다(DEC-001은 보호 없는 공개를 허용하지 않는다).
+//    --public: 보호 없는 주소를 공개로 둔다는 결정이 docs/decisions.md에 기록된 주소에만 쓴다(운영 별칭, DEC-004). 미리보기에는 쓰지 않는다.
 //    이때 보호 없음은 통과가 아니라 경고(WARN)로 기록하고 나머지 안전 검사를 계속한다. 요약의 '통과'에 세지 않는다.
 const PUBLIC_OK = args.includes('--public');
 await check('배포 보호 켜짐(우회 헤더 없이 401 또는 로그인 이동)', async () => {

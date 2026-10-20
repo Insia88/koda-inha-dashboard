@@ -61,7 +61,7 @@ export class SessionSecret {
 }
 
 /**
- * local: 개발자 PC에서 실행(기본). public-demo: DEMO_PUBLIC=1을 명시한 보호된 공개 데모(Vercel 등).
+ * local: 개발자 PC에서 실행(기본). public-demo: DEMO_PUBLIC=1을 명시한 공개 데모(Vercel 등).
  * 공개 데모도 개발용 로그인·모의 데이터·모의 커스터디로만 동작한다(docs/deploy-vercel.md).
  */
 export type Deployment = 'local' | 'public-demo';
@@ -109,7 +109,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     throw new Error(`AUTH_MODE=${authMode} 은(는) 아직 구현되지 않았습니다. 운영 SSO 어댑터가 필요합니다 (docs/operations.md).`);
   }
   // 안전 잠금: 호스팅 런타임(VERCEL=1 또는 NODE_ENV=production)에서는 개발용 로그인으로 기동하지 않는다.
-  // 보호된 공개 데모로만 예외를 두며, 그 예외는 DEMO_PUBLIC=1을 명시해야 열린다.
+  // 모의 데이터 공개 데모로만 예외를 두며, 그 예외는 DEMO_PUBLIC=1을 명시해야 열린다.
   const hosted = env.VERCEL === '1' || nodeEnv === 'production';
   const demo = env.DEMO_PUBLIC === '1';
   if (hosted && !demo) {

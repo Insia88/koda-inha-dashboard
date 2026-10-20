@@ -55,7 +55,7 @@
 | 승인 재시도 때 커스터디 접수가 두 번 될 수 있음 (R1) | 요청 id를 멱등 키로 전달, 모의 어댑터가 같은 참조 반환 | A-18 | `returns the same custody ref when the approval is retried after a failure that rolled back the transaction` |
 | 앞·뒤만 같게 만든 주소(주소 위조)를 끝자리 확인으로 막지 못함 (R1) | 가운데 8자리 재입력, lookalike-v2 | A-05, A-07 | 위 '잘못된 주소' 행 참조 |
 | 감사 해시가 수행자 이름을 보호하지 않음, 최근 기록 삭제를 찾을 기준이 없음 (R1) | 해시 v2, 검증 결과에 조직 안 위치(`brokenAtNo`)와 `headHash` | A-24 | `audit-chain.test.ts` 27건 |
-| 보호된 공개 데모가 필요하지만 기존 안전 잠금이 호스팅 실행을 막음 (R1) | `DEMO_PUBLIC=1` 명시 때만 공개 데모, 인스턴스 메모리 데이터, 생성 한도 | A-22, A-23, DEC-001 | `deploy-mode.test.ts` 20건(WP-08 당시, WP-11 리뷰 반영 재실행 기준 24건). 실제 배포 검증은 하지 않음 |
+| 공개 데모가 필요하지만 기존 안전 잠금이 호스팅 실행을 막음 (R1) | `DEMO_PUBLIC=1` 명시 때만 공개 데모, 인스턴스 메모리 데이터, 생성 한도 | A-22, A-23, DEC-001(대체), DEC-004 | `deploy-mode.test.ts` 20건(WP-08 당시, WP-11 리뷰 반영 재실행 기준 24건). 실제 배포 검증은 하지 않음 |
 | 전체 재실행 (97ecd92 + 용어·문서 보강) | — | — | `npm run typecheck` 통과, `npm test` 9개 파일 163건 통과, `npm run build` 성공, E2E 39건 통과(axe 15화면 위반 0건 포함, 2026-10-19) |
 
 ## 자산 보호 기능 (R2, wave 3A·WP-11)
