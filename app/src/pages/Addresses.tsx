@@ -28,6 +28,17 @@ export function lookalikeNote(findings: Finding[] | undefined): string | null {
   return parts.length ? `${parts.join(' ')} 주소를 열어 가운데를 포함한 전체 글자를 비교하세요.` : null;
 }
 
+/**
+ * 목록의 '0원·소액 입금 주소와 같음' 표시 설명. 저장된 점검 결과에 최근 0원·소액 입금을 보낸 주소와 같다는 결과
+ * (ADDRESS_POISON_SUSPECTED, 확인 때 찾아 저장한 결과)가 있으면 한 문장을 돌려준다. 없으면 null.
+ * 유사 주소 표시보다 강한 신호라 그 앞에 둔다. 서버가 확인할 때마다 다시 점검해 거부하므로 이 주소는 거절만 할 수 있다.
+ */
+export function poisonNote(findings: Finding[] | undefined): string | null {
+  return (findings ?? []).some((f) => f.code === 'ADDRESS_POISON_SUSPECTED')
+    ? '최근 0원·소액 입금을 보낸 주소와 같습니다. 주소 오염 공격에서 자주 보이는 패턴이라 이 주소는 확인할 수 없습니다.'
+    : null;
+}
+
 export function AddressesPage() {
   const me = useMe();
   const cat = useCatalog();
@@ -103,6 +114,7 @@ export function AddressesPage() {
                   {q.data.items.map((a: any) => {
                     const st = ADDRESS_STATUS[a.status as AddressStatus];
                     const look = lookalikeNote(a.findings);
+                    const poison = poisonNote(a.findings);
                     return (
                       <tr key={a.id}>
                         <th scope="row" className="cell-wrap adr-name">
@@ -113,7 +125,12 @@ export function AddressesPage() {
                         <td className="adr-addr" data-label="주소"><AddressStrip address={a.address} memo={a.memo} compact /></td>
                         <td className="adr-status">
                           <Badge tone={st.tone} title={st.description}>{st.label}</Badge>
-                          {/* 상태 배지는 행마다 하나로 둔다. 유사 주소 표시는 '내 확인 필요'처럼 배지 아래 한 줄(위험 색)로 보인다. */}
+                          {/* 상태 배지는 행마다 하나로 둔다. 주소 오염 의심·유사 주소 표시는 '내 확인 필요'처럼 배지 아래 한 줄(위험 색)로 보인다. */}
+                          {poison && (
+                            <div className="small action-hint adr-poison" style={{ color: 'var(--danger)' }} title={poison}>
+                              <IconAlertTriangle size={14} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 2 }} />0원·소액 입금 주소와 같음<span className="sr-only">: {poison}</span>
+                            </div>
+                          )}
                           {look && (
                             <div className="small action-hint adr-lookalike" style={{ color: 'var(--danger)' }} title={look}>
                               <IconAlertTriangle size={14} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 2 }} />비슷한 주소 있음<span className="sr-only">: {look}</span>

@@ -49,6 +49,14 @@ export function addressHold(r: { status: string; address: { status: string } }):
 }
 
 /**
+ * 작성·검토 중 요청의 저장된 수량을 읽을 수 없는지(서버가 amount를 null로 준다. 앱을 거치지 않은 저장 계층 변경 등, A-30).
+ * 이때 서버는 검토 이동·승인 요청을 허용 행동에서 빼고 직접 보내도 422 AMOUNT_UNREADABLE로 거부한다. 내용 수정에서 수량을 다시 입력하거나 취소해야 한다.
+ */
+export function amountUnreadable(r: { status: string; amount: string | null }): boolean {
+  return ['DRAFT', 'REVIEW'].includes(r.status) && r.amount === null;
+}
+
+/**
  * 받는 주소를 쓸 수 없을 때 요청자에게 보이는 안내(제목: 이유, 본문: 무엇이 막히는지). 할 일은 「다음 할 일」(nextAction)에 쓴다.
  * 아직 승인 요청 전이라 예약된 수량은 없다(예약은 승인 요청 때 잡는다).
  */
@@ -80,6 +88,10 @@ function nextAction(r: any, role: RoleKey, tailLength: number, canReject: boolea
     // 감사 담당자나 이미 결정한 승인자: 할 일이 없다. 무엇을 기다리는지만 쓴다.
     return '요청자의 취소나 승인자의 반려를 기다리는 중입니다.';
   }
+  // 작성·검토 중인데 저장된 수량을 읽을 수 없다: 「검토로 이동」·승인 요청이 거부되므로 수량을 다시 입력하거나 취소하라고 안내한다.
+  if (amountUnreadable(r) && role === 'requester') {
+    return r.status === 'DRAFT' ? '「내용 수정」에서 수량을 다시 입력하거나 요청을 취소하세요.' : '「작성 단계로 되돌리기」를 누른 뒤 「내용 수정」에서 수량을 다시 입력하거나 요청을 취소하세요.';
+  }
   // 작성·검토 중인데 받는 주소를 쓸 수 없다: 「검토로 이동」·승인 요청이 거부되므로 주소를 바꾸거나 취소하라고 안내한다.
   const hold = addressHold(r);
   if (hold && role === 'requester') {
@@ -109,6 +121,22 @@ function basisText(r: any, policy: Me['policy']['approval'], projected: { krw: b
   const usable = projected.krw !== null && projected.state === 'mock';
   const expected = !usable || projected.krw! >= BigInt(policy.highValueThresholdKrw) ? highN : policy.defaultRequiredApprovals;
   return `승인 요청을 보낼 때의 시세로 정합니다. 지금 모의 시세로는 승인 ${expected}명이 필요합니다. ${rule}`;
+}
+
+/**
+ * 작성 중(또는 다른 사람이 보는 검토 중) 요청의 읽기 전용 점검 목록 안내. 받는 주소를 쓸 수 없으면(hold) 그 상황에 맞춘다.
+ * - 사용 중지·등록 거절(stopped): 이 주소로는 진행할 수 없으므로 검토·승인 요청 단계를 말하지 않고, 주소를 바꾸면 다시 점검한다고 알린다.
+ * - 사용 대기·확인 대기(waiting): 주소가 사용 가능해진 뒤 승인 요청 때 사유를 적는다고 알린다.
+ */
+function checksIntro(mine: boolean, hold: 'stopped' | 'waiting' | null, items: RequestCheck[]): string {
+  const needsReason = items.some((c) => c.requiresReason);
+  if (mine && hold === 'stopped') return '지금 받는 주소로 점검한 결과입니다. 이 주소로는 진행할 수 없으며, 다른 받는 주소로 바꾸면 그 주소로 다시 점검합니다.';
+  if (mine && needsReason) {
+    return hold === 'waiting'
+      ? '「사유 필요」 표시가 있는 주의 항목은 받는 주소가 사용 가능해진 뒤 승인 요청을 보낼 때 진행 사유를 적어야 합니다.'
+      : '「사유 필요」 표시가 있는 주의 항목은 검토로 이동한 뒤 진행 사유를 적어야 승인 요청을 보낼 수 있습니다.';
+  }
+  return '지금 기준으로 점검한 결과입니다. 승인 요청 때 다시 점검해 그 결과를 승인자에게 보입니다.';
 }
 
 export function RequestDetailPage() {
@@ -159,8 +187,10 @@ export function RequestDetailPage() {
   const [justSubmitted, setJustSubmitted] = useState(false);
   // 방금 승인·반려했는지와 그 결과(응답 기준): 결정 카드가 사라진 자리 대신 화면 위쪽에 결과 안내를 보이고 포커스를 옮긴다.
   const [justDecided, setJustDecided] = useState<null | { action: 'approve' | 'reject'; status: string; approved: number; required: number }>(null);
+  // 방금 단계를 옮겼거나(검토로 이동·작성 단계로 되돌리기) 작성 내용을 저장했는지(횟수). 누른 버튼이 사라지므로 「다음 할 일」로 포커스를 옮긴다.
+  const [stepMoved, setStepMoved] = useState(0);
   // 같은 화면에서 다른 요청으로 이동하면 앞 요청의 사유·안내를 남기지 않는다.
-  useEffect(() => { setCheckReasons({}); setJustSubmitted(false); setJustDecided(null); }, [id]);
+  useEffect(() => { setCheckReasons({}); setJustSubmitted(false); setJustDecided(null); setStepMoved(0); }, [id]);
   const idem = useRef<Record<string, string>>({});
   const keyFor = (action: string) => (idem.current[action] ??= newIdemKey());
 
@@ -170,12 +200,12 @@ export function RequestDetailPage() {
     qc.invalidateQueries({ queryKey: ['dashboard'] });
     qc.invalidateQueries({ queryKey: ['balances'] });
   };
-  // 409(먼저 바뀜·지문 불일치)나 받는 주소 상태 변경(ADDRESS_NOT_ACTIVE), 제출 때 새로 생긴 주의 항목(CHECK_REASON_REQUIRED)이면
+  // 409(먼저 바뀜·지문 불일치)나 받는 주소 상태 변경(ADDRESS_NOT_ACTIVE), 제출 때 새로 생긴 주의 항목(CHECK_REASON_REQUIRED), 읽을 수 없는 저장 수량(AMOUNT_UNREADABLE)이면
   // 최신 상태를 다시 불러와 화면을 맞춘다. 오류 안내와 입력은 그대로 두되, 409이면 승인 전 확인 표시는 지운다
   // (다시 불러온 내용을 보고 다시 확인해야 승인할 수 있게. 확인 표시가 남아 있으면 바뀐 내용을 보지 않고 한 번에 승인될 수 있다).
   const reloadOnStale = (e: unknown) => {
     if (e instanceof ApiError && e.status === 409) setChecked(NO_CHECKS);
-    if (e instanceof ApiError && (e.status === 409 || e.code === 'ADDRESS_NOT_ACTIVE' || e.code === 'CHECK_REASON_REQUIRED')) qc.invalidateQueries({ queryKey: ['request', id] });
+    if (e instanceof ApiError && (e.status === 409 || e.code === 'ADDRESS_NOT_ACTIVE' || e.code === 'CHECK_REASON_REQUIRED' || e.code === 'AMOUNT_UNREADABLE')) qc.invalidateQueries({ queryKey: ['request', id] });
   };
   const act = useMutation({
     mutationFn: ({ action, body }: { action: string; body: Record<string, unknown> }) =>
@@ -183,6 +213,7 @@ export function RequestDetailPage() {
     onSuccess: (data, vars) => {
       qc.setQueryData(['request', id], data); refresh(); setEditing(false); setReason(''); setTail('');
       if (vars.action === 'submit') { setCheckReasons({}); setJustSubmitted(true); }
+      if (vars.action === 'review' || vars.action === 'back-to-draft') setStepMoved((x) => x + 1);
       if (vars.action === 'approve' || vars.action === 'reject') {
         setJustDecided({ action: vars.action, status: data.status, approved: data.approvedCount, required: data.requiredApprovals });
       }
@@ -196,7 +227,7 @@ export function RequestDetailPage() {
   });
   const save = useMutation({
     mutationFn: () => api(`/api/requests/${id}`, { method: 'PUT', body: { ...form, version: q.data.version } }),
-    onSuccess: (data) => { qc.setQueryData(['request', id], data); refresh(); setEditing(false); setForm(null); setOriginal(null); },
+    onSuccess: (data) => { qc.setQueryData(['request', id], data); refresh(); setEditing(false); setForm(null); setOriginal(null); setStepMoved((x) => x + 1); },
   });
   useFocusFirstError(editRef, save.error);
   useFocusFirstError(actionRef, act.error);
@@ -234,6 +265,17 @@ export function RequestDetailPage() {
     });
     return () => cancelAnimationFrame(raf);
   }, [justDecided]);
+  // 검토로 이동·작성 단계로 되돌리기·작성 내용 저장 직후: 누른 버튼(또는 수정 양식)이 사라지므로 바뀐 「다음 할 일」로 포커스를 옮긴다.
+  // 키보드·화면 낭독기 사용자가 바뀐 단계와 할 일을 바로 듣고, 다음 버튼(예: 「내용 수정」)을 찾으러 문서 처음부터 다시 오지 않게 한다.
+  const nextRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!stepMoved) return;
+    const raf = requestAnimationFrame(() => {
+      const el = nextRef.current;
+      if (el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: 'nearest' }); }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [stepMoved]);
   // 확인 카드가 없는 화면(작성 중 「검토로 이동」, 되돌리기 등)의 처리 오류: 버튼 줄 바로 위에 보이고 그 안내로 포커스를 옮긴다.
   // 카드가 있으면 카드 안 결정 버튼 위에 보인다(아래 actNotice). 409는 conflictNotice가 따로 맡는다.
   const actErrorNow = act.error && !(act.error instanceof ApiError && act.error.status === 409) ? act.error : null;
@@ -272,6 +314,8 @@ export function RequestDetailPage() {
   const submitted = !!r.submittedAt;
   // 받는 주소 상태(작성·검토 중 요청). 승인 요청 뒤의 승인 불가(blocked)와 따로 안내한다.
   const hold = addressHold(r);
+  // 저장된 수량을 읽을 수 없는 작성·검토 중 요청(검토 이동·승인 요청 불가)
+  const unreadable = amountUnreadable(r);
   const addrSt = ADDRESS_STATUS[r.address.status as AddressStatus];
   // 방금 승인·반려한 결과 안내. 처리 중·처리 완료·실패로 넘어갔으면 필요한 승인이 모두 모인 마지막 승인이다.
   // 1/2 승인 안내는 아직 승인 대기일 때만 보인다(그 사이 다른 승인자가 결정해 상태가 바뀌면 낡은 안내를 남기지 않는다).
@@ -289,14 +333,16 @@ export function RequestDetailPage() {
   const assetPrice: string | null = bal.data?.assets.find((a: any) => a.assetCode === r.assetCode)?.krwPrice ?? null;
   // 저장된 수량을 읽을 수 없는 요청(r.amount === null)은 평가액을 계산하지 않는다(BigInt 변환이 실패해 화면이 깨지지 않도록).
   const currentKrw = preSubmit && r.amount !== null && assetPrice && price && price.state !== 'unavailable' ? krwValue(BigInt(r.amountUnits), r.precision, assetPrice) : null;
-  const projected = preSubmit && price ? { krw: currentKrw, state: assetPrice ? price.state : 'unavailable' } : null;
+  // 수량을 읽을 수 없으면 예상 승인 수도 계산하지 않는다(규칙만 보인다).
+  const projected = preSubmit && price && r.amount !== null ? { krw: currentKrw, state: assetPrice ? price.state : 'unavailable' } : null;
 
   // 확인 카드(승인 요청·승인/반려)가 있으면 되돌리기·요청 취소는 카드 아래로 내려 주 행동과 섞이지 않게 한다.
   const hasActionCard = can('submit') || decideCard;
   const secondary = can('back_to_draft') || can('cancel');
   const rowAbove = !editing && (can('edit') || can('review') || (!hasActionCard && secondary));
   const rowBelow = !editing && hasActionCard && secondary;
-  const editButton = can('edit') && <button className="btn" onClick={() => { const v = { assetCode: r.assetCode, networkCode: r.networkCode, addressId: r.address.id, amount: r.amount ?? '', purpose: r.purpose }; setForm(v); setOriginal(v); save.reset(); act.reset(); setEditing(true); }}>내용 수정</button>;
+  // 지금 받는 주소를 쓸 수 없으면(사용 중지·사용 대기 등) 선택 상자에 없는 주소이므로 비워 둔 채 연다. 선택 상자·점검 미리 보기·필수 입력 검사가 같은 값을 보게 한다.
+  const editButton = can('edit') && <button className="btn" onClick={() => { const v = { assetCode: r.assetCode, networkCode: r.networkCode, addressId: r.address.status === 'ACTIVE' ? r.address.id : '', amount: r.amount ?? '', purpose: r.purpose }; setForm(v); setOriginal(v); save.reset(); act.reset(); setEditing(true); }}>내용 수정</button>;
   const backButton = can('back_to_draft') && <button className="btn" onClick={() => act.mutate({ action: 'back-to-draft', body: {} })} disabled={act.isPending}>작성 단계로 되돌리기</button>;
   const cancelButton = can('cancel') && <button type="button" className="btn btn-danger-outline" onClick={() => { cancelM.reset(); setConfirmCancel(true); }} disabled={act.isPending}>요청 취소</button>;
   const reviewButton = can('review') && <button className="btn btn-primary" onClick={() => act.mutate({ action: 'review', body: {} })} disabled={act.isPending}>검토로 이동</button>;
@@ -317,7 +363,7 @@ export function RequestDetailPage() {
       <PageHeader title={`출금 요청 ${r.refNo}`} eyebrow={<Link to={back}>← 결재 및 요청</Link>} description={<><Badge tone={st.tone}>{st.label}</Badge> <span className="muted">{st.description}</span></>} />
       <StatusRail step={st.step} status={r.status} />
 
-      <section className="next-action" aria-labelledby="next-h">
+      <section ref={nextRef} tabIndex={-1} className="next-action" aria-labelledby="next-h">
         <h2 id="next-h">다음 할 일</h2>
         <p>{nextAction(r, roleKey, n, can('reject'), reasonPrefilled, !!decided)}</p>
         {mine && r.status === 'PENDING_APPROVAL' && <p className="muted small">본인이 작성한 요청은 승인할 수 없습니다. 승인 {r.approvedCount}/{r.requiredApprovals}명.</p>}
@@ -349,6 +395,11 @@ export function RequestDetailPage() {
         const h = holdNotice(r, hold);
         return <Notice tone={hold === 'stopped' ? 'danger' : 'warning'} title={h.title}>{h.body}</Notice>;
       })()}
+      {unreadable && roleKey === 'requester' && (
+        <Notice tone="danger" title="저장된 수량을 읽을 수 없어 이 요청을 진행할 수 없습니다">
+          검토로 이동하거나 승인 요청을 보낼 수 없습니다. 아직 승인 요청 전이라 예약된 수량은 없습니다.
+        </Notice>
+      )}
       {decidedNotice && (
         <div ref={decidedRef} tabIndex={-1} className="rc-focus-target">
           <Notice tone="success" role="status" title={decidedNotice.title}>{decidedNotice.body}</Notice>
@@ -368,6 +419,12 @@ export function RequestDetailPage() {
       {editing && form ? (
         <form ref={editRef} className="form card" noValidate onSubmit={(e) => { e.preventDefault(); if (!save.isPending) save.mutate(); }}>
           <h2>작성 내용 수정</h2>
+          {/* 지금 받는 주소는 선택 상자에 없으므로(사용 가능한 주소만 보임) 비워 두고 연다. 왜 비어 있는지 알린다. */}
+          {hold && (
+            <Notice tone="warning" title={`지금 받는 주소(${r.address.label})는 고를 수 없습니다`}>
+              '{addrSt?.label ?? r.address.status}' 상태인 주소라 출금 요청에 쓸 수 없습니다. {hold === 'waiting' ? '사용 가능해질 때까지 기다리거나, 사용 가능한 다른 받는 주소를 고르세요.' : '사용 가능한 다른 받는 주소를 고르세요.'}
+            </Notice>
+          )}
           <RequestForm value={form} onChange={setForm} error={save.error} requestId={r.id} />
           <ApiErrorNotice error={save.error} />
           <div className="form-actions">
@@ -417,7 +474,7 @@ export function RequestDetailPage() {
       {preSubmit && !editing && !can('submit') && checks && (
         <section className="card">
           <CheckList level={2} title="출금 전 점검" items={checks.items}
-            intro={mine && checks.items.some((c) => c.requiresReason) ? '「사유 필요」 표시가 있는 주의 항목은 검토로 이동한 뒤 진행 사유를 적어야 승인 요청을 보낼 수 있습니다.' : '지금 기준으로 점검한 결과입니다. 승인 요청 때 다시 점검해 그 결과를 승인자에게 보입니다.'} />
+            intro={checksIntro(mine, hold, checks.items)} />
         </section>
       )}
 
@@ -586,6 +643,8 @@ function Valuation({ r, preSubmit, currentKrw, price, assetPrice, balancesError 
     );
   }
   if (!preSubmit) return <div className="muted small" style={{ marginTop: 4 }}>승인 요청 전에 끝난 요청이라 평가액을 기록하지 않았습니다.</div>;
+  // 저장된 수량을 읽을 수 없으면 시세가 있어도 평가액을 계산할 수 없다(시세가 없다고 말하지 않는다).
+  if (r.amount === null) return <div className="small" style={{ marginTop: 4 }}><span className="warn-text" style={{ fontWeight: 600 }}>수량을 읽을 수 없어 평가액을 계산하지 않습니다</span></div>;
   if (balancesError) return <div className="muted small" style={{ marginTop: 4 }}>지금 시세를 불러오지 못해 평가액을 표시하지 않습니다.</div>;
   if (!price) return <div className="muted small" style={{ marginTop: 4 }}>시세를 불러오는 중…</div>;
   if (currentKrw === null) {

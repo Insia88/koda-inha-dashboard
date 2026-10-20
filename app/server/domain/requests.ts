@@ -182,12 +182,13 @@ export function allowedActions(r: any, approvals: any[], auth: AuthContext): Req
   const mine = r.created_by === auth.user.id;
   const can = (a: RequestAction) => TRANSITIONS[a].from.includes(r.status);
   if (mine && auth.perms.has('request.create')) {
-    // 받는 주소가 사용 가능 상태가 아니면(작성·검토 중에 사용 중지됨 등) 검토 이동·승인 요청은 서버가 거부하므로 내보이지 않는다.
-    // 내용 수정(다른 주소 고르기)·작성 단계로 되돌리기·취소는 남긴다.
+    // 받는 주소가 사용 가능 상태가 아니거나(작성·검토 중에 사용 중지됨 등) 저장된 수량을 읽을 수 없으면(앱 밖 저장 계층 변경, A-30)
+    // 검토 이동·승인 요청은 서버가 거부하므로 내보이지 않는다. 내용 수정(다른 주소·수량 입력)·작성 단계로 되돌리기·취소는 남긴다.
     const addressUsable = r.address_status === 'ACTIVE';
+    const amountReadable = displayAmount(r.amount_units, r.precision) !== null;
     for (const a of ['edit', 'review', 'back_to_draft', 'submit', 'cancel'] as RequestAction[]) {
       if (!can(a)) continue;
-      if ((a === 'review' || a === 'submit') && !addressUsable) continue;
+      if ((a === 'review' || a === 'submit') && (!addressUsable || !amountReadable)) continue;
       acts.push(a);
     }
   }
@@ -373,6 +374,18 @@ function addressNotActive(addr: { label: string; status: string; activeFrom: str
   return new AppError(422, 'ADDRESS_NOT_ACTIVE', `'${addr.label}' 주소는 아직 사용할 수 없습니다(현재: ${addr.status === 'PENDING_REVIEW' ? '확인 대기' : '사용 불가'}).`, '두 번째 담당자의 주소 확인이 끝난 뒤 요청하세요.', fields);
 }
 
+/**
+ * 검토 이동·승인 요청 전에 저장된 수량을 읽을 수 있는지 본다(422 AMOUNT_UNREADABLE).
+ * 앱 밖에서 저장 계층의 수량이 정수가 아닌 값(예: '0.5', 'abc')으로 바뀐 작성·검토 중 요청은 수량을 다시 입력하거나 취소해야 한다.
+ * 이 검사 없이 진행하면 수량 변환이 실패해 원인을 알 수 없는 500이 된다. 조회·수정·되돌리기·취소는 막지 않는다.
+ */
+function assertStoredAmountReadable(r: any, stage: 'DRAFT' | 'REVIEW') {
+  if (displayAmount(r.amount_units, r.precision) !== null) return;
+  throw new AppError(422, 'AMOUNT_UNREADABLE', '저장된 수량을 읽을 수 없어 진행할 수 없습니다.',
+    stage === 'REVIEW' ? '작성 단계로 되돌린 뒤 내용 수정에서 수량을 다시 입력하거나 요청을 취소하세요.' : '내용 수정에서 수량을 다시 입력하거나 요청을 취소하세요.',
+    [{ field: 'amount', message: '저장된 수량을 읽을 수 없습니다.' }]);
+}
+
 /** 입력값 검증: 자산·네트워크·주소·수량. 저장 계층에 넣기 전 서버 기준으로 다시 확인한다. */
 function validateDraft(db: DB, auth: AuthContext, input: { assetCode: string; networkCode: string; addressId: string; amount: string }, stage: AddressCheckStage = 'new') {
   const asset = getAsset(db, input.assetCode);
@@ -485,6 +498,7 @@ export function moveToReview(db: DB, cfg: AppConfig, auth: AuthContext, id: stri
   return tx(db, () => {
     const r = lockRow(db, auth, id, 'review', version);
     requireCreator(r, auth);
+    assertStoredAmountReadable(r, 'DRAFT');
     validateDraft(db, auth, { assetCode: r.asset_code, networkCode: r.network_code, addressId: r.address_id, amount: formatUnits(r.amount_units, r.precision) }, 'DRAFT');
     assertAvailable(db, r.wallet_id, r.asset_code, BigInt(r.amount_units), r.precision);
     bump(db, id, version, { status: 'REVIEW' });
@@ -507,6 +521,7 @@ export function submitForApproval(db: DB, cfg: AppConfig, auth: AuthContext, id:
   return tx(db, () => {
     const r = lockRow(db, auth, id, 'submit', input.version);
     requireCreator(r, auth);
+    assertStoredAmountReadable(r, 'REVIEW');
     validateDraft(db, auth, { assetCode: r.asset_code, networkCode: r.network_code, addressId: r.address_id, amount: formatUnits(r.amount_units, r.precision) }, 'REVIEW');
     const n = cfg.policy.addressBook.confirmTailLength;
     if (input.confirmTail.trim().toUpperCase() !== String(r.address_value).slice(-n).toUpperCase()) {

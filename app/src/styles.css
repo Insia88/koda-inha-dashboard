@@ -198,7 +198,7 @@ input[type='checkbox'] { width: 18px; height: 18px; min-height: 0; accent-color:
 .rail-compact .rail-label { font-size: 11px; }
 .rail-compact .rail-dot { width: 10px; height: 10px; }
 .rail-compact .rail-step::before { top: 4px; }
-.next-action { background: var(--ink); color: #fff; border-radius: var(--radius); padding: var(--s4) var(--s5); border-left: 6px solid var(--brand); }
+.next-action { background: var(--ink); color: #fff; border-radius: var(--radius); padding: var(--s4) var(--s5); border-left: 6px solid var(--brand); scroll-margin-top: 72px; }
 .next-action h2 { font-size: 14px; color: #b9f3dd; margin-bottom: 2px; }
 .next-action p { margin: 0; font-size: 16px; font-weight: 600; }
 .next-action .muted { color: #c9d4d0; font-weight: 400; font-size: 13px; margin-top: 4px; }

@@ -119,6 +119,12 @@ test('반려 사유 필수와 반려 결과 표시', async ({ page }) => {
   // 반려 버튼과 방금 채운 입력란에 있으므로 그것만으로는 반려가 실패해도 통과한다.
   const rejectedNotice = page.locator('.notice-danger').filter({ has: page.locator('.notice-title', { hasText: /^반려 사유$/ }) });
   await expect(rejectedNotice).toContainText(reason);
+  // 결정 카드(누른 반려 버튼)가 사라지므로 화면 위쪽의 결과 안내로 포커스가 옮겨지고, 그 안내가 화면 안에 보인다.
+  const rejectedResult = page.getByRole('status').filter({ hasText: '반려했습니다' });
+  await expect(rejectedResult).toBeVisible();
+  await expect(rejectedResult).toContainText('승인 요청 때 예약한 수량이 풀렸습니다');
+  await expect(page.locator('.rc-focus-target').filter({ has: rejectedResult })).toBeFocused();
+  await expect(rejectedResult).toBeInViewport();
   await expect(page.locator('.page-header .badge')).toHaveText('반려');
   await expect(page.getByRole('button', { name: '반려', exact: true })).toHaveCount(0);
   await expect(page.getByLabel('반려 사유')).toHaveCount(0);

@@ -1,9 +1,6 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { DatabaseSync } from 'node:sqlite';
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { loginAs, logout } from './helpers.ts';
+import { loginAs, logout, onDb } from './helpers.ts';
 
 // WP-11: 출금 전 점검(F8·F13·F14)과 승인 대상 지문(F10).
 // 요청자: 작성 화면 미리 보기 → 검토 단계의 점검·진행 사유(없으면 서버가 거부) → 승인 요청 뒤 지문 안내.
@@ -13,21 +10,6 @@ import { loginAs, logout } from './helpers.ts';
 // ab-07로 가는 요청은 승인되어 처리 완료되고, 저장 계층에서 수량을 바꾼 요청은 반려된다.
 
 const FINGERPRINT = /^[0-9A-F]{4} [0-9A-F]{4} [0-9A-F]{4} [0-9A-F]{4}$/;
-
-/**
- * E2E 서버가 쓰는 DB 파일(playwright.config.ts webServer의 DB_PATH와 같은 규칙, app/ 기준).
- * 앱 경로 밖의 변경(저장 계층에서 요청 내용을 바꿈·주소를 사용 대기로 되돌림)을 흉내 낼 때만 쓴다.
- */
-const E2E_DB_FILE = path.resolve(fileURLToPath(new URL('..', import.meta.url)), process.env.E2E_DB ?? './data/e2e.sqlite');
-function onDb(fn: (db: DatabaseSync) => void) {
-  const db = new DatabaseSync(E2E_DB_FILE);
-  try {
-    db.exec('PRAGMA busy_timeout = 5000;');
-    fn(db);
-  } finally {
-    db.close();
-  }
-}
 
 const tickApprovalChecks = async (page: Page) => {
   await page.getByLabel(/받는 곳과 목적이/).check();

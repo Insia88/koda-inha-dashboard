@@ -464,6 +464,55 @@ describe('저장된 수량을 정수로 읽을 수 없는 요청(앱 밖 저장 
     expect(c.status, JSON.stringify(c.body)).toBe(200);
     expect(c.body.status).toBe('CANCELLED');
   });
+
+  // 작성·검토 중 요청: 검토 이동·승인 요청은 내보이지 않고, 직접 보내도 원인을 알 수 없는 500이 아니라 422 AMOUNT_UNREADABLE이다.
+  // 아무것도 바뀌지 않는다(상태·버전·예약 수량·감사 기록). 수정·되돌리기·취소는 남는다.
+  const orgAudits = () => (ctx.db.prepare("SELECT COUNT(*) c FROM audit_log WHERE org_id = 'org-a'").get() as { c: number }).c;
+  const rowOf = (id: string) => ctx.db.prepare('SELECT status, version FROM withdrawal_requests WHERE id = ?').get(id) as { status: string; version: number };
+  const intentsOf = (id: string) => (ctx.db.prepare('SELECT COUNT(*) c FROM request_intents WHERE request_id = ?').get(id) as { c: number }).c;
+  for (const bad of ['abc', '0.5']) {
+    it(`does not offer review for a draft storing '${bad}' and refuses a direct review with 422 AMOUNT_UNREADABLE; editing the amount makes it reviewable again`, async () => {
+      setAmount('wr-6', bad);
+      const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
+      const got = (await han.get('/api/requests/wr-6')).body;
+      expect(got).toMatchObject({ status: 'DRAFT', amount: null, checks: null });
+      expect(got.allowedActions).toEqual(['edit', 'cancel']);
+      const before = { row: rowOf('wr-6'), reserved: reserved(ctx.db, 'w-a-kaia', 'KAIA'), audits: orgAudits() };
+      const rv = await han.post('/api/requests/wr-6/review', { version: got.version });
+      expect(rv.status, JSON.stringify(rv.body)).toBe(422);
+      expect(rv.body.error).toMatchObject({
+        code: 'AMOUNT_UNREADABLE', message: '저장된 수량을 읽을 수 없어 진행할 수 없습니다.',
+        action: '내용 수정에서 수량을 다시 입력하거나 요청을 취소하세요.', fields: [{ field: 'amount', message: '저장된 수량을 읽을 수 없습니다.' }],
+      });
+      expect({ row: rowOf('wr-6'), reserved: reserved(ctx.db, 'w-a-kaia', 'KAIA'), audits: orgAudits() }).toEqual(before);
+      // 내용 수정에서 수량을 다시 입력하면 검토로 이동할 수 있다.
+      const put = await han.put('/api/requests/wr-6', { assetCode: 'KAIA', networkCode: 'KAIA', addressId: 'ab-06', amount: '10000', purpose: '파트너 프로젝트 지원금 (모의)', version: got.version });
+      expect(put.status, JSON.stringify(put.body)).toBe(200);
+      expect(put.body.amount).toBe('10000');
+      expect(put.body.allowedActions).toEqual(['edit', 'review', 'cancel']);
+      const ok = await han.post('/api/requests/wr-6/review', { version: put.body.version });
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect(ok.body.status).toBe('REVIEW');
+    });
+
+    it(`does not offer submit for an in-review request storing '${bad}' and refuses a direct submit with 422 AMOUNT_UNREADABLE (nothing reserved); back to draft still works`, async () => {
+      setAmount('wr-5', bad);
+      const han = api(ctx.app, await login(ctx.app, 'u-a-han'));
+      const got = (await han.get('/api/requests/wr-5')).body;
+      expect(got).toMatchObject({ status: 'REVIEW', amount: null, checks: null });
+      expect(got.allowedActions).toEqual(['back_to_draft', 'cancel']);
+      const before = { row: rowOf('wr-5'), reserved: reserved(ctx.db, 'w-a-xrp', 'XRP'), audits: orgAudits(), intents: intentsOf('wr-5') };
+      const sub = await han.post('/api/requests/wr-5/submit', { version: got.version, confirmTail: tail(got.address.address), ackIrreversible: true, checkReasons: { first_use: '거래처와 전화로 주소를 대조했습니다' } });
+      expect(sub.status, JSON.stringify(sub.body)).toBe(422);
+      expect(sub.body.error).toMatchObject({ code: 'AMOUNT_UNREADABLE', action: '작성 단계로 되돌린 뒤 내용 수정에서 수량을 다시 입력하거나 요청을 취소하세요.', fields: [{ field: 'amount' }] });
+      expect({ row: rowOf('wr-5'), reserved: reserved(ctx.db, 'w-a-xrp', 'XRP'), audits: orgAudits(), intents: intentsOf('wr-5') }).toEqual(before);
+      expect(ctx.custody.submissions).toBe(0);
+      const back = await han.post('/api/requests/wr-5/back-to-draft', { version: got.version });
+      expect(back.status, JSON.stringify(back.body)).toBe(200);
+      expect(back.body).toMatchObject({ status: 'DRAFT', amount: null });
+      expect(back.body.allowedActions).toEqual(['edit', 'cancel']);
+    });
+  }
 });
 
 describe('결정 본문의 지문이 다르면 감사 기록을 남긴다(409 INTENT_CHANGED)', () => {

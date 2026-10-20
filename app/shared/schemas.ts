@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { RECEIVED_VIA_VALUES, VERIFIED_VIA_VALUES } from './terms.ts';
+import { cleanText, reasonError } from './text.ts';
 
 /**
  * 짝이 맞지 않는 UTF-16 서로게이트(잘린 이모지 등)가 없는 올바른 문자열인지 판정한다.
@@ -20,40 +21,8 @@ export function isWellFormedText(s: string): boolean {
   return true;
 }
 
-/**
- * 보이지 않는 서식 문자(\p{Cf}: 폭 없는 공백 U+200B, 방향 제어 문자 U+202E, BOM 등)와, 글자로 분류되지만 화면에
- * 아무것도 보이지 않는 채움 문자(한글 채움 U+115F·U+1160·U+3164·U+FFA0, 점자 빈칸 U+2800)를 지운다.
- * 사람이 읽고 판단하는 글(사유·메모·이름)에 보이지 않거나 뒤집혀 보이는 글자가 섞이지 않게 한다.
- */
-const INVISIBLE_CHARS = /[\p{Cf}ᅟᅠㅤﾠ⠀]/gu;
-export function stripFormatChars(s: string): string {
-  return s.replace(INVISIBLE_CHARS, '');
-}
-
-/** 글자(\p{L})와 숫자(\p{N})의 개수. 공백·문장부호·기호·보이지 않는 문자는 세지 않는다. */
-export function letterDigitCount(s: string): number {
-  return (s.match(/[\p{L}\p{N}]/gu) ?? []).length;
-}
-
-/** 사람이 읽고 판단하는 글(사유·메모·이름): 보이지 않는 서식 문자를 지우고 앞뒤 공백을 없앤 값. 저장·감사 기록에도 이 값을 쓴다. */
-export function cleanText(s: string): string {
-  return stripFormatChars(s).trim();
-}
-
-/** 필수 사유·메모의 최소 글자 수(설계 가정). 글자·숫자만 센다. */
-export const REASON_MIN_LETTERS = 5;
-
-/**
- * 필수 사유·메모 점검(cleanText를 거친 값 기준). 맞으면 null, 모자라면 보일 문구.
- * - 지운 뒤 길이가 min자보다 짧다(빈 값, 폭 없는 공백만 넣은 값 등): short 문구
- * - 길이는 되지만 글자·숫자가 min자보다 적다(문장부호·공백만 넣은 값 등): '<label>에 글자·숫자를 N자 이상 넣어 주세요.'
- */
-export function reasonError(cleaned: string, opts: { label: string; short: string; min?: number }): string | null {
-  const min = opts.min ?? REASON_MIN_LETTERS;
-  if (cleaned.length < min) return opts.short;
-  if (letterDigitCount(cleaned) < min) return `${opts.label}에 글자·숫자를 ${min}자 이상 넣어 주세요.`;
-  return null;
-}
+// 사유·메모·이름의 보이지 않는 문자 제거와 필수 사유 점검은 화면도 같이 쓰므로 zod를 쓰지 않는 shared/text.ts에 둔다.
+export { cleanText, letterDigitCount, REASON_MIN_LETTERS, reasonError, stripFormatChars } from './text.ts';
 
 /** 깨진 문자(짝 없는 서로게이트)가 든 입력에 붙이는 항목 오류 문구 */
 export const brokenTextMessage = (label: string) => `${label}에 깨진 문자(잘린 이모지 등)가 들어 있습니다. 그 부분을 지우고 다시 입력하세요.`;

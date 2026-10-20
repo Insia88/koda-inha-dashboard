@@ -151,7 +151,13 @@ function ChecksPreview({ value, requestId, amountReadable }: { value: RequestFor
     staleTime: 30_000,
   });
   if (!value.addressId || !amountReadable) return null;
-  if (q.isError) return <p className="muted small" style={{ margin: 0 }}>출금 전 점검 미리 보기를 불러오지 못했습니다. 검토 단계에서 다시 보여 드립니다.</p>;
+  if (q.isError) {
+    // 고른 받는 주소를 지금 쓸 수 없으면(그 사이 사용 중지 등) 검토 단계로 갈 수 없으므로 '검토 단계에서 다시 보여 드립니다'라고 하지 않는다.
+    if (q.error instanceof ApiError && q.error.code === 'ADDRESS_NOT_ACTIVE') {
+      return <p className="warn-text small" style={{ margin: 0 }}>고른 받는 주소를 지금 쓸 수 없어 출금 전 점검을 보여 드리지 않습니다. 사용 가능한 다른 받는 주소를 고르세요.</p>;
+    }
+    return <p className="muted small" style={{ margin: 0 }}>출금 전 점검 미리 보기를 불러오지 못했습니다. 검토 단계에서 다시 보여 드립니다.</p>;
+  }
   if (!q.data) return null;
   const needsReason = q.data.items.some((c) => c.requiresReason);
   return (

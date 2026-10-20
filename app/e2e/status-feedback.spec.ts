@@ -1,14 +1,17 @@
 import { randomBytes } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { loginAs, logout } from './helpers.ts';
+import { loginAs, logout, onDb } from './helpers.ts';
 import { middleSegment } from '../shared/address-rules.ts';
 
 // 결과·오류 안내와 포커스(G2 후속): 처리 결과가 누른 자리에서 보이고, 받는 주소를 쓸 수 없을 때 무엇을 해야 하는지 알린다.
 // - 작성 중 요청의 받는 주소가 사용 중지되면 요청자 안내·다음 할 일·주소 상태 배지(「검토로 이동」은 내놓지 않음), 화면을 연 사이 중지되면 거부 안내로 포커스
 // - 주소 확인 뒤 결과 안내로 포커스, 승인(1/2·마지막) 뒤 결과 안내로 포커스와 다음 할 일
 // - 주소록 목록에서 유사 주소(ab-13)에 '비슷한 주소 있음' 표시, 흉내 낸 원래 주소(ab-02)에는 없음
-// 바꾸는 데이터: 이 파일에서 만든 주소 3건과 그 주소로 가는 요청 3건뿐이다(다른 검사가 쓰는 시드 주소·요청은 읽기만 한다).
+// - (리뷰 2차) 검토로 이동·되돌리기·내용 수정 저장 뒤 「다음 할 일」로 포커스, 저장된 수량을 읽을 수 없는 초안의 안내와 내용 수정,
+//   확인 때 0원·소액 입금 주소로 드러난 주소의 거절 안내(확인 버튼 없음)·목록 표시·거절 결과 안내로 포커스
+// 바꾸는 데이터: 이 파일에서 만든 주소 6건과 그 주소로 가는 요청 5건, 그중 한 주소에서 들어온 0 USDC 모의 입금 1건과
+// 저장 계층에서 수량을 바꾼 초안 1건뿐이다(다른 검사가 쓰는 시드 주소·요청은 읽기만 한다).
 // 다른 검사의 점검 결과(최근 요청 수 등)에 영향을 주지 않도록 파일 이름 순서상 데스크톱 검사의 마지막에 돈다.
 
 async function apiPost(page: Page, url: string, body: unknown) {
@@ -62,6 +65,21 @@ test('작성 중 요청의 받는 주소가 사용 중지되면: 요청자 안�
   // 진행할 수 없는 행동은 처음부터 내놓지 않는다(서버가 허용 행동에서 검토를 뺀다).
   await expect(page.getByRole('button', { name: '검토로 이동' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '내용 수정' })).toBeVisible();
+  // 읽기 전용 점검 안내도 이 주소로는 진행할 수 없다고 쓴다(검토로 이동한 뒤 사유를 적으라고 하지 않는다).
+  await expect(page.locator('.rc-intro').first()).toContainText('이 주소로는 진행할 수 없으며, 다른 받는 주소로 바꾸면 그 주소로 다시 점검합니다.');
+  await expect(page.getByText('검토로 이동한 뒤 진행 사유를 적어야')).toHaveCount(0);
+
+  // 「내용 수정」: 사용 중지된 주소는 선택 상자에 없으므로 비워 둔 채 열고 왜 비었는지 알린다. 미리 보기는 갈 수 없는 '검토 단계'를 말하지 않는다.
+  await page.getByRole('button', { name: '내용 수정' }).click();
+  await expect(page.locator('#addressId')).toHaveValue('');
+  await expect(page.locator('.notice').filter({ hasText: '지금 받는 주소(E2E 사용 중지될 주소)는 고를 수 없습니다' })).toContainText("'사용 중지' 상태인 주소라 출금 요청에 쓸 수 없습니다. 사용 가능한 다른 받는 주소를 고르세요.");
+  await expect(page.getByText('검토 단계에서 다시 보여 드립니다')).toHaveCount(0);
+  // 고르지 않고 저장하면 같은 화면의 받는 주소 칸 오류로 알린다('내용 수정에서 …' 같은, 이미 하고 있는 행동을 시키는 안내가 아니다).
+  await page.getByRole('button', { name: '저장' }).click();
+  await expect(page.locator('#addressId')).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.locator('#addressId-error')).toHaveText('받는 주소를 선택하세요.');
+  await expect(page.getByText('내용 수정에서 다른 주소를 고르거나')).toHaveCount(0);
+  expect((await (await page.request.get(`/api/requests/${draft.id}`)).json()).address.id).toBe(a.id);
 });
 
 test('화면을 연 사이 받는 주소가 사용 중지되면: 「검토로 이동」 거부 안내가 버튼 위에 보이고 포커스, 요청은 그대로', async ({ page, browser }) => {
@@ -175,4 +193,125 @@ test('주소록 목록: 확인 대기 중인 유사 주소(ab-13)에 \'비슷한
   await expect(genuine.locator('.adr-lookalike')).toHaveCount(0);
   // 상태 배지는 행마다 하나다.
   await expect(look.locator('.badge')).toHaveCount(1);
+});
+
+/** 한지수가 등록한 주소를 오민재가 확인해 사용 가능으로 만든다(E2E 서버는 사용 대기 0시간). */
+async function usableAddress(page: Page, label: string) {
+  const a = await activeAddress(page, label);
+  await loginAs(page, '오민재');
+  await apiPost(page, `/api/addresses/${a.id}/review`, { decision: 'approve', version: a.version, confirmTail: a.address.slice(-6), confirmMiddle: middleSegment(a.address).text, note: '' });
+  await logout(page);
+  return a;
+}
+
+test('검토로 이동·작성 단계로 되돌리기·내용 수정 저장 뒤: 누른 버튼이 사라진 자리 대신 바뀐 「다음 할 일」로 포커스가 옮겨진다', async ({ page }) => {
+  const a = await usableAddress(page, 'E2E 단계 이동 포커스 주소');
+  await loginAs(page, '한지수');
+  const draft = await apiPost(page, '/api/requests', { assetCode: 'USDC', networkCode: 'ETHEREUM', addressId: a.id, amount: '1', purpose: 'E2E 단계 이동 포커스 확인' });
+  await page.goto(`/requests/${draft.id}`);
+  const next = page.locator('.next-action');
+  await expect(next).toContainText('「검토로 이동」을 누르세요');
+
+  await page.getByRole('button', { name: '검토로 이동' }).click();
+  await expect(next).toContainText('끝 6자리를 입력해 승인 요청을 보내세요');
+  await expect(next).toBeFocused();
+  await expect(next).toBeInViewport();
+
+  // 확인 카드 아래의 「작성 단계로 되돌리기」
+  await page.getByRole('button', { name: '작성 단계로 되돌리기' }).click();
+  await expect(next).toContainText('「검토로 이동」을 누르세요');
+  await expect(next).toBeFocused();
+  await expect(next).toBeInViewport();
+
+  await page.getByRole('button', { name: '내용 수정' }).click();
+  await page.getByRole('textbox', { name: /^요청 목적/ }).fill('E2E 단계 이동 포커스 확인(수정함)');
+  await page.getByRole('button', { name: '저장' }).click();
+  await expect(page.locator('.dl')).toContainText('E2E 단계 이동 포커스 확인(수정함)');
+  await expect(next).toBeFocused();
+  await expect(next).toBeInViewport();
+  // 정리: 이 초안은 취소한다.
+  const cur = await (await page.request.get(`/api/requests/${draft.id}`)).json();
+  await apiPost(page, `/api/requests/${draft.id}/cancel`, { version: cur.version });
+});
+
+test('저장된 수량을 읽을 수 없는 초안: 수량은 —, 오류 화면 없이 안내와 할 일, 「검토로 이동」 없음, 「내용 수정」은 빈 수량으로 열리고 다시 입력하면 진행할 수 있다', async ({ page }) => {
+  const a = await usableAddress(page, 'E2E 읽을 수 없는 수량 주소');
+  await loginAs(page, '한지수');
+  const draft = await apiPost(page, '/api/requests', { assetCode: 'USDC', networkCode: 'ETHEREUM', addressId: a.id, amount: '2', purpose: 'E2E 읽을 수 없는 수량 초안' });
+  // 앱 경로 밖에서 저장된 수량이 정수가 아닌 값(최소 단위 대신 표시 단위로 쓴 실수 등)으로 바뀐다.
+  onDb((db) => db.prepare('UPDATE withdrawal_requests SET amount_units = ? WHERE id = ?').run('0.5', draft.id));
+
+  await page.goto(`/requests/${draft.id}`);
+  await expect(page.getByRole('heading', { name: `출금 요청 ${draft.refNo}` })).toBeVisible();
+  await expect(page.getByText('서버에서 요청을 처리하지 못했습니다')).toHaveCount(0);
+  await expect(page.locator('.big-amount')).toHaveText('—');
+  await expect(page.getByText('수량을 읽을 수 없어 평가액을 계산하지 않습니다')).toBeVisible();
+  await expect(page.getByText(/시세가 없어 지금 평가액을/)).toHaveCount(0);
+  await expect(page.locator('.notice-danger').filter({ hasText: '저장된 수량을 읽을 수 없어 이 요청을 진행할 수 없습니다' })).toBeVisible();
+  await expect(page.locator('.next-action')).toContainText('「내용 수정」에서 수량을 다시 입력하거나 요청을 취소하세요.');
+  await expect(page.getByRole('button', { name: '검토로 이동' })).toHaveCount(0);
+  const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+  expect(axe.violations.map((v) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(' | ')}`)).toEqual([]);
+
+  // 「내용 수정」: 수량 칸은 비어 있고(읽을 수 없는 값을 넣지 않음) 받는 주소는 그대로다.
+  await page.getByRole('button', { name: '내용 수정' }).click();
+  await expect(page.locator('#amount')).toHaveValue('');
+  await expect(page.locator('#addressId')).toHaveValue(a.id);
+  await page.locator('#amount').fill('2');
+  await page.getByRole('button', { name: '저장' }).click();
+  await expect(page.locator('.big-amount')).toHaveText('2 USDC');
+  await expect(page.locator('.next-action')).toContainText('「검토로 이동」을 누르세요');
+  await expect(page.locator('.next-action')).toBeFocused();
+  await expect(page.getByRole('button', { name: '검토로 이동' })).toBeVisible();
+  // 정리: 이 초안은 취소한다.
+  const cur = await (await page.request.get(`/api/requests/${draft.id}`)).json();
+  await apiPost(page, `/api/requests/${draft.id}/cancel`, { version: cur.version });
+});
+
+test('확인 때 0원·소액 입금을 보낸 주소와 같다고 드러난 주소: 확인 버튼 대신 거절 안내, 목록의 위험 표시, 거절 뒤 결과 안내로 포커스', async ({ page }) => {
+  const a = await activeAddress(page, 'E2E 소액 입금 주소와 같아진 주소');
+  // 등록 뒤에 같은 주소에서 0 USDC 입금이 들어온다(모의 거래 내역).
+  onDb((db) => db.prepare(
+    "INSERT INTO transactions (id, org_id, wallet_id, type, asset_code, network_code, amount_units, counterparty, status, occurred_at, request_id, tx_ref, counterparty_address) VALUES (?, 'org-a', 'w-a-eth', 'deposit', 'USDC', 'ETHEREUM', '0', '알 수 없는 보낸 주소 (모의)', 'completed', ?, NULL, ?, ?)",
+  ).run(`tx-e2e-dust-${a.id}`, new Date().toISOString(), `MOCK-TX-E2E-DUST-${a.id.slice(0, 8)}`, a.address));
+
+  await loginAs(page, '오민재');
+  await page.goto(`/addresses/${a.id}`);
+  await page.getByLabel('원본 주소의 끝 6자리').fill(a.address.slice(-6));
+  await page.getByLabel(/원본 주소의 가운데 8자리/).fill(middleSegment(a.address).text);
+  await page.getByRole('button', { name: /사용 가능으로 확인/ }).click();
+  // 서버가 거부하고 찾은 결과를 저장한다. 다시 불러온 화면에서 확인 버튼이 사라지므로 거부 안내로 포커스가 옮겨진다.
+  const refused = page.getByRole('alert').filter({ hasText: '최근 0원·소액 입금을 보낸 주소와 같습니다' });
+  await expect(refused).toContainText('이 등록은 확인하지 말고 사유와 함께 거절하세요');
+  await expect(page.locator('.rc-focus-target').filter({ has: refused })).toBeFocused();
+  await expect(refused).toBeInViewport();
+  await expect(page.getByRole('button', { name: /사용 가능으로 확인/ })).toHaveCount(0);
+  await expect(page.getByLabel('원본 주소의 끝 6자리')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '등록 거절' })).toBeVisible();
+
+  // 다음 확인 담당자가 새로 열어도 같다: 확인 버튼 없이 점검 결과와 할 일(거절)이 보인다.
+  await page.reload();
+  const card = page.locator('section.card-action');
+  await expect(card.locator('.notice-danger').filter({ hasText: '최근 0원·소액 입금을 보낸 주소와 같습니다' })).toBeVisible();
+  await expect(card).toContainText('최근 0원·소액 입금을 보낸 주소와 같아 이 주소는 확인할 수 없습니다. 거절 사유를 적고 「등록 거절」을 누르세요.');
+  await expect(page.getByRole('button', { name: /사용 가능으로 확인/ })).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: /^거절 사유/ })).toBeVisible();
+
+  // 목록: 이 행에 위험 표시와 설명이 붙는다(유사 주소 표시보다 강한 신호). 상태 배지는 하나다.
+  await page.goto('/addresses');
+  const row = page.getByRole('row').filter({ has: page.getByRole('link', { name: 'E2E 소액 입금 주소와 같아진 주소', exact: true }) });
+  const marker = row.locator('.adr-poison');
+  await expect(marker).toContainText('0원·소액 입금 주소와 같음');
+  await expect(marker).toContainText('최근 0원·소액 입금을 보낸 주소와 같습니다. 주소 오염 공격에서 자주 보이는 패턴이라 이 주소는 확인할 수 없습니다.');
+  await expect(row.locator('.badge')).toHaveCount(1);
+
+  // 거절: 확인 카드(누른 버튼)가 사라지므로 결과 안내로 포커스가 옮겨진다.
+  await row.getByRole('link').click();
+  await page.getByRole('textbox', { name: /^거절 사유/ }).fill('최근 0원 입금을 보낸 주소와 같아 등록을 거절합니다');
+  await page.getByRole('button', { name: '등록 거절' }).click();
+  const rejected = page.getByRole('status').filter({ hasText: '등록을 거절했습니다' });
+  await expect(rejected).toBeVisible();
+  await expect(page.locator('.rc-focus-target').filter({ has: rejected })).toBeFocused();
+  await expect(rejected).toBeInViewport();
+  await expect(page.getByRole('heading', { name: '주소 확인', exact: true })).toHaveCount(0);
 });

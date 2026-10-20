@@ -99,6 +99,24 @@ describe('shared: cleanText·reasonError', () => {
     expect(stopReasonError(ZW5)).toBe('정지 사유를 5자 이상 입력하세요.');
     expect(stopReasonError(DOTS)).toBe('정지 사유에 글자·숫자를 5자 이상 넣어 주세요.');
     expect(stopReasonError(`${RLO}요청하지 않은 등록`)).toBeUndefined();
+    // 한글 채움 문자·점자 빈칸은 글자로 분류되지만 화면에 보이지 않는다. 화면 점검도 서버처럼 지운 뒤 센다(비어 보이는 사유로 정지 확인 대화상자를 열지 않는다).
+    expect(stopReasonError('ㅤ'.repeat(5))).toBe('정지 사유를 5자 이상 입력하세요.');
+    expect(stopReasonError('⠀'.repeat(6))).toBe('정지 사유를 5자 이상 입력하세요.');
+    expect(stopReasonError(`가나${'ᅠ'.repeat(4)}다`)).toBe('정지 사유를 5자 이상 입력하세요.');
+    expect(stopReasonError('가ㅤ나ㅤ다ㅤ라ㅤ마')).toBeUndefined();
+  });
+
+  it('the screen stop-reason check accepts exactly what the server stop schema accepts, with the same message', () => {
+    const samples = [
+      '', ' ', ZW5, DOTS, PUNCT, RLO.repeat(6), '가. 나. 다. 라.', `${RLO}요청하지 않은 등록`, GOOD, 'abc12', '12345', '가나다라',
+      'ㅤ'.repeat(5), 'ᅟ'.repeat(5), 'ᅠ'.repeat(5), 'ﾠ'.repeat(5), '⠀'.repeat(6), `ㅤ${'.'.repeat(6)}`, '가ㅤ나ㅤ다ㅤ라ㅤ마', `  ${'⠀'.repeat(3)}가나다라마${'​'.repeat(2)}  `,
+    ];
+    for (const s of samples) {
+      const server = addressStopSchema.safeParse({ version: 1, reason: s });
+      const screen = stopReasonError(s);
+      expect(screen === undefined, JSON.stringify(s)).toBe(server.success);
+      if (!server.success) expect([screen], JSON.stringify(s)).toEqual(server.error.issues.map((i) => i.message));
+    }
   });
 });
 
