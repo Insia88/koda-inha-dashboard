@@ -73,6 +73,7 @@ src/      pages/ components/ (화면)   tests/ (vitest)   e2e/ (Playwright)
 config/   policy.json(승인·주소 정책 가정) insight-policy.json(인사이트 운영 설정)
 docs/     api.md assumptions.md traceability.md tab-design.md operations.md experiments.md
           deploy-vercel.md(공개 데모) oss-tracking.md(오픈소스 후보·결정 기록)
+          structure-benchmark.md(다른 법인용 대시보드와의 구조 비교, A1 근거)
 ```
 
 설계 규칙은 [DESIGN.md](DESIGN.md), 상호작용 소유권·검증은 [UX-CONTRACT.md](UX-CONTRACT.md)(정적 검사 설정 `premium-ui.json`), 오픈소스 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). 검토한 오픈소스 후보와 결정(적용·보류·제외), 버전 고정·출시 2주·라이선스 규칙은 [docs/oss-tracking.md](docs/oss-tracking.md)에 기록한다.
