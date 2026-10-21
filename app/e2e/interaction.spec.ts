@@ -501,3 +501,30 @@ test('전역 계약: 경로별 문서 제목, 스크롤바 기준, 공통 textar
   const holdWide = (await page.getByRole('heading', { name: '보유 자산' }).boundingBox())!;
   expect(holdWide.y).toBeLessThan(400);
 });
+
+test('화면 이동 중 떠나는 목록의 필터 변경은 다음 화면 주소에 붙지 않는다(flow.spec 간헐 실패 재현, A2b)', async ({ page }) => {
+  // 라우터는 화면 전환을 transition으로 그리므로, 「주소 등록」을 누른 직후 주소창은 이미 /addresses/new인데 주소록 목록은 잠시 남아 입력을 받는다.
+  // 그 사이 목록의 '자산' 필터가 바뀌면 예전에는 그 값이 새 화면 주소(?assetCode=USDC)에 붙고, 등록 양식의 자산은 비어 있었다.
+  // 클릭과 필터 변경을 한 작업 안에서 일으켜 그 틈을 매번 재현한다.
+  await loginAs(page, '한지수');
+  await page.goto('/addresses');
+  await expect(page.getByRole('heading', { name: '보낼 곳 주소록', level: 1 })).toBeVisible();
+  const listAsset = page.locator('form.toolbar label', { has: page.locator('.sr-only', { hasText: /^자산$/ }) }).locator('select');
+  await expect(listAsset.locator('option[value="USDC"]')).toHaveCount(1);
+  const at = await page.evaluate(() => {
+    const filter = [...document.querySelectorAll<HTMLLabelElement>('form.toolbar label')].find((l) => l.querySelector('.sr-only')?.textContent === '자산')!.querySelector('select')!;
+    document.querySelector<HTMLAnchorElement>('a[href="/addresses/new"]')!.click();
+    filter.value = 'USDC';
+    filter.dispatchEvent(new Event('change', { bubbles: true }));
+    return { path: location.pathname, listFilterStillMounted: filter.isConnected };
+  });
+  // 재현 조건: 변경 시점에 주소창은 이미 다음 화면이고 목록 필터는 아직 화면에 있었다.
+  expect(at).toEqual({ path: '/addresses/new', listFilterStillMounted: true });
+  await expect(page.getByRole('heading', { name: '주소 등록', level: 1 })).toBeVisible();
+  await expect(page).toHaveURL(/\/addresses\/new$/);
+  const formAsset = page.locator('#assetCode');
+  await expect(formAsset).toHaveValue('');
+  await formAsset.selectOption('USDC');
+  await expect(formAsset).toHaveValue('USDC');
+  await expect(page.getByText('네트워크를 잘못 고르면')).toBeVisible();
+});

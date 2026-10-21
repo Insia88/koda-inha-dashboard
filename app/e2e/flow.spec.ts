@@ -13,6 +13,8 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   // 2) 주소 등록: 네트워크 불일치 안내 → 올바른 주소 → 대조 확인
   await page.getByRole('link', { name: '보낼 곳 주소록' }).click();
   await page.getByRole('link', { name: '주소 등록' }).click();
+  // 다음 화면 제목이 보인 뒤에 고른다. 그 전에는 떠나는 주소록의 '자산' 필터도 같은 이름으로 잡힐 수 있다(A2b, docs/traceability.md).
+  await expect(page.getByRole('heading', { name: '주소 등록', level: 1 })).toBeVisible();
   await page.getByRole('combobox', { name: /^자산/ }).selectOption('USDC');
   await expect(page.getByText('네트워크를 잘못 고르면')).toBeVisible();
   await page.getByRole('combobox', { name: /^네트워크/ }).selectOption('ETHEREUM');
@@ -66,6 +68,7 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   // 4) 요청 작성 → 검토 → 승인 요청
   await loginAs(page, '한지수');
   await page.getByRole('link', { name: '출금 요청 작성' }).first().click();
+  await expect(page.getByRole('heading', { name: '출금 요청 작성', level: 1 })).toBeVisible();
   await page.getByRole('combobox', { name: /^자산/ }).selectOption('USDC');
   await page.getByRole('combobox', { name: /^네트워크/ }).selectOption('ETHEREUM');
   await expect(page.getByText('거래처 안내문의 네트워크 이름이 이 목록과 다르면, 거래처에 어느 블록체인 네트워크로 받는지 물어 확인하세요.', { exact: false })).toBeVisible();
