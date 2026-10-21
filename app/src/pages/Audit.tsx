@@ -8,7 +8,8 @@ import { DateInput } from '../components/DateInput.tsx';
 import { SearchField } from '../components/SearchField.tsx';
 import { dateTime } from '../format.ts';
 // 행동 이름은 CSV 내보내기(서버)와 같은 단일 출처를 쓴다.
-import { actionLabel } from '../../shared/terms.ts';
+import { actionLabel, AUDIT_EXPORT_TEXT, AUDIT_INTEGRITY_TEXT } from '../../shared/terms.ts';
+import { DecisionEvidenceLine } from '../components/DecisionEvidence.tsx';
 
 export function AuditPage() {
   const me = useMe();
@@ -27,6 +28,8 @@ export function AuditPage() {
         description="요청·승인·주소·역할 변경과 로그인 기록입니다. 기록은 추가만 가능하며 수정·삭제할 수 없습니다."
         actions={me.permissions.includes('audit.export') && <a className="btn" href={`/api/audit/export.csv?${exportParams}`} download><IconDownload size={16} aria-hidden="true" />CSV 내보내기{filtered ? ' (필터 적용)' : ''}</a>}
       />
+      {/* 내보내기 권한이 있으면: 내보낸 파일 맨 위에 붙는 표지가 무엇을 담는지(A2-4). 표지는 내보낼 때 만든 설명이며 저장하지 않는다. */}
+      {me.permissions.includes('audit.export') && <p className="muted small audit-export-hint">{AUDIT_EXPORT_TEXT.screenHint}</p>}
       {/* 내보내기 권한이 없는 역할(조직 관리자 등): 버튼이 왜 없는지와 누구에게 부탁하는지(A1). 권한은 바꾸지 않는다. */}
       {me.permissions.includes('audit.read') && !me.permissions.includes('audit.export') && (
         <p className="muted small audit-no-export">이 역할에는 CSV 내보내기 권한이 없습니다. 감사 증빙 파일이 필요하면 감사 담당자에게 요청하세요.</p>
@@ -34,14 +37,14 @@ export function AuditPage() {
       {/* 해시 연결 확인은 '끊긴 곳이 없음'까지만 말한다. 빠진 기록이 없다(완전함)는 뜻으로 읽히는 말은 쓰지 않는다(바로 아래 한계 문장 참고). */}
       <div className="audit-integrity" role="status">
         {verify.data ? (verify.data.ok ? <Badge tone="success">무결성 확인됨</Badge> : <Badge tone="danger">무결성 오류</Badge>) : <Badge tone="neutral">무결성 확인 중</Badge>}
-        <span className="small muted">{verify.data ? (verify.data.ok ? `기록 ${verify.data.count}건이 각각 바로 앞 기록과 끊김 없이 이어져 있습니다(해시 연결 확인).` : `${verify.data.brokenAtNo}번 기록에서 해시가 맞지 않습니다. 보안 담당자에게 알리세요.`) : ''}</span>
+        <span className="small muted">{verify.data ? (verify.data.ok ? AUDIT_INTEGRITY_TEXT.ok(verify.data.count) : AUDIT_INTEGRITY_TEXT.broken(verify.data.brokenAtNo)) : ''}</span>
       </div>
       {/* 확인 범위: 해시가 키 없는 SHA-256이라, 이 확인은 해시 연결이 끊긴 곳만 찾는다. 가장 최근 기록을 지우거나,
           기록을 고친 뒤 그 뒤의 prev_hash·hash를 모두 다시 계산하면 연결은 그대로라 드러나지 않는다.
           둘 다 앱 밖에 보관한 건수·마지막 해시와 대조해야 알 수 있다. */}
       {verify.data?.ok && (
         <div className="audit-scope small">
-          <p>단, 가장 최근 기록을 지웠거나 기록을 고친 뒤 뒤쪽 해시를 모두 다시 계산했다면 이 확인으로는 찾지 못합니다. 아래 보관용 값(기록 건수·마지막 기록 해시)을 앱 밖에 적어 두었다가 다음 확인 때 대조하세요.</p>
+          <p>{AUDIT_INTEGRITY_TEXT.scope('아래')}</p>
           {verify.data.headHash && (
             <p className="audit-anchor">보관용 값: 기록 {verify.data.count}건 · 마지막 기록 해시 <span className="mono">{verify.data.headHash}</span></p>
           )}
@@ -71,7 +74,11 @@ export function AuditPage() {
                     <td className="nowrap aud-when" data-label="일시 (KST)">{dateTime(e.createdAt)}</td>
                     <td className="aud-actor" data-label="수행자">{e.actorName}</td>
                     <td className="nowrap aud-action">{actionLabel(e.action)}</td>
-                    <td className="cell-wrap aud-summary">{e.summary}{e.detail?.reason && <div className="muted small">사유: {e.detail.reason}</div>}</td>
+                    <td className="cell-wrap aud-summary">
+                      {e.summary}{e.detail?.reason && <div className="muted small">사유: {e.detail.reason}</div>}
+                      {/* 승인·반려 기록의 결정 근거(A2-3, 읽을 때 계산·해시 대상 아님). CSV '결정 근거' 열과 같은 문구 */}
+                      {e.evidence && <DecisionEvidenceLine evidence={e.evidence} showRoles />}
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -51,3 +51,17 @@ export function relative(iso: string | null | undefined) {
   if (h < 24) return `${h}시간 전`;
   return `${Math.round(h / 24)}일 전`;
 }
+/**
+ * 기다린 시간(A2-1): 'n분째'·'n시간째'·'n일째'. 내림으로 계산한다(4시간 59분 → '4시간째'). 1분이 안 되면 '1분째'(첫 1분 안).
+ * 지연 기준·색은 두지 않는다(만료·지연 판단은 KODA 결정). 화면은 <time dateTime>과 KST 절대 시각 title을 함께 붙인다(WaitedTime).
+ */
+export function waited(iso: string | null | undefined, nowMs = Date.now()) {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '';
+  const m = Math.max(1, Math.floor((nowMs - t) / 60000));
+  if (m < 60) return `${m}분째`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}시간째`;
+  return `${Math.floor(h / 24)}일째`;
+}

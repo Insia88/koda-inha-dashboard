@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { api, key, login, type TestCtx } from './helpers.ts';
+import { api, key, login, splitAuditCsv, type TestCtx } from './helpers.ts';
 import { APP_ROOT, loadConfig } from '../server/config.ts';
 import { migrate, openDb, type DB } from '../server/db.ts';
 import { seed } from '../server/seed.ts';
@@ -644,25 +644,6 @@ describe('사용 대기 주소로 요청(ADDRESS_NOT_ACTIVE)', () => {
   });
 });
 
-/** 큰따옴표로 감싼 셀과 셀 안의 쉼표·줄바꿈을 처리하는 작은 CSV 읽기(테스트용). */
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = '';
-  let quoted = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i]!;
-    if (quoted) {
-      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') quoted = false; else cell += ch;
-    } else if (ch === '"') quoted = true;
-    else if (ch === ',') { row.push(cell); cell = ''; }
-    else if (ch === '\r' && text[i + 1] === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; i++; }
-    else cell += ch;
-  }
-  if (cell || row.length) { row.push(cell); rows.push(row); }
-  return rows;
-}
-
 describe('감사 기록 CSV: 한국 시간·행동 이름', () => {
   it('formats KST timestamps to the second', () => {
     expect(kstDateTime('2026-10-19T15:30:05.123Z', { seconds: true })).toBe('2026-10-20 00:30:05');
@@ -684,20 +665,23 @@ describe('감사 기록 CSV: 한국 시간·행동 이름', () => {
     const res = await ctx.app.inject({ method: 'GET', url: '/api/audit/export.csv', headers: { cookie: aud.cookie } });
     expect(res.statusCode).toBe(200);
     expect(res.body.startsWith('﻿')).toBe(true);
-    const rows = parseCsv(res.body.slice(1));
-    expect(rows[0]).toEqual(['순번', '시각(한국 시간)', '수행자', '행동', '행동 코드', '대상 종류', '대상 ID', '내용', '해시']);
-    const data = rows.slice(1);
+    // 맨 위 표지(A2-4)를 건너뛰고 빈 줄 다음 머리글부터 읽는다. '해시'는 마지막 열이고 그 앞이 결정 근거(내보낼 때 계산) 열이다.
+    const { header, rows: data } = splitAuditCsv(res.body);
+    expect(header).toEqual(['순번', '시각(한국 시간)', '수행자', '행동', '행동 코드', '대상 종류', '대상 ID', '내용', '결정 근거(내보낼 때 계산)', '해시']);
     expect(data.length).toBeGreaterThan(10);
     const db = ctx.db;
     // 순번은 조직 안 순번(화면의 '번호')이다. 모의법인 A의 기록을 오래된 순으로 세었을 때의 자리와 같다.
     const orgRows = db.prepare("SELECT created_at, action, hash FROM audit_log WHERE org_id = 'org-a' ORDER BY seq").all() as any[];
     expect(data.map((r) => Number(r[0]))).toEqual(Array.from({ length: data.length }, (_, i) => i + 1));
     for (const r of data) {
-      expect(r).toHaveLength(9);
+      expect(r).toHaveLength(10);
       expect(r[1]).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
       expect(r[3]).toBe(ACTION_LABEL[r[4]!] ?? r[4]);
       const src = orgRows[Number(r[0]) - 1];
-      expect(r[8]).toBe(src.hash);
+      expect(r[9]).toBe(src.hash);
+      // 결정 근거는 승인·반려 행에만 있다(내보낼 때 계산, 해시 대상 아님)
+      if (r[4] === 'request.approved' || r[4] === 'request.rejected') expect(r[8]).toMatch(/^결정 당시 역할: /);
+      else expect(r[8]).toBe('');
       expect(r[1]).toBe(kstDateTime(src.created_at, { seconds: true }));
       expect(r[4]).toBe(src.action);
     }

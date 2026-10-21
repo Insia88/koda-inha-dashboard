@@ -170,6 +170,8 @@ input[type='checkbox'] { width: 18px; height: 18px; min-height: 0; accent-color:
 .task-sub-more { padding: 2px var(--s2); color: var(--ink-3); }
 /* 누구 차례인지(표시용): 상태 배지 옆의 짧은 글자, 내가 승인할 차례인 요청은 테두리 표시 */
 .turn-text { font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+/* 승인 대기(A2-1): 승인할 수 있는 사람 이름과 기다린 시간. 이름이 길면 390px에서도 줄을 바꿀 수 있게 한다(시간은 한 덩어리). */
+.turn-text.turn-wait { white-space: normal; }
 .badge-turn { background: var(--surface); color: var(--ink); border: 1px solid var(--ink); padding: 1px 9px; }
 .total { display: flex; flex-direction: column; gap: 2px; }
 .total-row { flex-direction: row; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: var(--s3); }
@@ -221,6 +223,9 @@ input[type='checkbox'] { width: 18px; height: 18px; min-height: 0; accent-color:
 .next-action .muted { color: #c9d4d0; font-weight: 400; font-size: 13px; margin-top: 4px; }
 .next-action a { color: #b9f3dd; font-weight: 700; }
 .next-action a:hover { color: #fff; }
+/* 다음 할 일 패널의 승인할 수 있는 사람 줄(A2-1): 본문 문장보다 한 단계 작게, 이름만 굵게 */
+.next-action .next-wait { font-size: 14px; font-weight: 400; margin-top: 6px; }
+.next-action .next-wait b { font-weight: 700; }
 /* 레일 마지막 칸 설명(A1) */
 .rail-caption { margin: calc(-1 * var(--s2)) 0 0; }
 
@@ -363,6 +368,11 @@ body:has(dialog[open]) { overflow: hidden; }
 .big-amount { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .timeline li { padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 14px; }
 .timeline li:last-child { border-bottom: 0; }
+/* 결정 근거(A2-3, 읽을 때 계산): 처리 기록·감사 기록의 승인·반려 줄 아래 흐린 한 줄. 요청 지문과 다르면 위험 색, 역할 기록과 맞지 않으면 경고 줄 */
+.evidence { margin-top: 2px; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.evidence-line { display: block; }
+.evidence-danger { color: var(--danger); font-weight: 700; }
+.evidence-warn { display: block; color: var(--warning); font-weight: 700; }
 .role-list { margin: 0; padding-left: 20px; }
 .role-edit { border: 0; padding: 0; margin: 0; }
 /* 역할 변경 영향 안내(A1): 저장 전 역할별 인원과 경고. 저장은 그대로 한 번에 즉시 적용된다 */
@@ -395,6 +405,7 @@ body:has(dialog[open]) { overflow: hidden; }
 .insight-title svg { margin-left: 4px; vertical-align: -1px; color: var(--ink-3); }
 .insight-summary { margin: 0; color: var(--ink-2); font-size: 14px; }
 .load-more { display: flex; justify-content: center; }
+.audit-export-hint { margin: calc(-1 * var(--s2)) 0 var(--s2); }
 .audit-integrity { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; }
 .audit-scope { display: flex; flex-direction: column; gap: 2px; color: var(--ink-2); margin-top: calc(-1 * var(--s2)); }
 .audit-scope p { margin: 0; max-width: 90ch; }

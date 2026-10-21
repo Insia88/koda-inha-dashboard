@@ -5,9 +5,10 @@ import { writeAudit } from '../audit.ts';
 import type { AuthContext } from '../auth.ts';
 import type { AppConfig } from '../config.ts';
 import { formatUnits, krwValue } from '../../shared/decimal.ts';
-import { ROLE_LABEL, type Role } from '../../shared/terms.ts';
+import { actionLabel, AUDIT_EXPORT_TEXT, AUDIT_INTEGRITY_TEXT, decisionEvidenceText, ROLE_LABEL, type DecisionEvidence, type Role } from '../../shared/terms.ts';
+import { kstDateTime } from '../csv.ts';
 import { activateDueAddresses, canStopCooling, likePattern, poisonFlags } from './addresses.ts';
-import { displayAmount, validApprovals } from './requests.ts';
+import { DECISION_ACTIONS, decisionEvidence, displayAmount, validApprovals, waitingForMap } from './requests.ts';
 
 export function priceState(db: DB, cfg: AppConfig) {
   const rows = db.prepare('SELECT asset_code, krw_price, as_of, source FROM prices').all() as any[];
@@ -100,7 +101,7 @@ export function dashboard(db: DB, cfg: AppConfig, auth: AuthContext) {
     tasks.push({ kind: 'audit_recent', count: c, title: '최근 24시간 업무 기록', description: '요청·승인·주소·역할 변경 기록입니다. 감사 기록에서 내용과 무결성을 확인하세요.', href: '/audit', tone: 'neutral' });
   }
   const inProgress = db.prepare(
-    `SELECT r.id, r.ref_no, r.status, r.asset_code, r.amount_units, a.precision, r.required_approvals, u.name creator_name, ab.label address_label, r.updated_at,
+    `SELECT r.id, r.ref_no, r.status, r.asset_code, r.amount_units, a.precision, r.required_approvals, u.name creator_name, ab.label address_label, r.updated_at, r.submitted_at,
             (SELECT COUNT(*) FROM approvals x WHERE x.request_id = r.id AND x.decision = 'approved') approved
        FROM withdrawal_requests r JOIN assets a ON a.code = r.asset_code JOIN users u ON u.id = r.created_by JOIN address_book ab ON ab.id = r.address_id
       WHERE r.org_id = ? AND r.status IN ('REVIEW','PENDING_APPROVAL','PROCESSING') ORDER BY r.updated_at DESC LIMIT 6`,
@@ -111,12 +112,22 @@ export function dashboard(db: DB, cfg: AppConfig, auth: AuthContext) {
        FROM transactions t JOIN assets a ON a.code = t.asset_code JOIN networks n ON n.code = t.network_code WHERE t.org_id = ? ORDER BY t.occurred_at DESC LIMIT 5`,
   ).all(org) as any[];
   const recentPoison = poisonFlags(db, org, recent);
+  // 승인 대기 요청을 지금 누가 승인할 수 있는지(A2-1). 요청 조회 권한이 있을 때만 채운다(요청 상세의 approvalWait.candidates와 같은 판정).
+  const waits = auth.perms.has('request.read')
+    ? waitingForMap(db, org, inProgress.filter((r) => r.status === 'PENDING_APPROVAL').map((r) => r.id as string))
+    : new Map<string, null>();
   return {
     holdings: holdings(db, cfg, org),
     tasks,
     // 승인 대기 중인 요청의 승인 수는 지금 유효한 표만 센다(요청 상세의 approvedCount와 같은 기준).
     // 수량은 저장 값을 정수로 읽을 수 없으면 null(화면은 '—')이다. 요청 한 건 때문에 홈 전체가 실패하지 않게 한다.
-    inProgress: inProgress.map((r) => ({ id: r.id, refNo: r.ref_no, status: r.status, assetCode: r.asset_code, amount: displayAmount(r.amount_units, r.precision), creatorName: r.creator_name, addressLabel: r.address_label, approved: r.status === 'PENDING_APPROVAL' ? validApprovals(db, r.id) : r.approved, requiredApprovals: r.required_approvals, updatedAt: r.updated_at })),
+    // submittedAt: 승인 요청 시각(대기 시간의 시작). waitingFor: 승인 대기이고 승인할 수 있는 요청이면 지금 승인할 수 있는 사람
+    // (이름순, 작성자·이미 결정한 사람 제외, 이름·id만), 그 밖에는 null.
+    inProgress: inProgress.map((r) => ({
+      id: r.id, refNo: r.ref_no, status: r.status, assetCode: r.asset_code, amount: displayAmount(r.amount_units, r.precision), creatorName: r.creator_name, addressLabel: r.address_label,
+      approved: r.status === 'PENDING_APPROVAL' ? validApprovals(db, r.id) : r.approved, requiredApprovals: r.required_approvals, updatedAt: r.updated_at,
+      submittedAt: (r.submitted_at ?? null) as string | null, waitingFor: waits.get(r.id) ?? null,
+    })),
     inProgressCount,
     // 소액(0원 포함) 입금에는 주소 오염 의심 표시를 붙인다. 보낸 주소는 홈에 보이지 않는다(활동 내역에서 복사 버튼 없이 보여 준다).
     recentActivity: recent.map((t) => ({ id: t.id, type: t.type, assetCode: t.asset_code, amount: formatUnits(t.amount_units, t.precision), status: t.status, occurredAt: t.occurred_at, counterparty: t.counterparty, networkName: t.network_name, poison: recentPoison.get(t.id) ?? null })),
@@ -216,20 +227,125 @@ export function auditList(db: DB, auth: AuthContext, q: { action?: string; actor
       WHERE ${w} ORDER BY seq DESC LIMIT ? OFFSET ?`,
   ).all(auth.org.id, ...args, q.pageSize, (q.page - 1) * q.pageSize) as any[];
   const actions = (db.prepare('SELECT DISTINCT action FROM audit_log WHERE org_id = ? ORDER BY action').all(auth.org.id) as any[]).map((r) => r.action);
-  return { total, page: q.page, pageSize: q.pageSize, actions, items: items.map((i) => ({ ...i, detail: JSON.parse(i.detail) })) };
+  // 승인·반려 기록에는 결정 근거(A2-3)를 붙인다. 요청마다 한 번만 계산한다. 다른 행동 항목에는 evidence가 없다.
+  const evidence = evidenceLookup(db, auth);
+  return {
+    total, page: q.page, pageSize: q.pageSize, actions,
+    items: items.map((i) => {
+      const item = { ...i, detail: JSON.parse(i.detail) };
+      return DECISION_ACTIONS.has(i.action) ? { ...item, evidence: evidence(i.targetId, i.actorId) } : item;
+    }),
+  };
+}
+
+/**
+ * 감사 기록 행(승인·반려)의 결정 근거를 찾는 함수. 요청마다 한 번만 계산해 둔다(감사 기록 목록·CSV).
+ * 모든 조회는 조회자 조직(auth.org.id)으로 거르므로 다른 조직의 근거는 나오지 않는다. 요청을 찾을 수 없거나 그 사람의 표가 없으면 null.
+ */
+export function evidenceLookup(db: DB, auth: AuthContext): (requestId: string, actorId: string | null) => DecisionEvidence | null {
+  const cache = new Map<string, Map<string, DecisionEvidence>>();
+  return (requestId, actorId) => {
+    if (!actorId) return null;
+    let byUser = cache.get(requestId);
+    if (!byUser) {
+      let list: DecisionEvidence[] = [];
+      try { list = decisionEvidence(db, auth.org.id, requestId, auth); } catch { list = []; }
+      byUser = new Map(list.map((e) => [e.userId, e]));
+      cache.set(requestId, byUser);
+    }
+    return byUser.get(actorId) ?? null;
+  };
 }
 
 /**
  * CSV 내보내기용 행(오래된 순, 최대 limit행). 순번(orgSeq)은 목록·화면의 '번호'·검증 결과의 brokenAtNo와 같은 조직 안 순번이며
- * 필터를 걸기 전에 매긴다. 전체 공용 seq는 내보내지 않는다.
+ * 필터를 걸기 전에 매긴다. 전체 공용 seq는 내보내지 않는다. actor_id는 결정 근거를 찾을 때만 쓰고 CSV 열에는 넣지 않는다.
  */
 export function auditOrgRows(db: DB, auth: AuthContext, q: { action?: string; actor?: string; q?: string; from?: string; to?: string }, limit: number) {
   const { w, args } = auditWhere(auth, q);
   return db.prepare(
-    `SELECT org_seq orgSeq, created_at, actor_name, action, target_type, target_id, summary, hash
+    `SELECT org_seq orgSeq, created_at, actor_id, actor_name, action, target_type, target_id, summary, hash
        FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY seq) org_seq FROM audit_log WHERE org_id = ?)
       WHERE ${w} ORDER BY seq ASC LIMIT ?`,
-  ).all(auth.org.id, ...args, limit) as { orgSeq: number; created_at: string; actor_name: string; action: string; target_type: string; target_id: string; summary: string; hash: string }[];
+  ).all(auth.org.id, ...args, limit) as { orgSeq: number; created_at: string; actor_id: string | null; actor_name: string; action: string; target_type: string; target_id: string; summary: string; hash: string }[];
+}
+
+/** 조건에 맞는 감사 기록 수(내보내기 상한과 관계없이). CSV 표지의 '조건에 맞는 기록 n건'. */
+export function auditMatchedCount(db: DB, auth: AuthContext, q: { action?: string; actor?: string; q?: string; from?: string; to?: string }): number {
+  const { w, args } = auditWhere(auth, q);
+  return (db.prepare(`SELECT COUNT(*) c FROM audit_log WHERE ${w}`).get(...args) as { c: number }).c;
+}
+
+/** 감사 기록 CSV의 최대 행 수(표지에 잘림을 알린다) */
+export const AUDIT_EXPORT_LIMIT = 50_000;
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const grouped = (n: number) => n.toLocaleString('en-US');
+
+/**
+ * 표지에 넣는 사용자 입력(필터 값): 줄바꿈·탭을 공백으로 바꿔 표지 줄 수가 늘지 않게 하고(머리글을 찾는 규칙이 흔들리지 않게),
+ * 수식 문자(=,+,-,@)로 시작하면 앞에 작은따옴표를 붙인다. 셀 전체도 CSV 쓰기(csvCell)에서 다시 무력화한다.
+ */
+function coverInput(value: string): string {
+  const s = value.replace(/[\r\n\t]+/g, ' ');
+  return /^[=+\-@]/.test(s) ? `'${s}` : s;
+}
+
+export interface AuditCsvCoverInput {
+  /** 내보내기 조건(쿼리 그대로). 기간은 auditWhere와 같은 형식(YYYY-MM-DD)일 때만 적용되므로 표지도 그때만 쓴다. */
+  filters: { action?: string; actor?: string; q?: string; from?: string; to?: string };
+  rowCount: number;
+  matchedCount: number;
+  limit: number;
+  exporter: { name: string; roleLabels: string[] };
+  exportedAt: string;
+  /** 조직 체인 검증 결과(조직 안 번호만, 전체 공용 순번은 쓰지 않는다) */
+  chain: { ok: boolean; count: number; brokenAtNo: number | null; headHash: string | null };
+}
+
+/**
+ * 감사 기록 CSV 표지(A2-4, 순수 함수). 첫 줄은 표지 제목 한 칸, 다음은 '항목,값' 두 열. 저장하지 않으며 해시 대상이 아니다.
+ * 무결성 문장은 감사 기록 화면과 같은 A1 문장(AUDIT_INTEGRITY_TEXT)을 쓰고, '빠짐없이'·'변조 없음' 같은 보장 말은 쓰지 않는다.
+ */
+export function auditCsvCover(input: AuditCsvCoverInput): string[][] {
+  const f = input.filters;
+  const from = f.from && DATE_ONLY.test(f.from) ? f.from : null;
+  const to = f.to && DATE_ONLY.test(f.to) ? f.to : null;
+  const period = from || to ? `${from ?? '처음'} ~ ${to ?? '지금'} (한국 시간 날짜)` : '전체 기간';
+  const conds = [
+    f.action ? `행동: ${coverInput(actionLabel(f.action))}(${coverInput(f.action)})` : null,
+    f.actor ? `수행자: ${coverInput(f.actor)}` : null,
+    f.q ? `내용 검색: ${coverInput(f.q)}` : null,
+  ].filter((x): x is string => !!x);
+  const truncated = input.matchedCount > input.limit;
+  const rows: string[][] = [
+    [AUDIT_EXPORT_TEXT.coverTitle],
+    ['항목', '값'],
+    ['기간', period],
+    ['조건', conds.length ? conds.join(' · ') : '조건 없음'],
+    ['내보낸 행', truncated
+      ? `${grouped(input.limit)}건까지만 내보냈습니다 · 조건에 맞는 기록 ${grouped(input.matchedCount)}건`
+      : `${grouped(input.rowCount)}건 · 조건에 맞는 기록 ${grouped(input.matchedCount)}건`],
+    ['내보낸 사람', `${input.exporter.name} (${input.exporter.roleLabels.join(', ') || '역할 없음'})`],
+    ['내보낸 시각', `${kstDateTime(input.exportedAt, { seconds: true })} (한국 시간)`],
+    ['해시 연결 확인(조직 전체)', input.chain.ok ? AUDIT_INTEGRITY_TEXT.ok(input.chain.count) : AUDIT_INTEGRITY_TEXT.broken(input.chain.brokenAtNo)],
+  ];
+  // 보관용 값과 확인 범위는 감사 기록 화면처럼 체인이 맞을 때만 쓴다(어긋난 체인의 끝 해시는 보관할 근거가 아니다).
+  if (input.chain.ok && input.chain.headHash) rows.push(['보관용 값', AUDIT_INTEGRITY_TEXT.anchor(input.chain.count, input.chain.headHash)]);
+  if (input.chain.ok) rows.push(['확인 범위', AUDIT_INTEGRITY_TEXT.scope('위')]);
+  rows.push(['안내', AUDIT_EXPORT_TEXT.coverNote]);
+  return rows;
+}
+
+/** CSV '결정 근거(내보낼 때 계산)' 열: 승인·반려 행에만 쓰고 다른 행은 비운다. 내보내기 권한자는 감사 기록 조회 권한도 있어 결정 당시 역할을 쓴다. */
+export function auditCsvEvidence(db: DB, auth: AuthContext) {
+  const lookup = evidenceLookup(db, auth);
+  const showRoles = auth.perms.has('audit.read');
+  return (row: { action: string; target_id: string; actor_id: string | null }): string => {
+    if (!DECISION_ACTIONS.has(row.action)) return '';
+    const e = lookup(row.target_id, row.actor_id);
+    return e ? decisionEvidenceText(e, { showRoles }) : '';
+  };
 }
 
 export function auditWhere(auth: AuthContext, q: { action?: string; actor?: string; q?: string; from?: string; to?: string }) {

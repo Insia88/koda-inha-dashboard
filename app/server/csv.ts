@@ -11,6 +11,16 @@ export function toCsv(header: string[], rows: unknown[][]): string {
   return '﻿' + [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
 }
 
+/**
+ * 표지가 붙은 CSV(감사 기록 내보내기, A2-4): BOM → 표지 행들 → 빈 줄 하나 → 머리글 → 행.
+ * 빈 줄이 표 범위를 나누므로 스프레드시트의 정렬·필터는 아래 표에만 걸린다. 프로그램으로 읽을 때 머리글은 빈 줄 다음 첫 줄이다.
+ * 표지 셀도 모두 csvCell을 거쳐 수식으로 실행되지 않는다.
+ */
+export function toCsvWithCover(cover: unknown[][], header: string[], rows: unknown[][]): string {
+  const line = (r: unknown[]) => r.map(csvCell).join(',');
+  return '﻿' + [...cover.map(line), '', line(header), ...rows.map(line)].join('\r\n') + '\r\n';
+}
+
 /** 한국 표준시(KST)는 UTC+9이며 일광 절약 시간이 없다. */
 const KST_OFFSET_MS = 9 * 3600_000;
 

@@ -5,7 +5,7 @@ import { ApiError } from '../api.ts';
 import { DateInput } from './DateInput.tsx';
 import type { Tone } from '../../shared/terms.ts';
 import { chunkAddress, middleSegment } from '../../shared/address-rules.ts';
-import { dateTime, relative } from '../format.ts';
+import { dateTime, relative, waited } from '../format.ts';
 
 export const APP_TITLE = 'KODA 법인 대시보드 (개발 환경)';
 /** 경로별 문서 제목(owner). 화면 제목 · 앱 이름 */
@@ -140,6 +140,12 @@ export function AddressStrip({ address, memo, memoLabel, compact, verify }: { ad
       <span className="sr-only" aria-live="polite">{copy === 'copied' ? '주소를 복사했습니다' : copy === 'failed' ? '주소를 복사하지 못했습니다' : ''}</span>
     </span>
   );
+}
+
+/** 기다린 시간('4시간째'). 기계가 읽을 시각(dateTime)과 KST 절대 시각(title)을 함께 둔다(A2-1). 지연 색은 쓰지 않는다. */
+export function WaitedTime({ iso }: { iso: string | null | undefined }) {
+  if (!iso) return null;
+  return <time className="nowrap" dateTime={iso} title={`${dateTime(iso)} KST`}>{waited(iso)}</time>;
 }
 
 export function DataStamp({ asOf, state, source, label = '기준' }: { asOf: string | null; state?: string; source?: string | null; label?: string }) {

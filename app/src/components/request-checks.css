@@ -53,6 +53,10 @@
 .rc-decide-summary { margin: 0; font-size: 16px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; }
 /* 받는 주소의 주소록 기록(사람이 남긴 기록) */
 .rc-addr-record { margin: -4px 0 0; color: var(--ink-2); overflow-wrap: anywhere; }
+/* 주소록 기록 두 줄(A2-2): 등록자·받은 경로 → 다시 확인한 경로 / 확인자·지금 상태. 비슷한 주소 경고가 있었으면 경고 색 한 줄 */
+.rc-addr-line { margin: 0; }
+.rc-addr-line + .rc-addr-line { margin-top: 2px; }
+.rc-addr-warn { color: var(--warning); font-weight: 700; }
 /* 지문 바로 아래 승인자 쪽 할 일(다른 연락 수단으로 받은 지문과 대조, 선택 단계) */
 .rc-intent-todo { margin: -4px 0 0; color: var(--ink); }
 /* 이번 승인이 마지막인지·몇 번째인지 */

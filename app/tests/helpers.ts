@@ -53,3 +53,33 @@ export function api(app: FastifyInstance, s: Session | null) {
 }
 
 export const key = () => `test-${Math.random().toString(36).slice(2)}${Date.now()}`;
+/** 큰따옴표로 감싼 셀과 셀 안의 쉼표·줄바꿈을 처리하는 작은 CSV 읽기(테스트용). 줄바꿈은 CRLF. */
+export function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') quoted = false; else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ',') { row.push(cell); cell = ''; }
+    else if (ch === '\r' && text[i + 1] === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; i++; }
+    else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+/**
+ * 감사 기록 CSV(A2-4)를 표지·머리글·행으로 나눈다. 프로그램으로 읽는 규칙(docs/api.md)과 같다:
+ * BOM 다음 표지 행들, 빈 줄 하나, 그다음 '순번'으로 시작하는 첫 줄이 머리글이다.
+ */
+export function splitAuditCsv(body: string): { cover: string[][]; header: string[]; rows: string[][] } {
+  if (!body.startsWith('﻿')) throw new Error('CSV에 BOM이 없습니다');
+  const all = parseCsv(body.slice(1));
+  const blank = all.findIndex((r) => r.length === 1 && r[0] === '');
+  if (blank < 0 || all[blank + 1]?.[0] !== '순번') throw new Error('표지 다음 빈 줄과 순번 머리글을 찾지 못했습니다');
+  return { cover: all.slice(0, blank), header: all[blank + 1]!, rows: all.slice(blank + 2) };
+}

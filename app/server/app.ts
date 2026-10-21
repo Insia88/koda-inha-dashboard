@@ -11,7 +11,7 @@ import { type DB, tx } from './db.ts';
 import { AppError, Errors } from './errors.ts';
 import { checkCsrf, clearSessionCookie, dbSessionStore, requireAuth, requirePerm, SESSION_COOKIE, setSessionCookie, statelessSessionStore } from './auth.ts';
 import { writeAudit, verifyChain } from './audit.ts';
-import { kstDateTime, toCsv } from './csv.ts';
+import { kstDateTime, toCsvWithCover } from './csv.ts';
 import type { CustodyAdapter } from './adapters/custody.ts';
 import { getCatalog } from './domain/catalog.ts';
 import { assertCanStopCooling, checkAddress, createAddress, disableAddress, getAddressRow, listAddresses, reviewAddress, stopCoolingAddress, toAddressDto } from './domain/addresses.ts';
@@ -26,7 +26,7 @@ import {
   addressCheckSchema, addressCreateSchema, addressReviewSchema, addressStopSchema, insightCreateSchema, insightStatusSchema, pageQuery,
   requestApproveSchema, requestChecksPreviewSchema, requestDraftSchema, requestRejectSchema, requestSubmitSchema, requestUpdateSchema, roleUpdateSchema, versionSchema,
 } from '../shared/schemas.ts';
-import { actionLabel, ROLE_LABEL } from '../shared/terms.ts';
+import { actionLabel, AUDIT_EXPORT_TEXT, ROLE_LABEL } from '../shared/terms.ts';
 
 function parse<T>(schema: z.ZodType<T>, data: unknown): T {
   return schema.parse(data ?? {});
@@ -330,15 +330,37 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
     const q = parse(auditQuery, req.query);
     // 순번은 화면의 '번호'·검증 결과의 brokenAtNo와 같은 조직 안 순번(필터 적용 전)이다. 전체 공용 seq는 조직마다 빈 번호가 생겨
     // 지운 기록처럼 읽히고 다른 조직의 기록량을 드러내므로 내보내지 않는다.
-    const rows = rm.auditOrgRows(db, a, q, 50000);
-    tx(db, () => writeAudit(db, { orgId: a.org.id, actorId: a.user.id, actorName: a.user.name, action: 'audit.exported', targetType: 'audit', targetId: a.org.id, summary: `감사 기록 ${rows.length}건 내보내기`, detail: { filters: q } }));
+    // 행 조회·조건에 맞는 건수·해시 연결 확인은 audit.exported를 쓰기 전에 같은 트랜잭션에서 한다(표지의 건수·마지막 해시가 내보낸 행과 같은 시점).
+    const out = tx(db, () => {
+      const rows = rm.auditOrgRows(db, a, q, rm.AUDIT_EXPORT_LIMIT);
+      const matchedCount = rm.auditMatchedCount(db, a, q);
+      // 전체 공용 순번(brokenAtSeq)은 쓰지 않고 조직 안 번호(brokenAtNo)만 쓴다.
+      const { brokenAtSeq: _global, ...chain } = verifyChain(db, a.org.id);
+      const evidenceText = rm.auditCsvEvidence(db, a);
+      const evidence = rows.map((r) => evidenceText(r));
+      const exportedAt = new Date().toISOString();
+      const truncated = matchedCount > rm.AUDIT_EXPORT_LIMIT;
+      writeAudit(db, {
+        orgId: a.org.id, actorId: a.user.id, actorName: a.user.name, action: 'audit.exported', targetType: 'audit', targetId: a.org.id, at: exportedAt,
+        summary: `감사 기록 ${rows.length}건 내보내기`,
+        detail: { filters: q, rowCount: rows.length, matchedCount, truncated, chain },
+      });
+      return { rows, matchedCount, chain, evidence, exportedAt };
+    });
+    // 맨 위 표지(기간·조건·내보낸 사람·시각·해시 연결 확인 결과, 저장하지 않음) → 빈 줄 → 표. 표의 각 행과 해시 열은 저장된 값 그대로다.
+    const cover = rm.auditCsvCover({
+      filters: q, rowCount: out.rows.length, matchedCount: out.matchedCount, limit: rm.AUDIT_EXPORT_LIMIT,
+      exporter: { name: a.user.name, roleLabels: a.roles.map((r) => ROLE_LABEL[r].label) }, exportedAt: out.exportedAt, chain: out.chain,
+    });
     // 시각은 화면과 같은 한국 시간(초까지), 행동은 화면과 같은 이름(shared/terms.ts ACTION_LABEL)과 원래 코드를 함께 낸다.
-    // 수식으로 실행될 수 있는 값은 toCsv가 무력화한다.
-    const csv = toCsv(
-      ['순번', '시각(한국 시간)', '수행자', '행동', '행동 코드', '대상 종류', '대상 ID', '내용', '해시'],
-      rows.map((r) => [r.orgSeq, kstDateTime(r.created_at, { seconds: true }), r.actor_name, actionLabel(r.action), r.action, r.target_type, r.target_id, r.summary, r.hash]),
+    // '해시'는 마지막 열이다. 그 앞의 결정 근거 열은 내보낼 때 계산한 값이다(승인·반려 행만). 수식으로 실행될 수 있는 값은 csvCell이 무력화한다.
+    const csv = toCsvWithCover(
+      cover,
+      ['순번', '시각(한국 시간)', '수행자', '행동', '행동 코드', '대상 종류', '대상 ID', '내용', AUDIT_EXPORT_TEXT.evidenceColumn, '해시'],
+      out.rows.map((r, i) => [r.orgSeq, kstDateTime(r.created_at, { seconds: true }), r.actor_name, actionLabel(r.action), r.action, r.target_type, r.target_id, r.summary, out.evidence[i], r.hash]),
     );
-    reply.header('Content-Type', 'text/csv; charset=utf-8').header('Content-Disposition', `attachment; filename="koda-audit-${new Date().toISOString().slice(0, 10)}.csv"`);
+    // 파일 이름의 날짜도 한국 시간 기준이다.
+    reply.header('Content-Type', 'text/csv; charset=utf-8').header('Content-Disposition', `attachment; filename="koda-audit-${kstDateTime(out.exportedAt).slice(0, 10)}.csv"`);
     return csv;
   });
 

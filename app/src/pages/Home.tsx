@@ -4,10 +4,10 @@ import { useQuery } from '@tanstack/react-query';
 import { IconArrowRight } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useMe } from '../auth.tsx';
-import { Badge, DataStamp, Empty, ErrorState, Loading, PageHeader, StatusRail, Term } from '../components/ui.tsx';
+import { Badge, DataStamp, Empty, ErrorState, Loading, PageHeader, StatusRail, Term, WaitedTime } from '../components/ui.tsx';
 import { AllocationBar } from '../components/AllocationBar.tsx';
 import { amount, dateTime, krw, krwShort, relative } from '../format.ts';
-import { GLOSSARY, REQUEST_STATUS, TX_STATUS, TX_TYPE, type RequestStatus } from '../../shared/terms.ts';
+import { APPROVAL_WAIT_TEXT, approverNames, GLOSSARY, REQUEST_STATUS, TX_STATUS, TX_TYPE, type ApproverRef, type RequestStatus } from '../../shared/terms.ts';
 import '../components/address-lifecycle.css';
 
 /** 홈 '진행 중인 요청'의 상태 묶음. 결재 및 요청 화면의 '진행 중' 칩과 같다. */
@@ -33,6 +33,19 @@ const TASK_COPY: Record<string, { title: string; description: string }> = {
 
 /** 할 일 아래 한 줄 목록은 3건까지 보이고, 나머지는 '외 n건'으로 줄인다(전체는 할 일 링크의 목록에서 본다). */
 const SUB_MAX = 3;
+
+/** 진행 중인 요청 둘째 줄에 쓰는 승인 후보 이름 수. 넘으면 '외 n명'. */
+const WAIT_NAMES_MAX = 3;
+
+/**
+ * 홈 진행 중 요청(승인 대기)의 누구 차례 문구(A2-1). 내가 후보에 들면 '승인할 수 있는 사람: 나·…'(첫 줄 '내 승인 차례' 배지는 그대로),
+ * 아니면 '다른 사람 차례: …'. 후보가 없으면 '승인할 수 있는 사람 없음'. 서버가 후보를 주지 않으면(승인할 수 없는 요청 등) A1 차례 문구를 쓴다.
+ */
+function waitingText(cands: ApproverRef[], meId: string): string {
+  if (cands.length === 0) return APPROVAL_WAIT_TEXT.nobody;
+  const head = cands.some((c) => c.id === meId) ? APPROVAL_WAIT_TEXT.candidates : APPROVAL_WAIT_TEXT.othersTurn;
+  return `${head}: ${approverNames(cands, meId, '·', WAIT_NAMES_MAX)}`;
+}
 
 type SubLine = { key: string; to: string; text: ReactNode };
 type SubList = { items: SubLine[]; more: number };
@@ -175,7 +188,10 @@ export function HomePage() {
                         <span className="progress-amt">{amount(r.amount, r.assetCode)}</span>
                       </div>
                       <div className="progress-meta small" style={{ color: 'var(--ink-2)' }}>
-                        {st.turn && <><span className="turn-text">{st.turn}</span> · </>}
+                        {/* 승인 대기: 지금 승인할 수 있는 사람과 승인 요청 뒤 기다린 시간(A2-1, 지연 색 없음). 서버가 후보를 주지 않으면 A1 차례 문구 */}
+                        {r.status === 'PENDING_APPROVAL' && Array.isArray(r.waitingFor)
+                          ? <><span className="turn-text turn-wait">{waitingText(r.waitingFor, me.user.id)} · <WaitedTime iso={r.submittedAt} /></span> · </>
+                          : st.turn && <><span className="turn-text">{st.turn}</span> · </>}
                         {r.creatorName} → {r.addressLabel} · <time className="nowrap" dateTime={r.updatedAt}>{dateTime(r.updatedAt)}</time> <span className="muted nowrap">({relative(r.updatedAt)})</span>
                         {r.status === 'PENDING_APPROVAL' && <span className="nowrap"> · 승인 {r.approved}/{r.requiredApprovals}</span>}
                       </div>

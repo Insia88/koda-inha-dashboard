@@ -3,14 +3,18 @@ import { Link, useLocation, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, newIdemKey } from '../api.ts';
 import { useMe, type Me } from '../auth.tsx';
-import { AddressStrip, ApiErrorNotice, Badge, DataStamp, ErrorState, Field, Loading, Notice, PageHeader, StatusRail, TextareaAuto } from '../components/ui.tsx';
+import { AddressStrip, ApiErrorNotice, Badge, DataStamp, ErrorState, Field, Loading, Notice, PageHeader, StatusRail, TextareaAuto, WaitedTime } from '../components/ui.tsx';
+import { DecisionEvidenceLine } from '../components/DecisionEvidence.tsx';
 import { ConfirmDialog } from '../components/Dialog.tsx';
 import { useFocusFirstError } from '../lib/forms.ts';
 import { useUnsavedGuard } from '../lib/unsaved.tsx';
 import { CheckList, IntentFingerprint, krwThreshold, RequestForm, type RequestFormValue } from '../components/RequestForm.tsx';
 import { amount, date, dateTime, krw, krwShort } from '../format.ts';
 import { krwValue } from '../../shared/decimal.ts';
-import { ADDRESS_STATUS, REQUEST_STATUS, type AddressStatus, type RequestCheck, type RequestStatus } from '../../shared/terms.ts';
+import {
+  ADDRESS_STATUS, APPROVAL_WAIT_TEXT, approvalShortfallText, approverNames, REQUEST_STATUS,
+  type AddressStatus, type ApprovalWait, type DecisionEvidence, type RequestCheck, type RequestStatus,
+} from '../../shared/terms.ts';
 
 /** 요청 응답의 출금 전 점검: 작성·검토 중이면 지금 기준(stored=false), 승인 요청 뒤에는 제출 때 저장한 결과(stored=true). 기록이 없는 이전 요청은 null. */
 type ChecksView = { evaluatedAt: string; stored: boolean; items: RequestCheck[] } | null;
@@ -337,7 +341,14 @@ export function RequestDetailPage() {
   // 이미 승인한 사람에게 승인자 역할을 다시 주면 요청 버전이 그대로인 채 유효 승인 수가 늘 수 있다(다음 새로 고침, 최대 15초 전까지).
   // 그래서 마지막이 아닐 때의 문장은 '지금 기준으로'라고 쓰고, 바로 아래 되돌릴 수 없음 문장('채워지면 바로 처리가 시작')은 그대로 둔다.
   const finalApproval = can('approve') && r.approvedCount + 1 >= r.requiredApprovals;
-  const addr = addrRecord.data as undefined | { createdBy: { name: string }; createdAt: string; reviewedBy: { name: string } | null; reviewedAt: string | null };
+  const addr = addrRecord.data as undefined | {
+    createdBy: { name: string }; createdAt: string; reviewedBy: { name: string } | null; reviewedAt: string | null; activeFrom: string | null; lookalikeReason: string | null;
+    outOfBand: { receivedViaLabel: string; verifiedViaLabel: string } | null;
+  };
+  // 지금 누가 승인할 수 있는지(A2-1, 서버 계산). 승인 대기이고 승인할 수 있는 요청만 값이 있다(blockedReason이 있으면 null).
+  const wait = (r.approvalWait ?? null) as ApprovalWait | null;
+  // 결정 당시 역할은 감사 기록 조회 권한이 있는 사람에게만 보인다(서버도 그 권한이 없으면 보내지 않는다).
+  const canAudit = me.permissions.includes('audit.read');
   // 승인 요청 때 보낼 진행 사유: 지금 보이는 점검 항목 id만 보낸다.
   const reasonsToSend = Object.fromEntries((checks?.items ?? []).filter((c) => (checkReasons[c.id] ?? '').trim() !== '').map((c) => [c.id, checkReasons[c.id]!]));
 
@@ -383,14 +394,22 @@ export function RequestDetailPage() {
       <section ref={nextRef} tabIndex={-1} className="next-action" aria-labelledby="next-h">
         <h2 id="next-h">다음 할 일</h2>
         <p>{nextAction(r, roleKey, n, can('reject'), reasonPrefilled, !!decided)}</p>
-        {/* 서버는 승인자 이름이 아니라 승인 수만 준다. 누가 승인할 수 있는지는 조직 관리의 역할 표로 안내한다. */}
+        {/* A2-1: 지금 승인할 수 있는 사람(이름순, 작성자·이미 결정한 사람 제외, 조회자 본인은 '나')과 남은 승인 수, 승인 요청 뒤 기다린 시간.
+            승인할 수 없는 요청(blockedReason)에는 두지 않는다. 알림을 약속하지 않는 위 문장(A1-08)은 그대로다. 지연 기준·색은 없다. */}
+        {wait && (
+          <p className="next-wait">
+            {APPROVAL_WAIT_TEXT.candidates}: <b>{wait.candidates.length ? approverNames(wait.candidates, me.user.id, ' · ') : '없음'}</b> (남은 승인 {wait.remaining}명) · 승인 요청 <WaitedTime iso={r.submittedAt} />
+          </p>
+        )}
         {mine && r.status === 'PENDING_APPROVAL' && (
           <p className="muted small">
-            본인이 작성한 요청은 승인할 수 없습니다. 승인 {r.approvedCount}/{r.requiredApprovals}명. 승인할 수 있는 사람은 {me.permissions.includes('org.read') ? <Link to="/org">「조직 관리」</Link> : '「조직 관리」'}의 역할 표에서 승인자로 표시된 구성원입니다.
+            본인이 작성한 요청은 승인할 수 없습니다. 승인 {r.approvedCount}/{r.requiredApprovals}명. 승인자 역할은 {me.permissions.includes('org.read') ? <Link to="/org">「조직 관리」</Link> : '「조직 관리」'}의 역할 표에서 볼 수 있습니다.
           </p>
         )}
         {decided && <p className="muted small">내 결정: {decided.decision === 'approved' ? '승인' : '반려'} ({dateTime(decided.createdAt)})</p>}
       </section>
+      {/* 남은 승인을 채울 사람이 모자라면(역할 해제·비활성화 등) 이대로는 처리될 수 없다는 경고. 정족수·자기 승인 금지는 그대로다(위임·대리 없음). */}
+      {wait?.shortfall && <Notice tone="warning" title={approvalShortfallText(wait.remaining, wait.candidates.length)} />}
 
       {loc.state?.created && r.status === 'DRAFT' && <Notice tone="success" role="status" title="초안을 저장했습니다">아직 승인자에게 전달되지 않았습니다. 아래 내용을 확인하고 검토로 이동하세요.</Notice>}
       {tampered && roleKey === 'requester' && (
@@ -561,11 +580,27 @@ export function RequestDetailPage() {
           <p className="rc-decide-summary">
             {r.createdBy.name}님의 출금 요청: {r.address.label}{r.address.label.endsWith(')') ? ` · ${r.address.counterparty}` : `(${r.address.counterparty})`}에 {amount(r.amount, r.assetCode)}{r.krwValueAtSubmit ? ` (${krwShort(r.krwValueAtSubmit)})` : ''} · 목적: {r.purpose} · 승인 {r.approvedCount}/{r.requiredApprovals}명
           </p>
-          {/* 받는 주소의 주소록 기록(사람이 남긴 기록이지 증명이 아니다, A-32). 못 불러오면 링크만 보인다. */}
-          <p className="rc-addr-record small">
-            {addr && <>주소록: {addr.createdBy.name} 등록 {date(addr.createdAt)}{addr.reviewedBy ? ` · ${addr.reviewedBy.name} 확인 ${date(addr.reviewedAt)}` : ''} (사람이 남긴 기록이며 증명이 아닙니다) · </>}
-            <Link to={`/addresses/${r.address.id}`}>주소 기록 보기</Link>
-          </p>
+          {/* 받는 주소의 주소록 기록 두 줄(A2-2, 사람이 남긴 기록이지 증명이 아니다, A-32): 등록자·받은 경로 → 다시 확인한 경로 / 확인자·지금 상태.
+              지금 상태는 15초마다 새로 읽는 요청 응답의 값(주소 조회는 60초 캐시). 확인자의 연락 경로는 저장하지 않으므로 쓰지 않는다.
+              등록자가 남긴 '확인한 상대·연락처'(자유 서술)는 독립 경로로 착각하지 않게 카드에 옮기지 않고 주소 기록 링크로만 남긴다. 못 불러오면 링크만 보인다. */}
+          <div className="rc-addr-record small" role="group" aria-label="받는 주소의 주소록 기록">
+            {addr ? (
+              <>
+                <p className="rc-addr-line">
+                  등록 {addr.createdBy.name} {date(addr.createdAt)} · {addr.outOfBand
+                    ? <>받은 경로 {addr.outOfBand.receivedViaLabel} → 다시 확인한 경로 {addr.outOfBand.verifiedViaLabel}</>
+                    : '받은 경로·다시 확인한 경로: 기록 없음(이 기록을 남기기 전에 등록된 주소입니다)'}
+                </p>
+                <p className="rc-addr-line">
+                  {addr.reviewedBy ? `확인 ${addr.reviewedBy.name} ${date(addr.reviewedAt)}` : '확인 기록 없음'} · 지금 상태 {addrSt?.label ?? r.address.status}
+                  {addr.activeFrom && r.address.status === 'ACTIVE' && ` (${dateTime(addr.activeFrom)}부터)`}
+                  {addr.activeFrom && r.address.status === 'COOLING_DOWN' && ` (${dateTime(addr.activeFrom)}부터 사용 가능)`}
+                  {' '}(사람이 남긴 기록이며 증명이 아닙니다) · <Link to={`/addresses/${r.address.id}`}>주소 기록 보기</Link>
+                </p>
+                {addr.lookalikeReason && <p className="rc-addr-line rc-addr-warn">등록 때 비슷한 주소 경고가 있었습니다 — 등록 사유는 주소 기록에서 확인하세요</p>}
+              </>
+            ) : <p className="rc-addr-line"><Link to={`/addresses/${r.address.id}`}>주소 기록 보기</Link></p>}
+          </div>
           {/* 같은 내용의 409 안내(지문 불일치)가 바로 아래에 있으면 되풀이하지 않는다. */}
           {tampered && conflict?.code !== 'INTENT_TAMPERED' && (
             <Notice tone="danger" title="요청 내용이 승인 대상 지문과 맞지 않아 승인할 수 없습니다. 사유와 함께 반려하세요">
@@ -661,7 +696,13 @@ export function RequestDetailPage() {
       <section className="card">
         <h2>처리 기록</h2>
         <ul className="timeline">
-          {r.timeline.map((t: any, i: number) => <li key={i}><span className="muted small">{dateTime(t.createdAt)}</span> <b>{t.actorName}</b> — {t.summary}</li>)}
+          {/* 승인·반려 줄 아래에는 결정 근거(A2-3, 읽을 때 계산): 결정 당시 역할(감사 기록 조회 권한자만)·정족수 포함·결정한 지문 */}
+          {r.timeline.map((t: { createdAt: string; actorName: string; summary: string; evidence?: DecisionEvidence | null }, i: number) => (
+            <li key={i}>
+              <span className="muted small">{dateTime(t.createdAt)}</span> <b>{t.actorName}</b> — {t.summary}
+              {t.evidence && <DecisionEvidenceLine evidence={t.evidence} showRoles={canAudit} />}
+            </li>
+          ))}
         </ul>
         {me.permissions.includes('audit.read') && <Link to={`/audit?q=${encodeURIComponent(r.refNo)}`} className="link-more">감사 기록에서 보기</Link>}
       </section>

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { api, key, login, makeApp, type TestCtx } from './helpers.ts';
+import { api, key, login, makeApp, splitAuditCsv, type TestCtx } from './helpers.ts';
 import { loadConfig } from '../server/config.ts';
 import { migrate, openDb } from '../server/db.ts';
 import { seed } from '../server/seed.ts';
@@ -386,11 +386,10 @@ describe('감사 기록', () => {
     const exportRows = async (query = '') => {
       const res = await ctx.app.inject({ method: 'GET', url: `/api/audit/export.csv${query}`, headers: { cookie: aud.cookie } });
       expect(res.statusCode).toBe(200);
-      // 내용 열에는 쉼표가 없는 행만 비교한다(순번·해시는 첫 열과 마지막 열).
-      return res.body.replace(/^﻿/, '').split('\r\n').slice(1).filter(Boolean).map((line) => {
-        const cells = line.split(',');
-        return { no: Number(cells[0]), hash: cells[cells.length - 1]! };
-      });
+      // 맨 위 표지(A2-4)를 건너뛰고 빈 줄 다음 머리글 뒤의 행만 읽는다. 순번은 첫 열, 해시는 마지막 열이다.
+      const { header, rows } = splitAuditCsv(res.body);
+      expect(header[header.length - 1]).toBe('해시');
+      return rows.map((cells) => ({ no: Number(cells[0]), hash: cells[cells.length - 1]! }));
     };
     const all = await exportRows();
     expect(all.map((r) => r.no)).toEqual(Array.from({ length: all.length }, (_, i) => i + 1));

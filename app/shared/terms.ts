@@ -164,3 +164,122 @@ export const GLOSSARY: Record<GlossaryKey, string> = {
   approvalCount: 'x는 지금 승인 권한이 있는 사람이 남긴 승인 수, y는 이 요청에 필요한 승인 수입니다. 승인한 뒤 권한을 잃었거나 비활성화된 사람의 승인은 세지 않으며, 요청자 본인은 승인할 수 없습니다. 결정이 끝난 요청은 결정 당시의 승인 수를 그대로 보여 줍니다.',
   token: '이 화면의 토큰은 다른 화면의 자산과 같은 대상을 뜻합니다. 비트코인처럼 네트워크 고유의 자산(코인)과 USDC처럼 네트워크 위에서 발행된 토큰을 모두 포함합니다.',
 };
+
+// ---------------------------------------------------------------------------
+// A2: 승인할 수 있는 사람·대기 시간, 결정 근거, 감사 기록 내보내기 표지
+// ---------------------------------------------------------------------------
+
+/** 승인할 수 있는 사람. 이름만 담는다(이메일·직함 없음). 구성원 이름은 조직 관리(org.read)에서도 보이는 정보다. */
+export interface ApproverRef { id: string; name: string }
+
+/**
+ * 승인 대기 요청을 지금 누가 승인할 수 있는지(A2-1, 표시용). 정족수·승인 가능 여부는 서버의 승인 처리가 정한다.
+ * - candidates: 같은 조직의 활성 사용자 가운데 지금 역할에 출금 승인 권한이 있는 사람. 작성자와 이미 결정(승인·반려)한 사람은 뺀다. 이름순.
+ * - remaining: 필요한 승인 수 − 지금 정족수에 든 승인 수(0 이상)
+ * - shortfall: candidates가 remaining보다 적음(이대로는 정족수를 채울 수 없음)
+ * 승인 대기가 아니거나 승인할 수 없는 요청(blockedReason, 지문 기록 전 요청)은 null이다.
+ */
+export interface ApprovalWait { candidates: ApproverRef[]; remaining: number; shortfall: boolean }
+
+export const APPROVAL_WAIT_TEXT = {
+  /** 요청 상세 '다음 할 일'·홈(내가 후보일 때)의 이름 줄 머리 */
+  candidates: '승인할 수 있는 사람',
+  /** 홈 진행 중 요청(내가 후보가 아닐 때)의 둘째 줄 머리 */
+  othersTurn: '다른 사람 차례',
+  /** 후보가 0명일 때(홈 둘째 줄 머리) */
+  nobody: '승인할 수 있는 사람 없음',
+  /** 조회자 본인 */
+  me: '나',
+} as const;
+
+/** 남은 승인을 채울 사람이 모자랄 때의 경고(요청 상세). 0명이면 따로 쓴다. */
+export function approvalShortfallText(remaining: number, candidates: number): string {
+  return candidates === 0
+    ? '지금 승인할 수 있는 사람이 없습니다. 조직 관리자에게 승인자 추가를 요청하세요.'
+    : `남은 승인 ${remaining}명을 채울 수 있는 사람이 ${candidates}명뿐입니다. 조직 관리자에게 승인자 추가를 요청하세요.`;
+}
+
+/**
+ * 승인 후보 이름 목록. 조회자 본인은 '나'로 바꿔 맨 앞에 두고, 나머지는 서버 순서(이름순) 그대로다.
+ * max명을 넘으면 '외 n명'으로 줄인다. 후보가 없으면 빈 문자열.
+ */
+export function approverNames(candidates: ApproverRef[], meId: string, sep: string, max = Number.POSITIVE_INFINITY): string {
+  const mine = candidates.some((c) => c.id === meId);
+  const names = [...(mine ? [APPROVAL_WAIT_TEXT.me] : []), ...candidates.filter((c) => c.id !== meId).map((c) => c.name)];
+  const shown = names.slice(0, max);
+  const rest = names.length - shown.length;
+  return shown.join(sep) + (rest > 0 ? ` 외 ${rest}명` : '');
+}
+
+/**
+ * 승인·반려 표 하나의 결정 근거(A2-3). 읽을 때 계산하는 값이며 저장하지 않는다(해시 대상 아님).
+ * - intentHashDisplay: 그 사람이 결정할 때 본 승인 대상 지문(표시용 16자). 이 기능 도입 전 표는 null
+ * - matchesRequestIntent: 표의 지문이 요청 지문과 같은지. 표 지문이 없으면 null
+ * - counted: 정족수에 들어갔는지(승인 대기 중에는 지금 역할로 다시 판단, 결정이 끝난 요청은 결정 당시 목록). 반려 표는 false
+ * - rolesAtDecision: 결정 시각 이전의 마지막 역할 변경 기록(member.roles_changed)의 바뀐 뒤 역할. 기록이 없거나 형식이 다르면 null.
+ *   역할 변경 기록은 감사 기록 조회 권한(audit.read)으로만 보이므로, 그 권한이 없는 조회자에게는 늘 null이다.
+ * - rolesSource: rolesAtDecision이 있으면 'role_history'(역할 변경 기록 기준), 없으면 null
+ * - approveRoleAtDecision: rolesAtDecision에 지금 권한표 기준 출금 승인 권한이 있는지. rolesAtDecision이 null이면 null
+ */
+export interface DecisionEvidence {
+  userId: string;
+  name: string;
+  decision: 'approved' | 'rejected';
+  decidedAt: string;
+  intentHashDisplay: string | null;
+  matchesRequestIntent: boolean | null;
+  counted: boolean;
+  rolesAtDecision: Role[] | null;
+  rolesSource: 'role_history' | null;
+  approveRoleAtDecision: boolean | null;
+}
+
+/** 결정 근거 한 줄의 조각. tone은 화면 색(흐린 글자·위험·경고)이며 CSV에서는 글자만 쓴다. */
+export type EvidencePart = { text: string; tone: 'muted' | 'danger' | 'warning' };
+
+/**
+ * 결정 근거 문구(화면 처리 기록·감사 기록 화면·감사 CSV가 함께 쓴다). '확인됨' 같은 보장 말 대신 출처('역할 변경 기록 기준')를 쓴다.
+ * showRoles: 결정 당시 역할을 쓸지(감사 기록 조회 권한이 있는 화면·CSV). 없으면 역할 조각을 빼고 경고도 쓰지 않는다.
+ */
+export function decisionEvidenceParts(e: DecisionEvidence, opts: { showRoles: boolean }): EvidencePart[] {
+  const parts: EvidencePart[] = [];
+  if (opts.showRoles) {
+    parts.push({
+      tone: 'muted',
+      text: e.rolesAtDecision
+        ? `결정 당시 역할: ${e.rolesAtDecision.length ? e.rolesAtDecision.map((r) => ROLE_LABEL[r].label).join(', ') : '없음'}(역할 변경 기록 기준)`
+        : '결정 당시 역할: 역할 변경 기록 없음',
+    });
+  }
+  if (e.decision === 'approved') parts.push({ tone: 'muted', text: e.counted ? '정족수 포함' : '정족수에 들지 않음' });
+  if (!e.intentHashDisplay) parts.push({ tone: 'muted', text: '지문 기록 없음(이 기능 도입 전 결정)' });
+  else if (e.matchesRequestIntent === false) parts.push({ tone: 'danger', text: `결정한 지문 ${e.intentHashDisplay}(요청 지문과 다름)` });
+  else parts.push({ tone: 'muted', text: `결정한 지문 ${e.intentHashDisplay}(요청 지문과 같음)` });
+  if (opts.showRoles && e.approveRoleAtDecision === false) parts.push({ tone: 'warning', text: '역할 변경 기록상 이때 승인 권한이 없습니다 — 기록을 확인하세요' });
+  return parts;
+}
+
+export function decisionEvidenceText(e: DecisionEvidence, opts: { showRoles: boolean }): string {
+  return decisionEvidenceParts(e, opts).map((p) => p.text).join(' · ');
+}
+
+/**
+ * 감사 기록 해시 연결 확인 문장(A1 문장 그대로). 감사 기록 화면과 CSV 표지가 함께 쓴다.
+ * '빠짐없이'·'변조 없음'처럼 완전함을 말하는 표현은 쓰지 않는다.
+ */
+export const AUDIT_INTEGRITY_TEXT = {
+  ok: (count: number) => `기록 ${count}건이 각각 바로 앞 기록과 끊김 없이 이어져 있습니다(해시 연결 확인).`,
+  broken: (no: number | null) => `${no ?? '?'}번 기록에서 해시가 맞지 않습니다. 보안 담당자에게 알리세요.`,
+  /** 확인 범위(한계). where: 보관용 값이 이 문장의 위('위')에 있는지 아래('아래')에 있는지 */
+  scope: (where: '위' | '아래') => `단, 가장 최근 기록을 지웠거나 기록을 고친 뒤 뒤쪽 해시를 모두 다시 계산했다면 이 확인으로는 찾지 못합니다. ${where} 보관용 값(기록 건수·마지막 기록 해시)을 앱 밖에 적어 두었다가 다음 확인 때 대조하세요.`,
+  anchor: (count: number, headHash: string) => `기록 ${count}건 · 마지막 기록 해시 ${headHash}`,
+} as const;
+
+/** 감사 기록 CSV 표지(A2-4). 표지는 내보낼 때 만든 설명이며 저장하지 않는다(해시 대상 아님). */
+export const AUDIT_EXPORT_TEXT = {
+  coverTitle: 'KODA 감사 기록 내보내기 표지 — 내보낼 때 만든 설명이며 감사 기록이 아닙니다(해시 대상 아님)',
+  coverNote: '표지와 결정 근거 열은 내보낼 때 계산한 값입니다. 아래 표의 각 행과 해시 열은 저장된 기록 그대로입니다.',
+  evidenceColumn: '결정 근거(내보낼 때 계산)',
+  /** 감사 기록 화면의 내보내기 버튼 아래 안내(내보내기 권한이 있을 때만) */
+  screenHint: '내보낸 파일 맨 위에 기간·조건·내보낸 사람·시각·해시 연결 확인 결과를 담은 표지가 붙습니다.',
+} as const;

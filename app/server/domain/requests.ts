@@ -9,9 +9,10 @@ import type { CustodyAdapter } from '../adapters/custody.ts';
 import { permissionsFor } from '../authz.ts';
 import { kstDateTime } from '../csv.ts';
 import { AmountError, formatUnits, krwValue, parsePositiveUnits } from '../../shared/decimal.ts';
-import { REQUEST_STATUS, type RequestCheck, type RequestStatus, type Role } from '../../shared/terms.ts';
+import { REQUEST_STATUS, type ApprovalWait, type ApproverRef, type DecisionEvidence, type RequestCheck, type RequestStatus, type Role } from '../../shared/terms.ts';
 import { assertAssetOnNetwork, getAsset, getNetworkRule } from './catalog.ts';
 import { getAddressRow, likePattern } from './addresses.ts';
+import { evidenceOf } from './evidence.ts';
 import {
   attachCheckReasons, computeChecks, INTENT_VERSION, intentFieldsOf, intentHashDisplay, intentHashOf, normalizeIntentAddress, parseStoredChecks, readPrice, serializeChecks,
   type IntentRow,
@@ -55,6 +56,9 @@ export function displayAmount(units: unknown, precision: number): string | null 
 }
 
 const OPEN: RequestStatus[] = ['DRAFT', 'REVIEW', 'PENDING_APPROVAL'];
+
+/** 결정 근거를 붙이는 감사 기록 행동(승인·반려 표를 남긴 기록) */
+export const DECISION_ACTIONS: ReadonlySet<string> = new Set(['request.approved', 'request.rejected']);
 
 /** 허용 상태 전이 (설계 가정, docs/assumptions.md A-05) */
 export const TRANSITIONS: Record<RequestAction, { from: RequestStatus[]; to: RequestStatus | null }> = {
@@ -116,10 +120,32 @@ export function validApprovals(db: DB, requestId: string): number {
   return validApproverIds(db, requestId).length;
 }
 
+/**
+ * 지금 출금 승인 권한이 있는 같은 조직 활성 사용자(이름순, 이름·id만). canApproveNow와 같은 판정이다.
+ * 제출 때 승인 가능 인원 검사(APPROVERS_INSUFFICIENT)와 화면의 '승인할 수 있는 사람'(approvalWaitOf)이 이 목록 하나를 써서 어긋나지 않는다.
+ */
+export function approverPool(db: DB, orgId: string): ApproverRef[] {
+  const users = db.prepare('SELECT id, name FROM users WHERE org_id = ? AND is_active = 1 ORDER BY name, id').all(orgId) as { id: string; name: string }[];
+  return users.filter((u) => canApproveNow(db, u.id, orgId)).map((u) => ({ id: u.id, name: u.name }));
+}
+
 /** 작성자를 뺀, 지금 승인할 수 있는 조직 구성원 수 */
 function eligibleApprovers(db: DB, orgId: string, creatorId: string): number {
-  const users = db.prepare('SELECT id FROM users WHERE org_id = ? AND is_active = 1 AND id <> ?').all(orgId, creatorId) as { id: string }[];
-  return users.filter((u) => canApproveNow(db, u.id, orgId)).length;
+  return approverPool(db, orgId).filter((u) => u.id !== creatorId).length;
+}
+
+/**
+ * 승인 대기 요청을 지금 누가 승인할 수 있는지(A2-1). 승인 대기이고 승인할 수 있는 요청(blockedReason 없음, 지문 있음)일 때만 값을 준다.
+ * 후보: approverPool에서 작성자와 이 요청에 이미 결정(승인·반려)을 남긴 사람을 뺀다(서버의 자기 승인 금지·ALREADY_DECIDED와 같은 기준).
+ * remaining: 필요 승인 수 − 지금 정족수에 든 승인 수. 표시용이며 정족수·승인 가능 여부는 승인 처리가 다시 정한다.
+ * pool: 여러 요청을 한 번에 볼 때(홈) 조직 후보를 한 번만 읽도록 넘긴다.
+ */
+export function approvalWaitOf(db: DB, r: any, approvals: { userId: string; counted: boolean }[], pool?: ApproverRef[]): ApprovalWait | null {
+  if (r.status !== 'PENDING_APPROVAL' || blockedReasonOf(r) || !r.intent_hash) return null;
+  const decided = new Set(approvals.map((a) => a.userId));
+  const candidates = (pool ?? approverPool(db, r.org_id)).filter((u) => u.id !== r.created_by && !decided.has(u.id));
+  const remaining = Math.max(0, Number(r.required_approvals) - approvals.filter((a) => a.counted).length);
+  return { candidates, remaining, shortfall: candidates.length < remaining };
 }
 
 /**
@@ -202,11 +228,56 @@ export function allowedActions(r: any, approvals: any[], auth: AuthContext): Req
   return acts;
 }
 
+/** 표마다 정족수 포함 여부를 붙인 승인·반려 표. counted: 이 표가 승인 정족수에 들어가는지(반려 표는 false). */
+function countedApprovals(db: DB, r: any) {
+  const raw = approvalsOf(db, r.id);
+  const counted = countedApproverIds(db, r, raw);
+  return raw.map((a) => ({ ...a, counted: a.decision === 'approved' && counted.has(a.userId) }));
+}
+
+/** 결정 근거(A2-3). 결정 당시 역할은 감사 기록 조회 권한(audit.read)이 있는 조회자에게만 채운다. */
+function evidenceFor(db: DB, r: any, approvals: ReturnType<typeof countedApprovals>, auth: AuthContext): DecisionEvidence[] {
+  return evidenceOf(db, r.org_id, r.id, (r.intent_hash ?? null) as string | null, approvals, auth.perms.has('audit.read'));
+}
+
+/**
+ * 한 요청의 결정 근거(표마다). 다른 조직 요청은 404(getRow). 감사 기록 목록·CSV가 요청마다 한 번 부른다.
+ */
+export function decisionEvidence(db: DB, orgId: string, requestId: string, auth: AuthContext): DecisionEvidence[] {
+  const r = getRow(db, orgId, requestId);
+  return evidenceFor(db, r, countedApprovals(db, r), auth);
+}
+
+/**
+ * 홈 진행 중 요청의 '지금 승인할 수 있는 사람'(요청 id → 후보, 승인할 수 없거나 승인 대기가 아니면 null).
+ * 조직의 승인 후보는 한 번만 읽고 요청마다 작성자와 결정자를 뺀다. 한 요청을 계산하지 못해도(저장 계층의 이상한 값 등) 그 요청만 null로 두어 홈이 실패하지 않게 한다.
+ */
+export function waitingForMap(db: DB, orgId: string, ids: string[]): Map<string, ApproverRef[] | null> {
+  const out = new Map<string, ApproverRef[] | null>();
+  if (ids.length === 0) return out;
+  const pool = approverPool(db, orgId);
+  for (const id of ids) {
+    try {
+      const r = getRow(db, orgId, id);
+      out.set(id, approvalWaitOf(db, r, countedApprovals(db, r), pool)?.candidates ?? null);
+    } catch {
+      out.set(id, null);
+    }
+  }
+  return out;
+}
+
 export function toRequestDto(db: DB, r: any, auth: AuthContext, withApprovals = true) {
-  const raw = withApprovals ? approvalsOf(db, r.id) : [];
-  const counted = withApprovals ? countedApproverIds(db, r, raw) : new Set<string>();
-  // counted: 이 표가 승인 정족수에 들어가는지. 반려 표는 정족수 계산 대상이 아니므로 false다.
-  const approvals = raw.map((a) => ({ ...a, counted: a.decision === 'approved' && counted.has(a.userId) }));
+  const counted = withApprovals ? countedApprovals(db, r) : [];
+  // 표마다 결정 근거의 지문 대조·결정 당시 역할을 붙인다(정족수 포함 여부 counted는 위에서 계산).
+  const evidence = withApprovals ? evidenceFor(db, r, counted, auth) : [];
+  const approvals = counted.map((a, i) => ({
+    ...a,
+    matchesRequestIntent: evidence[i]!.matchesRequestIntent,
+    rolesAtDecision: evidence[i]!.rolesAtDecision,
+    rolesSource: evidence[i]!.rolesSource,
+    approveRoleAtDecision: evidence[i]!.approveRoleAtDecision,
+  }));
   const st = REQUEST_STATUS[r.status as RequestStatus];
   return {
     id: r.id as string,
@@ -246,6 +317,8 @@ export function toRequestDto(db: DB, r: any, auth: AuthContext, withApprovals = 
     custodyRef: r.custody_ref as string | null,
     version: r.version as number,
     allowedActions: withApprovals ? allowedActions(r, approvals, auth) : [],
+    /** 승인 대기 요청을 지금 누가 승인할 수 있는지(A2-1). 상세·행동 응답에만, 목록 응답과 승인할 수 없는 요청은 null. 대기 시작 시각은 submittedAt */
+    approvalWait: withApprovals ? approvalWaitOf(db, r, approvals) : null,
   };
 }
 
@@ -281,7 +354,13 @@ function checksView(db: DB, cfg: AppConfig, r: any): { evaluatedAt: string; stor
 export function getRequest(db: DB, cfg: AppConfig, auth: AuthContext, id: string) {
   const r = getRow(db, auth.org.id, id);
   const dto = toRequestDto(db, r, auth);
-  const timeline = db.prepare("SELECT action, actor_name actorName, summary, created_at createdAt FROM audit_log WHERE org_id = ? AND target_type = 'request' AND target_id = ? ORDER BY seq").all(auth.org.id, id);
+  // 처리 기록의 승인·반려 행에는 수행자로 이은 결정 근거를 붙인다(A2-3). 수행자 id(actor_id)는 응답에 넣지 않는다.
+  const byUser = new Map(dto.approvals.map((a): [string, DecisionEvidence] => [a.userId, {
+    userId: a.userId, name: a.name, decision: a.decision, decidedAt: a.createdAt, intentHashDisplay: a.intentHashDisplay,
+    matchesRequestIntent: a.matchesRequestIntent, counted: a.counted, rolesAtDecision: a.rolesAtDecision, rolesSource: a.rolesSource, approveRoleAtDecision: a.approveRoleAtDecision,
+  }]));
+  const rows = db.prepare("SELECT action, actor_id actorId, actor_name actorName, summary, created_at createdAt FROM audit_log WHERE org_id = ? AND target_type = 'request' AND target_id = ? ORDER BY seq").all(auth.org.id, id) as { action: string; actorId: string | null; actorName: string; summary: string; createdAt: string }[];
+  const timeline = rows.map(({ actorId, ...t }) => (DECISION_ACTIONS.has(t.action) ? { ...t, evidence: (actorId && byUser.get(actorId)) || null } : t));
   const balance = balanceFor(db, r.wallet_id, r.asset_code);
   return { ...dto, timeline, available: formatUnits(balance.total - balance.reserved, r.precision), checks: checksView(db, cfg, r) };
 }
