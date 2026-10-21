@@ -350,8 +350,8 @@ test('결정 카드(A1-05·06·07): 요약 → 주소록 기록 → 지문 → �
   for (const basis of await pass.locator('.rc-basis').all()) await expect(basis).toContainText('(설계 가정)');
   await page.keyboard.press('Space');
   await expect(pass).not.toHaveAttribute('open', '');
-  // 승인 전 확인: 근거 문서가 첨부되지 않는다는 안내, 주소 대조 체크 바로 위의 전체 주소(모든 묶음)
-  await expect(card.locator('#check-amount-hint')).toHaveText('이 화면에는 근거 문서가 첨부되지 않습니다. 요청자에게 받은 문서와 직접 대조하세요.');
+  // 승인 전 확인: 지급 근거가 없는 요청이라는 안내(A2b, 근거 기록 없음), 주소 대조 체크 바로 위의 전체 주소(모든 묶음)
+  await expect(card.locator('#check-amount-hint')).toHaveText('이 요청에는 지급 근거가 없습니다(근거 기록 없음). 요청자에게 받은 문서와 직접 대조하세요.');
   const strip = card.locator('.rc-check-address');
   await expect(strip.locator('.verify-label')).toHaveText(`대조할 받는 주소 (${dto.networkName})`);
   await expect(strip.locator('.addr-compact')).toHaveCount(0);

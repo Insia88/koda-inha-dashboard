@@ -12,6 +12,7 @@
 | Scrollbar | `src/styles.css` `:root` 표준 `scrollbar-width`/`scrollbar-color` + `scrollbar-gutter: stable` | DESIGN.md 기타 전역 규칙 | 없음(표 가로 스크롤은 기하 예외만) | e2e/interaction.spec.ts computed style |
 | Toast | 토스트 없음 — 화면 안 `Notice role="status"`(성공) / `ApiErrorNotice role="alert"`(실패, 원인+복구 행동) | DESIGN.md 상태 표현 · shared/terms.ts | success / info / warning / danger | e2e/flow.spec.ts 성공 안내, e2e/interaction.spec.ts 오류 안내; axe |
 | CRUD | 라우트 `목록 → 상세(state.back으로 목록 URL 복귀) / 작성 → 상세(replace)`; 파괴적 행동은 `ConfirmDialog`(src/components/Dialog.tsx) | 이 문서 · docs/api.md | return-to-list(뒤로) / stay(상세에서 상태 전이) | e2e/flow.spec.ts 수직 흐름·필터 복귀, e2e/interaction.spec.ts 대화상자 취소/확정/포커스 |
+| File attach | `PaymentEvidenceEditor`(src/components/PaymentEvidence.tsx): native `<input type="file" multiple>`(숨김)을 여는 보이는 「파일 추가」 버튼, 보내기 전 크기·앞부분 형식 확인, 파일마다 원본 바이트 POST(`uploadAttachment`, src/api.ts)를 차례로, 진행은 `role="status"`, 실패는 한 `Notice role="alert"` 목록; 삭제는 `ConfirmDialog`(destructive); 내려받기는 `downloadFile`(오류는 화면 안 안내) | DESIGN.md '지급 근거' · shared/attachments.ts · docs/api.md 'A2b: 지급 근거' | owner-editor(요청자, 작성·검토 중) / read-only(card·decide) | e2e/a2b-attachments.spec.ts 첨부·거부·삭제·고정·내려받기·390px·axe; tests/attachments.test.ts 서버 검증 |
 
 ### 적용하지 않는 항목
 - **Table Selection**: 다건 선택·일괄 처리를 두지 않는다. 출금 승인·주소 확인은 건별 대조가 안전 장치이므로 일괄 승인은 설계 가정상 제외(docs/assumptions.md A-34). 행은 상세로 이동하는 링크다.
@@ -33,6 +34,7 @@
 - 검색: `SearchField`(src/components/SearchField.tsx) — 300ms debounce(`SEARCH_DEBOUNCE_MS`), IME 조합 중 조회 금지, Enter·지우기 즉시, 지우기 후 입력 포커스. 조회는 TanStack Query 키(URL 쿼리)별로 캐시되고 AbortSignal로 취소되어 늦게 온 이전 결과가 현재 결과를 덮지 않는다.
 - 대화상자: `ConfirmDialog` — 안전한 선택 초기 포커스, Tab 순환, 배경 inert, Escape=취소(안전한 선택이 취소일 때만), busy 중 닫힘·중복 확정 금지, 실패 시 대화상자 안 오류, 닫힌 뒤 트리거(없으면 h1) 포커스.
 - 작성 보호: `useUnsavedGuard(dirty)` — 인앱 이동 확인, beforeunload는 작성 중일 때만, 저장 성공 이동은 `allowNavigation()`.
+- 한 화면에 이동 확인(`useBlocker`)은 하나만 둔다. 요청 상세는 지급 근거 메모 입력값과 파일을 올리는 중인지를 화면이 갖고, 내용 수정·반려 사유·진행 사유와 함께 그 화면의 `useUnsavedGuard` 하나에 합친다(A2b).
 - dirty 기준: 각 폼은 선택 항목(메타데이터) 포함 전체 입력을 기준값(최초 값 또는 마지막 저장 성공 뒤 값)과 비교한다. 인사이트 게시는 기관·발행일·언어만 바꿔도 작성 중이며, 게시 중에는 입력을 잠그고(fieldset disabled) 성공 시 제출 스냅샷에서 유지한 메타데이터를 새 기준으로 삼는다(e2e/insight-guard.spec.ts).
 - 세션 만료: 작성 중이 아니면 로그인 화면(`next`로 복귀), 작성 중이면 같은 계정 재로그인 대화상자(src/auth.tsx).
 - 문서 제목: `useDocumentTitle`/`PageHeader`.

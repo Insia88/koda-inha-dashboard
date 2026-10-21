@@ -44,28 +44,74 @@ export function newIdemKey() {
   return (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/[^A-Za-z0-9_-]/g, '');
 }
 
-type Opts = { method?: string; body?: unknown; idempotencyKey?: string; signal?: AbortSignal };
+/**
+ * raw: JSON 대신 그대로 보낼 본문(지급 근거 파일, application/octet-stream). headers: 추가 머리글(예: X-Attachment-Name).
+ * 변경 요청에는 늘 X-CSRF-Token을 붙인다.
+ */
+type Opts = { method?: string; body?: unknown; raw?: Blob; headers?: Record<string, string>; idempotencyKey?: string; signal?: AbortSignal };
 
-export async function api<T = any>(url: string, opts: Opts = {}): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
-  if (opts.method && opts.method !== 'GET') headers['X-CSRF-Token'] = csrfToken;
-  if (opts.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey;
-  let res: Response;
+const NETWORK_ERROR: ApiErrorBody = { code: 'NETWORK', message: '서버에 연결하지 못했습니다.', action: '네트워크 연결을 확인한 뒤 다시 시도하세요. 입력한 내용은 화면에 남아 있습니다.' };
+
+/** 응답 본문(JSON 오류 형식)을 ApiError로 바꾼다. 로그인이 끊겼으면(401) 화면에 알린다. */
+function toApiError(url: string, status: number, data: any): ApiError {
+  const body: ApiErrorBody = data?.error ?? { code: 'HTTP_' + status, message: '요청을 처리하지 못했습니다.', action: '잠시 후 다시 시도하세요.' };
+  if (status === 401 && !url.startsWith('/api/auth/')) window.dispatchEvent(new CustomEvent('koda:unauthenticated'));
+  return new ApiError(status, body, data?.requestId);
+}
+
+async function send(url: string, init: RequestInit): Promise<Response> {
   try {
-    res = await fetch(url, { method: opts.method ?? 'GET', headers, body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined, credentials: 'same-origin', signal: opts.signal });
+    return await fetch(url, { ...init, credentials: 'same-origin' });
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e;
-    throw new ApiError(0, { code: 'NETWORK', message: '서버에 연결하지 못했습니다.', action: '네트워크 연결을 확인한 뒤 다시 시도하세요. 입력한 내용은 화면에 남아 있습니다.' });
+    throw new ApiError(0, NETWORK_ERROR);
   }
+}
+
+export async function api<T = any>(url: string, opts: Opts = {}): Promise<T> {
+  const headers: Record<string, string> = { Accept: 'application/json', ...opts.headers };
+  if (opts.raw !== undefined) headers['Content-Type'] = 'application/octet-stream';
+  else if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
+  if (opts.method && opts.method !== 'GET') headers['X-CSRF-Token'] = csrfToken;
+  if (opts.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey;
+  const res = await send(url, { method: opts.method ?? 'GET', headers, body: opts.raw ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined), signal: opts.signal });
   trackDemoInstance(res);
   const text = await res.text();
   let data: any = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = null; }
-  if (!res.ok) {
-    const body: ApiErrorBody = data?.error ?? { code: 'HTTP_' + res.status, message: '요청을 처리하지 못했습니다.', action: '잠시 후 다시 시도하세요.' };
-    if (res.status === 401 && !url.startsWith('/api/auth/')) window.dispatchEvent(new CustomEvent('koda:unauthenticated'));
-    throw new ApiError(res.status, body, data?.requestId);
-  }
+  if (!res.ok) throw toApiError(url, res.status, data);
   return data as T;
+}
+
+/**
+ * 지급 근거 파일 하나 올리기(A2b). 파일 바이트를 그대로 보내고 이름은 X-Attachment-Name(encodeURIComponent) 머리글로 보낸다.
+ * 형식은 서버가 내용으로 다시 판정한다. 응답은 요청 상세와 같은 모양이다.
+ */
+export function uploadAttachment<T = any>(requestId: string, file: File): Promise<T> {
+  return api<T>(`/api/requests/${encodeURIComponent(requestId)}/attachments`, { method: 'POST', raw: file, headers: { 'X-Attachment-Name': encodeURIComponent(file.name) } });
+}
+
+/**
+ * 로그인한 같은 조직 사용자만 받을 수 있는 파일을 내려받는다. 실패하면 서버의 오류 문구를 ApiError로 던져 화면에 그대로 보이게 한다
+ * (오류 JSON을 새 탭에 띄우지 않는다). 받은 내용은 임시 blob 주소로 저장하고 바로 놓는다. 파일 이름은 서버가 정리한 이름이다.
+ */
+export async function downloadFile(url: string, fileName: string): Promise<void> {
+  const res = await send(url, { method: 'GET' });
+  trackDemoInstance(res);
+  if (!res.ok) {
+    let data: any = null;
+    try { data = await res.json(); } catch { data = null; }
+    throw toApiError(url, res.status, data);
+  }
+  const blob = await res.blob();
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = fileName;
+  a.rel = 'noopener';
+  a.hidden = true;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 1000);
 }

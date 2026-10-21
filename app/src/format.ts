@@ -65,3 +65,6 @@ export function waited(iso: string | null | undefined, nowMs = Date.now()) {
   if (h < 24) return `${h}시간째`;
   return `${Math.floor(h / 24)}일째`;
 }
+
+/** 지급 근거 파일 크기 표시('67B'·'182KB'·'1.5MB'). 서버의 감사 기록 문구와 같은 함수다. */
+export { fileSizeLabel } from '../shared/attachments.ts';

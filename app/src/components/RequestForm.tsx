@@ -286,6 +286,8 @@ export function RequestForm({ value, onChange, error, requestId }: { value: Requ
         <Field label="요청 목적" htmlFor="purpose" required error={step3Err?.fieldError('purpose')} hint="승인자가 판단할 수 있게 근거 문서나 정산 건을 적으세요.">
           <input id="purpose" value={value.purpose} onChange={(e) => set({ purpose: e.target.value })} maxLength={200} />
         </Field>
+        {/* 새 요청: 지급 근거(A2b)는 초안을 저장한 뒤 요청 화면에서 붙인다. 작성 양식의 값과 검증은 그대로다. */}
+        {!requestId && <p className="muted small" style={{ margin: '-4px 0 0' }}>지급 근거 파일(PDF·PNG·JPEG)과 메모는 초안을 저장한 뒤 요청 화면의 「지급 근거」에서 붙일 수 있습니다.</p>}
         <ChecksPreview value={value} requestId={requestId} amountReadable={preview.kind === 'ok' && preview.positive} />
       </fieldset>
     </>

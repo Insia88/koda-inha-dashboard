@@ -385,7 +385,9 @@ test('공통 검색: debounce, Enter 즉시, 한국어 IME 조합 중 조회 없
   await cdp.send('Input.insertText', { text: '래' });
   await expect(box).toHaveValue('거래');
   await expect(page).toHaveURL(/q=%EA%B1%B0%EB%9E%98/);
-  expect(qs).toEqual(['거래']);
+  // 주소(URL)는 화면 전환(transition)이 그려지기 전에 먼저 바뀌고, 조회는 그 뒤 그려진 화면이 보낸다(A2b, docs/traceability.md).
+  // 그래서 주소가 바뀐 직후 바로 세지 않고 조회 요청이 기록될 때까지 기다린다. 조회가 한 번뿐인지는 그대로 본다.
+  await expect.poll(() => qs).toEqual(['거래']);
 
   // 늦게 도착한 이전 검색 결과가 최신 결과를 덮지 않는다
   await page.route('**/api/addresses?*q=USDC*', async (r) => { await new Promise((res) => setTimeout(res, 1500)); await r.continue().catch(() => {}); });

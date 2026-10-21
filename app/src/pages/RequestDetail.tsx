@@ -9,12 +9,14 @@ import { ConfirmDialog } from '../components/Dialog.tsx';
 import { useFocusFirstError } from '../lib/forms.ts';
 import { useUnsavedGuard } from '../lib/unsaved.tsx';
 import { CheckList, IntentFingerprint, krwThreshold, RequestForm, type RequestFormValue } from '../components/RequestForm.tsx';
+import { PaymentEvidenceEditor, PaymentEvidenceView } from '../components/PaymentEvidence.tsx';
 import { amount, date, dateTime, krw, krwShort } from '../format.ts';
 import { krwValue } from '../../shared/decimal.ts';
 import {
-  ADDRESS_STATUS, APPROVAL_WAIT_TEXT, approvalShortfallText, approverNames, REQUEST_STATUS,
+  ADDRESS_STATUS, APPROVAL_WAIT_TEXT, approvalShortfallText, approverNames, PAYMENT_EVIDENCE_TEXT, REQUEST_STATUS,
   type AddressStatus, type ApprovalWait, type DecisionEvidenceView, type RequestCheck, type RequestStatus,
 } from '../../shared/terms.ts';
+import type { PaymentEvidence } from '../../shared/attachments.ts';
 
 /** 요청 응답의 출금 전 점검: 작성·검토 중이면 지금 기준(stored=false), 승인 요청 뒤에는 제출 때 저장한 결과(stored=true). 기록이 없는 이전 요청은 null. */
 type ChecksView = { evaluatedAt: string; stored: boolean; items: RequestCheck[] } | null;
@@ -201,8 +203,14 @@ export function RequestDetailPage() {
   const [justDecided, setJustDecided] = useState<null | { action: 'approve' | 'reject'; status: string; approved: number; required: number }>(null);
   // 방금 단계를 옮겼거나(검토로 이동·작성 단계로 되돌리기) 작성 내용을 저장했는지(횟수). 누른 버튼이 사라지므로 「다음 할 일」로 포커스를 옮긴다.
   const [stepMoved, setStepMoved] = useState(0);
+  // 지급 근거(A2b): 메모 입력값과 파일을 올리는 중인지. 편집 카드가 아니라 이 화면이 갖고 작성 중 보호 하나에 합친다(「내용 수정」 중에도 입력값을 지킨다).
+  const [noteDraft, setNoteDraft] = useState<string | null>(null);
+  const [evidenceBusy, setEvidenceBusy] = useState(false);
   // 같은 화면에서 다른 요청으로 이동하면 앞 요청의 사유·안내를 남기지 않는다.
-  useEffect(() => { setCheckReasons({}); setJustSubmitted(false); setJustDecided(null); setStepMoved(0); }, [id]);
+  useEffect(() => { setCheckReasons({}); setJustSubmitted(false); setJustDecided(null); setStepMoved(0); setNoteDraft(null); }, [id]);
+  // 승인 요청 등으로 지급 근거를 더 고칠 수 없게 되면 저장하지 않은 메모 입력값을 버린다(남겨 두면 떠날 때마다 경고가 뜬다).
+  const evidenceEditable = !!q.data?.paymentEvidence?.canEdit;
+  useEffect(() => { if (!evidenceEditable) setNoteDraft(null); }, [evidenceEditable]);
   const idem = useRef<Record<string, string>>({});
   const keyFor = (action: string) => (idem.current[action] ??= newIdemKey());
 
@@ -303,7 +311,8 @@ export function RequestDetailPage() {
   const editDirty = editing && !!form && !!original && JSON.stringify(form) !== JSON.stringify(original);
   const reasonDirty = reason.trim() !== '' && reason !== reasonSeed;
   const checkReasonDirty = Object.values(checkReasons).some((v) => v.trim() !== '');
-  const guard = useUnsavedGuard(editDirty || reasonDirty || checkReasonDirty);
+  const noteDirty = noteDraft !== null && noteDraft !== (q.data?.paymentEvidence?.note?.text ?? '');
+  const guard = useUnsavedGuard(editDirty || reasonDirty || checkReasonDirty || noteDirty || evidenceBusy);
 
   if (q.isPending) return <Loading />;
   if (q.error) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
@@ -323,6 +332,8 @@ export function RequestDetailPage() {
   const actNotice = actErrorNow;
   const conflict = conflictErr;
   const checks = (r.checks ?? null) as ChecksView;
+  // 지급 근거(A2b, 설계 가정 A-38). 상세·행동 응답에만 있다.
+  const pe = (r.paymentEvidence ?? null) as PaymentEvidence | null;
   const submitted = !!r.submittedAt;
   // 받는 주소 상태(작성·검토 중 요청). 승인 요청 뒤의 승인 불가(blocked)와 따로 안내한다.
   const hold = addressHold(r);
@@ -511,6 +522,14 @@ export function RequestDetailPage() {
         </section>
       )}
 
+      {/* 지급 근거(A2b): 요청자는 작성·검토 중에 편집 카드(「내용 수정」 중에는 읽기 카드), 그 밖의 사람은 읽기 카드.
+          결정 카드가 있으면 근거는 카드 안(출금 전 점검 결과 다음)에 보이므로 여기에는 두지 않는다. */}
+      {pe && (pe.canEdit
+        ? (editing
+          ? <section className="card"><PaymentEvidenceView pe={pe} level={2} variant="card" stateText={PAYMENT_EVIDENCE_TEXT.editingNote} /></section>
+          : <PaymentEvidenceEditor requestId={r.id} pe={pe} noteDraft={noteDraft} onNoteDraft={setNoteDraft} onBusy={setEvidenceBusy} onStale={() => qc.invalidateQueries({ queryKey: ['request', id] })} />)
+        : !decideCard && <section className="card"><PaymentEvidenceView pe={pe} level={2} variant="card" /></section>)}
+
       {/* 작성 중이거나 다른 사람이 보는 검토 중 요청: 지금 기준 점검(읽기 전용). 요청자의 검토 단계는 아래 확인 카드 안에서 사유와 함께 보인다. */}
       {preSubmit && !editing && !can('submit') && checks && (
         <section className="card">
@@ -566,8 +585,11 @@ export function RequestDetailPage() {
           {actErr?.fieldError('ackIrreversible') && <p className="field-error" id="ack-error">{actErr.fieldError('ackIrreversible')}</p>}
           {conflictNotice}
           <ApiErrorNotice error={actNotice} />
+          {/* 지급 근거가 승인자에게 어떻게 보이는지 한 줄(A2b). 저장하지 않은 메모가 있으면 함께 알린다. */}
+          {pe && <p className="pe-submit-line">{PAYMENT_EVIDENCE_TEXT.submitLine(pe.attachments.length, !!pe.note)}</p>}
+          {noteDirty && <p className="pe-submit-warn">{PAYMENT_EVIDENCE_TEXT.unsavedNote}</p>}
           <div className="form-actions">
-            <button className="btn btn-primary" onClick={() => act.mutate({ action: 'submit', body: { confirmTail: tail, ackIrreversible: ack, checkReasons: reasonsToSend } })} disabled={act.isPending || !tail || !ack}>승인 요청 보내기</button>
+            <button className="btn btn-primary" onClick={() => act.mutate({ action: 'submit', body: { confirmTail: tail, ackIrreversible: ack, checkReasons: reasonsToSend } })} disabled={act.isPending || !tail || !ack || evidenceBusy}>승인 요청 보내기</button>
           </div>
         </section>
       )}
@@ -626,6 +648,9 @@ export function RequestDetailPage() {
           {checks
             ? <CheckList title="출금 전 점검 결과" items={checks.items} showReasons footnote={`승인 요청 때(${dateTime(checks.evaluatedAt)} KST) 점검한 결과입니다. 기준은 설계 가정이며, 기준 이내라는 결과도 받는 곳이나 전송을 보증하지 않습니다.`} />
             : <p className="muted small" style={{ margin: 0 }}>{NO_STORED_CHECKS}</p>}
+          {/* 지급 근거(A2b): 승인 요청 때 고정된 파일·메모, 없으면 '근거 기록 없음'. 출처 안내(문서가 진짜인지·받는 주소가 맞는지 확인하지 않음)를 함께 둔다.
+              A1 순서(요약 → 주소 기록 → 지문 → 점검 → 승인 효과 → 되돌릴 수 없음 → 승인 전 확인 → 버튼)에 점검 다음 자리로만 끼운다. */}
+          {pe && <PaymentEvidenceView pe={pe} variant="decide" />}
           {/* 409 안내는 결정 버튼 바로 위(승인 전 확인보다 앞)에 둔다. 다시 불러와 승인이 사라져도 반려 바로 위에 남는다. */}
           {conflictNotice}
           {can('approve') && (
@@ -641,7 +666,7 @@ export function RequestDetailPage() {
                 <legend className="field-label">승인 전 확인</legend>
                 <label className="check"><input type="checkbox" checked={checked.counterparty} onChange={(e) => setChecked({ ...checked, counterparty: e.target.checked })} />받는 곳과 목적이 실제 업무와 맞습니다.</label>
                 <label className="check"><input type="checkbox" checked={checked.amount} onChange={(e) => setChecked({ ...checked, amount: e.target.checked })} aria-describedby="check-amount-hint" />수량({amount(r.amount, r.assetCode)})이 근거 문서와 같습니다.</label>
-                <p id="check-amount-hint" className="rc-check-hint">이 화면에는 근거 문서가 첨부되지 않습니다. 요청자에게 받은 문서와 직접 대조하세요.</p>
+                <p id="check-amount-hint" className="rc-check-hint">{pe?.hasAny ? PAYMENT_EVIDENCE_TEXT.amountHintWith : PAYMENT_EVIDENCE_TEXT.amountHintNone}</p>
                 {/* 주소 대조 체크 바로 위에 전체 주소(모든 묶음 같은 굵기, 메모·태그 포함)를 다시 보인다. 앞·뒤만 줄인 표시는 쓰지 않는다. */}
                 <div className="verify-box rc-check-address">
                   <div className="verify-label">대조할 받는 주소 ({r.networkName})</div>

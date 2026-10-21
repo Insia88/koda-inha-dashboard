@@ -1,9 +1,15 @@
+import { randomBytes } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { loginAs, logout } from './helpers.ts';
-
-const ADDR = 'MOCK-EVM-' + 'ABCDEF0123456789ABCDEF0123456789ABCD9876';
+import { middleSegment } from '../shared/address-rules.ts';
 
 test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인 → 요청 작성·검토·제출 → 승인 → 처리 완료 → 감사 기록', async ({ page }) => {
+  // 같은 DB에서 다시 돌려도(--repeat-each, A2b 간헐 실패 확인) 앞 실행의 주소·이름과 겹치지 않게 실행마다 새 주소와 이름을 쓴다.
+  // 다시 입력할 끝 6자리와 가운데 8자리(MOCK-EVM- 뒤 17~24번째 글자)는 그 주소에서 계산한다.
+  const ADDR = `MOCK-EVM-${randomBytes(20).toString('hex').toUpperCase()}`;
+  const TAIL = ADDR.slice(-6);
+  const MIDDLE = middleSegment(ADDR).text;
+  const LABEL = `E2E 거래처 입금 주소 ${ADDR.slice(9, 13)}`;
   // 1) 자산 담당자: 홈에서 자산·할 일·진행 요청 확인
   await loginAs(page, '한지수');
   await expect(page.getByRole('heading', { name: '보유 자산' })).toBeVisible();
@@ -24,12 +30,12 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await page.locator('#address').fill(ADDR);
   await expect(page.getByText(/같은 주소 형식을 씁니다/)).toBeVisible();
   await expect(page.getByText('형식 점검은 주소의 주인이나 안전성을 확인하지 않습니다.')).toBeVisible();
-  await page.getByRole('textbox', { name: /^주소 이름/ }).fill('E2E 거래처 입금 주소');
+  await page.getByRole('textbox', { name: /^주소 이름/ }).fill(LABEL);
   await page.getByRole('textbox', { name: /^받는 곳/ }).fill('모의 E2E 거래처');
   await page.getByLabel(/주소 끝 6자리/).fill('000000');
   // 앞·뒤만 같게 만든 가짜 주소를 가려내기 위한 가운데 8자리 재입력(접두 MOCK-EVM- 뒤 17~24번째 글자)
   await expect(page.getByLabel('원본 주소의 가운데 8자리 (MOCK-EVM- 뒤 17~24번째 글자)')).toBeVisible();
-  await page.getByLabel(/가운데 8자리/).fill('ABCDEF01');
+  await page.getByLabel(/가운데 8자리/).fill(MIDDLE);
   await page.getByRole('combobox', { name: /^받은 경로/ }).selectOption('email');
   await page.getByRole('combobox', { name: /^다시 확인한 경로/ }).selectOption('registered_phone');
   await page.getByRole('textbox', { name: /^확인한 상대·연락처/ }).fill('모의 거래처 재무팀 대표번호');
@@ -37,7 +43,7 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await page.getByLabel(/보증하지 않는다는/).check();
   await page.getByRole('button', { name: '주소 등록', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: '끝 6자리가 주소와 다릅니다' }).first()).toBeVisible();
-  await page.getByLabel(/주소 끝 6자리/).fill('CD9876');
+  await page.getByLabel(/주소 끝 6자리/).fill(TAIL);
   await page.getByRole('button', { name: '주소 등록', exact: true }).click();
   // 등록 직후에는 다음 단계 안내 하나만 보인다: 알림이 가지 않는다는 점과, 등록자가 아닌 승인자가 확인해야 한다는 점(A1).
   const created = page.getByRole('status').filter({ hasText: '주소를 등록했습니다 — 다른 승인자의 확인이 필요합니다' });
@@ -50,7 +56,7 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await expect(page.getByRole('button', { name: /사용 가능으로 확인/ })).toHaveCount(0);
   // 나중에 다시 열면 등록자에게 직접 확인할 수 없다는 안내가 보이고, 확인 버튼은 여전히 없다.
   await page.goto('/addresses?status=PENDING_REVIEW');
-  await page.getByRole('link', { name: 'E2E 거래처 입금 주소' }).click();
+  await page.getByRole('link', { name: LABEL }).click();
   await expect(page.getByText('본인이 등록한 주소는 직접 확인할 수 없습니다. 등록자가 아닌 승인자가 확인해야 합니다.')).toBeVisible();
   await expect(page.getByRole('button', { name: /사용 가능으로 확인/ })).toHaveCount(0);
   await logout(page);
@@ -58,9 +64,9 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   // 3) 다른 승인자가 주소 확인
   await loginAs(page, '오민재');
   await page.goto('/addresses?status=PENDING_REVIEW');
-  await page.getByRole('link', { name: 'E2E 거래처 입금 주소' }).click();
-  await page.getByLabel('원본 주소의 끝 6자리').fill('CD9876');
-  await page.getByLabel(/원본 주소의 가운데 8자리/).fill('ABCDEF01');
+  await page.getByRole('link', { name: LABEL }).click();
+  await page.getByLabel('원본 주소의 끝 6자리').fill(TAIL);
+  await page.getByLabel(/원본 주소의 가운데 8자리/).fill(MIDDLE);
   await page.getByRole('button', { name: /사용 가능으로 확인/ }).click();
   await expect(page.getByText('사용 가능', { exact: true }).first()).toBeVisible();
   await logout(page);
@@ -72,7 +78,7 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await page.getByRole('combobox', { name: /^자산/ }).selectOption('USDC');
   await page.getByRole('combobox', { name: /^네트워크/ }).selectOption('ETHEREUM');
   await expect(page.getByText('거래처 안내문의 네트워크 이름이 이 목록과 다르면, 거래처에 어느 블록체인 네트워크로 받는지 물어 확인하세요.', { exact: false })).toBeVisible();
-  await page.getByLabel(/받는 주소/).selectOption({ label: 'E2E 거래처 입금 주소 — 모의 E2E 거래처' });
+  await page.getByLabel(/받는 주소/).selectOption({ label: `${LABEL} — 모의 E2E 거래처` });
   await page.getByLabel(/수량/).fill('1.1234567');
   await page.getByRole('textbox', { name: /^요청 목적/ }).fill('E2E 정산 테스트');
   await page.getByRole('button', { name: '초안 저장 후 검토하기' }).click();
@@ -85,7 +91,7 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await expect(page.getByRole('heading', { name: '최종 검토 후 승인 요청' })).toBeVisible();
   await page.reload(); // 새로고침 후에도 상태 유지
   await expect(page.getByText('검토 중').first()).toBeVisible();
-  await page.getByLabel(/원본 주소의 끝 6자리/).fill('CD9876');
+  await page.getByLabel(/원본 주소의 끝 6자리/).fill(TAIL);
   await page.getByLabel(/되돌릴 수 없다는 점/).check();
   // 방금 등록한 주소라 '이 대시보드로 처음 보내는 주소입니다' 주의 항목의 진행 사유가 필요하다(WP-11).
   await page.getByRole('textbox', { name: /^진행 사유: 이 대시보드로 처음 보내는 주소입니다/ }).fill('E2E 거래처 재무팀과 전화로 주소를 대조했습니다');
@@ -111,14 +117,14 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await expect(page.locator('.page-header .badge')).toHaveText('처리 완료', { timeout: 15_000 });
   // 결정 카드가 말한 대로 자산 활동 내역에 출금으로 기록된다(A1-06의 안내 문장과 같은 기존 동작).
   await page.goto('/activity?type=withdrawal');
-  await expect(page.getByRole('row').filter({ hasText: 'E2E 거래처 입금 주소' }).first()).toBeVisible();
+  await expect(page.getByRole('row').filter({ hasText: LABEL }).first()).toBeVisible();
   await logout(page);
 
   // 6) 감사 담당자: 기록 확인, 무결성 표시
   await loginAs(page, '문태호');
   await page.goto('/audit?q=' + encodeURIComponent('E2E'));
   await expect(page.getByText('무결성 확인됨')).toBeVisible();
-  await expect(page.getByText(/주소 등록 요청: E2E 거래처 입금 주소/)).toBeVisible();
+  await expect(page.getByText(`주소 등록 요청: ${LABEL}`)).toBeVisible();
   await page.goto('/audit');
   await expect(page.getByRole('cell', { name: /처리 완료 \(모의\)/ }).first()).toBeVisible();
 });

@@ -138,12 +138,15 @@ test('요청자: 작성 미리 보기와 검토 단계의 점검, 진행 사유�
   // 무엇을 결정하는지 요약 → 지문 → 점검이 결정 버튼보다 먼저 읽힌다(A1: 요약이 맨 위)
   const order = await decide.evaluate((el) => {
     const pos = (s: string) => [...el.querySelectorAll('*')].indexOf(el.querySelector(s)!);
-    return { summary: pos('.rc-decide-summary'), intent: pos('.rc-intent'), checks: pos('.rc-list'), approve: pos('button.btn-primary') };
+    return { summary: pos('.rc-decide-summary'), intent: pos('.rc-intent'), checks: pos('.rc-list'), evidence: pos('.pe-block'), effect: pos('#approve-effect'), approve: pos('button.btn-primary') };
   });
   expect(order.summary).toBeGreaterThanOrEqual(0);
   expect(order.summary).toBeLessThan(order.intent);
   expect(order.intent).toBeLessThan(order.checks);
   expect(order.checks).toBeLessThan(order.approve);
+  // 지급 근거(A2b)는 점검 결과 다음, 승인 효과 문장 앞에 끼운다(A1 순서는 그대로)
+  expect(order.checks).toBeLessThan(order.evidence);
+  expect(order.evidence).toBeLessThan(order.effect);
   // 기준 이내 항목은 접힌 묶음 안에 있다(항목은 그대로 5개). 기준 각주(설계 가정·보증 아님)는 펼치지 않아도 보인다.
   await expect(decide.locator('.rc-item')).toHaveCount(5);
   const passGroup = decide.locator('details.rc-pass-group');
