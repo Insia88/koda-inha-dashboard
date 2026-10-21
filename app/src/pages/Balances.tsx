@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api.ts';
-import { DataStamp, Empty, ErrorState, Loading, PageHeader, Term } from '../components/ui.tsx';
+import { AmountText, DataStamp, Empty, ErrorState, Loading, PageHeader, Term } from '../components/ui.tsx';
 import { AllocationBar } from '../components/AllocationBar.tsx';
 import { amount, dateTime, krw, krwShort } from '../format.ts';
 import { GLOSSARY } from '../../shared/terms.ts';
@@ -16,7 +16,7 @@ export function BalancesPage() {
       <section className="card">
         <div className="total total-row">
           <div>
-            <div className="total-label"><Term label="총 평가액">{GLOSSARY.valuation}</Term></div><div className="total-value">{krwShort(h.totalKrw)}</div><div className="muted">{krw(h.totalKrw)}</div>
+            <div className="total-label"><Term label="총 평가액">{GLOSSARY.valuation}</Term></div><div className="total-value"><AmountText text={krwShort(h.totalKrw)} /></div><div className="total-exact muted">{krw(h.totalKrw)}</div>
             {/* 합계를 보는 자리에서 스테이킹이 들어가는지 묻게 되므로 바로 아래에 짧게 쓴다(긴 설명은 화면 아래 그대로). */}
             <p className="muted small total-staking-note">스테이킹 현황의 맡긴 수량·보상은 이 합계에 넣지 않았습니다(모의 데이터).</p>
           </div>
@@ -36,9 +36,9 @@ export function BalancesPage() {
                   <tr key={a.assetCode + w.walletId} className={i === 0 ? 'group-start' : ''}>
                     {i === 0 && <th scope="rowgroup" rowSpan={a.byWallet.length}><span className="asset-code">{a.assetCode}</span><div className="muted small">{a.name}</div></th>}
                     <td>{w.walletName}<div className="muted small">{w.networkName}</div></td>
-                    <td className="num">{amount(w.total, a.assetCode)}</td>
-                    <td className={`num ${w.reserved === '0' ? 'muted' : ''}`}>{amount(w.reserved, a.assetCode)}</td>
-                    <td className="num strong">{amount(w.available, a.assetCode)}</td>
+                    <td className="num"><AmountText text={amount(w.total, a.assetCode)} /></td>
+                    <td className={`num ${w.reserved === '0' ? 'muted' : ''}`}><AmountText text={amount(w.reserved, a.assetCode)} /></td>
+                    <td className="num strong"><AmountText text={amount(w.available, a.assetCode)} /></td>
                     {i === 0 && <td className="num" rowSpan={a.byWallet.length}>{krw(a.krwPrice)}</td>}
                     {i === 0 && <td className="num" rowSpan={a.byWallet.length}>{krwShort(a.krwValue)}<div className="muted small">{krw(a.krwValue)}</div></td>}
                   </tr>
@@ -56,7 +56,7 @@ export function BalancesPage() {
               <section key={a.assetCode} className="card" aria-labelledby={`bal-${a.assetCode}`}>
                 <div className="bal-head">
                   <h2 id={`bal-${a.assetCode}`}><span className="asset-code">{a.assetCode}</span><span className="muted small">{a.name}</span></h2>
-                  <div className="bal-value"><strong>{krwShort(a.krwValue)}</strong><div className="muted small">{krw(a.krwValue)}</div></div>
+                  <div className="bal-value"><strong><AmountText text={krwShort(a.krwValue)} /></strong><div className="muted small">{krw(a.krwValue)}</div></div>
                 </div>
                 <p className="muted small bal-price">모의 시세 1 {a.assetCode} = {krw(a.krwPrice)}</p>
                 <table className="table table-compact table-stack">

@@ -4,7 +4,7 @@
 
 - 버전·출시일·라이선스·저장소는 2026-10-19에 npm 레지스트리(`npm view <패키지> time license repository`)로 확인했다. 출시일은 레지스트리 게시일(UTC)이다.
 - 결정 근거의 크기·의존성 수·취약점(OSV) 조회는 2026-10-19 독립 검수(R1, 저장소 밖 로컬 자료)의 조사 결과를 옮긴 것이다. 조사 당시 후보와 그 런타임 의존성의 OSV 알려진 취약점은 0건이었다.
-- 결정: **적용**(설치·고정했거나 버전을 지정해 실행), **보류**(쓸 만하지만 조건이 갖춰질 때까지 미룸), **제외**(쓰지 않기로 함).
+- 결정: **적용**(설치·고정했거나 버전을 지정해 실행), **보류**(쓸 만하지만 조건이 갖춰질 때까지 미룸), **제외**(쓰지 않기로 함), **참고만**(설치·배포하지 않고 값과 규칙만 참고함, A4부터).
 
 ## 후보 목록
 
@@ -44,6 +44,32 @@
 | filenamify@7.0.3 | https://github.com/sindresorhus/filenamify | MIT | 2026-08-28 | 제외 | 디스크에 쓸 파일 이름을 만드는 도구다. 첨부의 원래 이름은 디스크에 쓰지 않고 글자로만 저장해 보여 준다. 보이지 않는 서식 문자(방향 제어 문자 포함)는 `shared/text.ts`의 `stripFormatChars`가 이미 지운다. 제어 문자와 경로 구분자를 지우고 길이를 제한하는 몇 줄이면 된다 | 2026-10-21 |
 | sanitize-filename@1.6.4 | https://github.com/parshap/node-sanitize-filename | WTFPL OR ISC | 2026-03-20 (그 전 배포 1.6.3: 2019-08-26) | 제외 | filenamify를 뺀 이유와 같다. 2019년 이후 배포가 2026-03 한 번뿐이다 | 2026-10-21 |
 | mime-types@3.0.2 | https://github.com/jshttp/mime-types | MIT | 2025-11-20 | 제외 | 확장자로 형식을 추정하는 도구다. 첨부의 `Content-Type`과 확장자는 서버가 바이트로 판별한 형식에서 정해야 한다. 허용 형식 세 가지는 상수 표로 충분하다 | 2026-10-21 |
+| Source Code Pro VF upright 2.042R-u/1.062R-i/1.026R-vf (Adobe 원본 파일, npm 아님) | https://github.com/adobe-fonts/source-code-pro | OFL-1.1 (예약 글꼴 이름 'Source') | 2023-04-12 | 적용 | A4 식별자 전용 고정폭(주소 대조 띠·주소 재입력 칸·승인 대상 지문·해시). 릴리스의 `WOFF2/VF/SourceCodeVF-Upright.ttf.woff2`(90,124 B)를 GitHub API에서 blob `fa87db30cd176c10c945754a50f9b1353eb1a122`로 새 빈 임시 폴더에 받아 `git hash-object`가 같은지 확인했고(sha256 `d95dc751b4d82141259f5c00c9838addaadd3b4eac30dd7db4a0da4921d77792`), 서브셋·변환·이름 바꾸기 없이 `src/assets/fonts/`에 두었다. `LICENSE.md`(blob `70288a864f8dfd1314aa0315748eece0cf80fdda`, 4,566 B)는 줄 끝까지 그대로 `public/fonts/SOURCE-CODE-PRO-LICENSE.txt`. npm 의존성 없음. 고른 이유: 지금까지 식별자는 설치된 글꼴에 따라 Windows는 Consolas, 다른 운영체제는 다른 글꼴로 보였다. 점 있는 0, 1·l·I 구별, 합자 없음(브라우저에서 14·20px로 0/O·1/l/I·5/S·8/B·2/Z 확인). 홈·요청 목록은 이 파일을 받지 않는다(`e2e/a4-type-motion.spec.ts`). 고지 표에 있음 | 2026-10-21 |
+| @fontsource-variable/source-code-pro@5.3.0 | https://github.com/fontsource/font-files | OFL-1.1 | 2026-07-19 | 보류 | latin 파일이 22,044 B로 원본(90,124 B)보다 작지만 Google이 만든 서브셋이라 OFL의 수정본(Modified Version)이고, 예약 이름 'Source'를 그대로 단다. Google Fonts가 Adobe에게 받은 허락이 제3자 재배포까지 덮는다고 결정하면 `src/fonts.css`의 src와 unicode-range만 바꾸면 된다. 5.3.1(2026-10-11)은 출시 2주 미만 | 2026-10-21 |
+| @fontsource-variable/cascadia-mono@5.3.0 | https://github.com/fontsource/font-files (원본 https://github.com/microsoft/cascadia-code) | OFL-1.1 | 2026-07-19 | 보류 | latin 28,812 B. Cascadia Mono가 깔린 Windows에서 보이던 모양과 같다. Fontsource 서브셋이라 위와 같은 수정본 문제가 있다. Source Code Pro가 글자 구별에서 부족하면 라이선스를 다시 확인한 뒤 본다 | 2026-10-21 |
+| @carbon/motion@11.54.0 | https://github.com/carbon-design-system/carbon (`packages/motion`) | Apache-2.0 | 2026-10-07 | 참고만 | 설치하지 않았다. productive 모션의 시간 4개(70·110·150·240ms)와 곡선 3개(standard·entrance·exit)를 `src/styles.css` `:root` 토큰으로 옮겼다(DESIGN.md '모션'). 상수 7개를 위해 의존성을 두지 않는다 | 2026-10-21 |
+| Primer Primitives 모션 토큰 (main @ 66e78d3) | https://github.com/primer/primitives | MIT | — | 참고만 | 시간 범위 교차 확인(hover 100ms, 상태 변화 200ms, 등장 300ms 이하)과 'UI 모션 300ms 이하·prefers-reduced-motion 존중' 규칙. 설치하지 않음 | 2026-10-21 |
+| Fluent 2 토큰 (`@fluentui/tokens`) | https://github.com/microsoft/fluentui (`packages/tokens`) | MIT | — | 참고만 | 시간(50~500ms)·곡선 교차 확인, 움직임 없는 설정을 따로 설계하라는 원칙. 설치하지 않음 | 2026-10-21 |
+| Material 3 글자 눈금·모션 토큰 | https://github.com/material-components/material-web (`tokens`) | Apache-2.0 | — | 참고만 | 작은 글자에 양의 자간·레이블은 중간 굵기라는 방향과 시간 범위를 교차 확인. 설치하지 않음 | 2026-10-21 |
+| Adobe Spectrum design data 글자 토큰 | https://github.com/adobe/spectrum-design-data (`packages/tokens/src/typography.json`) | Apache-2.0 (저장소 기준, 코드를 가져오지 않음) | — | 참고만 | CJK 행간(제목 1.5·본문 1.7)과 자간 0. 한글 본문 행간 1.5 이상(24px/15px)의 근거 | 2026-10-21 |
+| KRDS(대한민국 정부 디자인 시스템) 글자 토큰 | https://github.com/KRDS-uiux/krds-uiux | 확인 안 함(값만 참고, 파일을 가져오지 않음) | — | 참고만 | 행간 150% 이상(WCAG 1.4.12 인용), 24px 이하 제목·본문 자간 0, 굵기 4개 이하. Pretendard GOV는 쓰지 않는다(아래) | 2026-10-21 |
+| Adobe Fonts·Adobe 글자 팔레트(짝 추천) | https://fonts.adobe.com | Adobe Fonts 라이선스(자체 호스팅 불가) | — | 참고만 | 본문 산세리프 + 식별자 고정폭이라는 짝과 크기·굵기 절제만 참고했다. 키트(Typekit)·런타임 임베드는 쓰지 않는다(CSP·런타임 CDN 금지 규칙). 팔레트가 큰 제목에 짝지은 명조(Gowun Batang)는 아래에서 제외 | 2026-10-21 |
+| motion@14.0.0 | https://github.com/motiondivision/motion | MIT | 2026-10-02 | 제외 | 스프링·레이아웃 FLIP·퇴장 애니메이션이 필요 없다. 기본값이 `reducedMotion: "never"`라 운영체제 설정을 따르려면 따로 켜야 한다. AnimatePresence까지 약 43 KB gzip(화면 스크립트 약 25% 증가). 14.x가 19일 동안 8번 배포되었고 최신 14.5.0은 출시 2주 미만 | 2026-10-21 |
+| @formkit/auto-animate@0.10.0 | https://github.com/formkit/auto-animate | MIT | 2026-07-10 | 제외 | 목록 행을 넣고 빼고 옮길 때 미끄러지게 하는 것이 유일한 일인데, 표·목록 행은 움직이지 않는다는 규칙(DESIGN.md '모션')과 맞지 않는다. 3.3 KB gzip | 2026-10-21 |
+| @react-spring/web@10.1.2 | https://github.com/pmndrs/react-spring | MIT | 2026-06-24 | 제외 | 물리 스프링과 패키지 5개 의존성, 약 18.7 KB gzip. 짧은 상태 피드백에는 CSS 전환이면 된다 | 2026-10-21 |
+| @number-flow/react@0.6.2 | https://github.com/barvian/number-flow | MIT | 2026-07-18 | 제외 | 숫자가 바뀔 때 자릿수를 굴려 보여 주는 동안 틀린 중간값이 보인다. 금액·수량은 움직이지 않는다 | 2026-10-21 |
+| @fontsource-variable/jetbrains-mono@5.3.0 | https://github.com/JetBrains/JetBrainsMono | OFL-1.1 | 2026-07-19 | 제외 | latin 40,404 B. 코드 합자(calt)를 꺼야 하고 x-높이가 커서 14px에서 Pretendard 옆에 덜 어울린다. Fontsource 서브셋 문제도 같다 | 2026-10-21 |
+| @ibm/plex-mono@2.5.0 | https://github.com/IBM/plex | OFL-1.1 | 2026-06-11 | 제외 | 의존성 `@ibm/telemetry-js`가 설치 때 원격 측정 스크립트(`ibmtelemetry` postinstall)를 돈다. Fontsource 판(@fontsource/ibm-plex-mono)은 가변 글꼴이 없어 굵기마다 파일이 늘어난다 | 2026-10-21 |
+| D2Coding 1.4.0 | https://github.com/naver/d2-coding-font | OFL-1.1 | 2026-10-03 | 제외 | woff2·npm 없이 한글까지 든 TTF 수 MB. 주소는 ASCII라 한글 고정폭이 필요 없다. 설치된 PC를 위해 이름만 `--mono` 스택에 남긴다 | 2026-10-21 |
+| fontaine@1.0.0 | https://github.com/unjs/fontaine | MIT | 2026-09-21 | 제외 | 대체 글꼴 크기 맞춤은 손으로 쓴 `local()` @font-face(`src/fonts.css`)로 같은 일을 하고 의존성이 없다. 한글 시스템 글꼴 값을 갖고 있는지는 확인하지 않았다. 1.0.1·1.0.2는 출시 2주 미만 | 2026-10-21 |
+| @capsizecss/metrics@4.3.0 | https://github.com/seek-oss/capsize | MIT | 2026-09-15 | 제외 | 압축 해제 27.8 MB. 한 번 재면 되는 값이라 브라우저에서 직접 쟀다(DESIGN.md '서체'). 4.4.0은 출시 2주 미만 | 2026-10-21 |
+| Wanted Sans 1.0.3 (npm wanted-sans) | https://github.com/wanteddev/wanted-sans | OFL-1.1 | 2024-03-05 | 제외 | 한글이 Pretendard와 같은 Source Han Sans 계열이라 가독성 이득이 없고, 굵기마다 따로 받는 파일이라 무겁다(패키지 48.4 MB) | 2026-10-21 |
+| SUIT 2.0.5 (npm @sun-typeface/suit) | https://github.com/sun-typeface/SUIT | OFL-1.1 | 2024-07-24 | 제외 | 동적 서브셋 없이 가변 글꼴 하나가 624,536 B라 첫 화면에서 다 받아야 한다 | 2026-10-21 |
+| Spoqa Han Sans Neo 3.3.0 (npm spoqa-han-sans) | https://github.com/spoqa/spoqa-han-sans | OFL-1.1 | 2021-06-07 | 제외 | 2021년 이후 배포가 없고 가변 글꼴·동적 서브셋이 없다 | 2026-10-21 |
+| IBM Plex Sans KR (@fontsource/ibm-plex-sans-kr@5.3.0) | https://github.com/IBM/plex | OFL-1.1 | 2026-07-19 | 제외 | 정적 굵기뿐이라 굵기마다 내려받을 파일이 늘어난다. 공식 @ibm/plex-sans-kr 1.1.0은 위와 같은 원격 측정 postinstall이 있다 | 2026-10-21 |
+| Noto Sans KR (@fontsource-variable/noto-sans-kr@5.3.0) | https://github.com/notofonts/noto-cjk | OFL-1.1 | 2026-07-19 | 제외 | 한글이 Pretendard보다 약 6% 넓고 바꿀 이득이 없다. 설치된 PC를 위해 이름만 `--font` 스택에 남긴다. 5.3.1은 출시 2주 미만 | 2026-10-21 |
+| Pretendard GOV 1.3.9 (npm pretendard-gov) | https://github.com/orioncactus/pretendard | OFL-1.1 | 2023-11-05 | 제외 | 공공 서비스(KRDS)용 기호를 바꾼 판이다. 법인 제품에는 Pretendard와 차이가 없고 패키지가 203.7 MB다 | 2026-10-21 |
+| Gowun Batang (명조, Adobe 글자 팔레트가 큰 제목용으로 짝지음) | 확인 안 함(Google Fonts 배포) | OFL-1.1 | — | 제외 | 장식용 제목 서체는 숫자·주소를 읽는 조용한 업무 화면에 맞지 않고 글꼴 파일이 하나 더 는다 | 2026-10-21 |
 
 ## How we track (추적 규칙)
 
@@ -78,3 +104,4 @@
 | 2026-10-19 | 기록 시작. 독립 검수의 OSS 결정 19건(oxlint 묶음은 두 행)과 fedb25d에서 추가한 4개 패키지를 정리. 현재 lockfile로 `npm audit` 재실행(0건) |
 | 2026-10-19 | 문서 정정(검수 G3). pretendard 행: 화면 적용(`src/main.tsx` 불러오기, `dist/assets/` woff2 92개, `dist/fonts/PRETENDARD-LICENSE.txt`)을 반영하고 열린 항목 '화면에서 불러오지 않는다'를 닫음. canonicalize 행: 승인 대상 지문은 미룬 것이 아니라 WP-11에서 자체 `canonicalJson`으로 구현했음을 반영. 규칙 5에 화면 번들 고지 파일(`public/THIRD_PARTY_LICENSES.txt`)을 더함. 결정(적용·제외)은 바뀌지 않음 |
 | 2026-10-21 | 후보 14건 추가(A2b 근거 첨부·CSV·접근성 시험 도구 조사, 버전·출시일·라이선스는 npm 레지스트리로 확인). 적용 0건: content-disposition은 A2b 내장 구현이 있어 보류, file-type·@fastify/multipart·tabbable·@guidepup/virtual-screen-reader·pdfjs-dist 보류, 나머지 제외. 설치한 패키지 없음 |
+| 2026-10-21 | A4 서체·모션 후보 26건 추가(npm 레지스트리·GitHub API로 확인). 적용 1건: Adobe Source Code Pro 가변 글꼴 원본 파일(npm 의존성 없음, blob·sha256 기록). 보류 2건(Fontsource Source Code Pro·Cascadia Mono 서브셋: OFL 수정본·예약 이름 문제), 참고만 7건(@carbon/motion 값 복사 등, 결정 종류 '참고만'을 새로 둠), 제외 16건(모션 라이브러리 4·고정폭 3·대체 글꼴 도구 2·본문 글꼴 6·제목 명조 1). 설치한 npm 패키지 없음 |

@@ -7,6 +7,9 @@ import { ApiError } from './api.ts';
 // Pretendard(OFL-1.1) 가변 글꼴의 동적 서브셋. 빌드할 때 글꼴 파일이 dist/assets에 함께 들어가 같은 출처에서만 내려받는다(외부 CDN 없음).
 // 라이선스 원문은 public/fonts/PRETENDARD-LICENSE.txt로 함께 배포한다.
 import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
+// Source Code Pro(OFL-1.1, Adobe 원본 그대로) 가변 글꼴 1개를 같은 출처에서. 주소·지문 같은 식별자에만 쓴다. 라이선스 원문은 public/fonts/SOURCE-CODE-PRO-LICENSE.txt.
+// 같은 파일에 웹 글꼴이 오기 전 시스템 글꼴(맑은 고딕·Consolas)의 크기를 맞추는 local() 대체 글꼴도 둔다(내려받는 바이트 없음).
+import './fonts.css';
 import './styles.css';
 
 const qc = new QueryClient({

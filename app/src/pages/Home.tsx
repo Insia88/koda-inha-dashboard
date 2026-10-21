@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { IconArrowRight } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useMe } from '../auth.tsx';
-import { Badge, DataStamp, Empty, ErrorState, Loading, PageHeader, StatusRail, Term, WaitedTime } from '../components/ui.tsx';
+import { AmountText, Badge, DataStamp, Empty, ErrorState, Loading, PageHeader, StatusRail, Term, WaitedTime } from '../components/ui.tsx';
 import { AllocationBar } from '../components/AllocationBar.tsx';
 import { amount, dateTime, krw, krwShort, relative } from '../format.ts';
 import { APPROVAL_WAIT_TEXT, approverNames, GLOSSARY, REQUEST_STATUS, TX_STATUS, TX_TYPE, type ApproverRef, type RequestStatus } from '../../shared/terms.ts';
@@ -257,7 +257,7 @@ function HoldingsCard({ h, className }: { h: any; className: string }) {
         </div>
         <div className="total">
           <div className="total-label"><Term label="총 평가액">{GLOSSARY.valuation}</Term></div>
-          <div className="total-value">{krwShort(h.totalKrw)}</div>
+          <div className="total-value"><AmountText text={krwShort(h.totalKrw)} /></div>
           <div className="total-exact muted">{krw(h.totalKrw)}</div>
           {/* 총 평가액을 보는 자리에서 스테이킹이 들어가는지 묻게 되므로 합계 바로 아래에 짧게 쓴다(긴 설명은 잔고 화면 아래). */}
           <p className="muted small total-staking-note">스테이킹 현황의 맡긴 수량·보상은 이 합계에 넣지 않았습니다(모의 데이터).</p>

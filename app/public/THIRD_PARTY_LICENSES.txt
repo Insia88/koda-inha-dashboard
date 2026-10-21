@@ -7,6 +7,9 @@ Third-party notices for the browser bundle
 아래 원문은 각 패키지에 들어 있는 LICENSE 파일을 고치지 않고 옮긴 것입니다.
 
 - 글꼴 Pretendard(SIL Open Font License 1.1)의 고지는 fonts/PRETENDARD-LICENSE.txt에 있습니다.
+- 글꼴 Source Code Pro(Adobe, SIL Open Font License 1.1, 예약 글꼴 이름 'Source')의 고지는 fonts/SOURCE-CODE-PRO-LICENSE.txt에 있습니다.
+  화면은 Adobe가 GitHub(adobe-fonts/source-code-pro, 2.042R-u/1.062R-i/1.026R-vf)에 올린
+  WOFF2/VF/SourceCodeVF-Upright.ttf.woff2를 고치지 않고 그대로 씁니다(빌드가 파일 이름에 해시만 붙입니다).
 - 서버에서만 쓰는 패키지(Fastify, Zod 등)는 화면 번들에 들어가지 않으므로 여기에 적지 않습니다.
 - 전체 구성요소 목록과 도입 이유는 저장소의 app/THIRD_PARTY_NOTICES.md에 있습니다.
 
