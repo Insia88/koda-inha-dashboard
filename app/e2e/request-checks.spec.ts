@@ -111,6 +111,9 @@ test('요청자: 작성 미리 보기와 검토 단계의 점검, 진행 사유�
   await expect(page.locator('.rc-focus-target').filter({ has: sent })).toBeFocused();
   const fp = (await sent.locator('.rc-intent-inline').textContent())!.trim();
   expect(fp).toMatch(FINGERPRINT);
+  // 알림이 가지 않는다는 점과, 지문 대조는 권장 단계라는 점을 분명히 쓴다(A1).
+  await expect(sent).toContainText('승인자에게 알림은 가지 않으니 직접 알려 주세요.');
+  await expect(sent).toContainText(`권장: 메신저가 아닌 다른 연락 수단으로 승인 대상 지문 ${fp}도 함께 알려 주면, 승인자가 자기 화면의 지문과 같은지 대조할 수 있습니다.`);
   await expect(page.locator('.dl dd').filter({ hasText: fp })).toHaveCount(1);
   await expect(page.getByRole('heading', { name: '출금 전 점검 결과' })).toBeVisible();
   await expect(page.locator('.rc-reason').filter({ hasText: reasonText })).toBeVisible();
@@ -129,13 +132,25 @@ test('요청자: 작성 미리 보기와 검토 단계의 점검, 진행 사유�
   await expect(decide.getByRole('heading', { name: '출금 전 점검 결과' })).toBeVisible();
   await expect(decide.locator('.rc-item', { hasText: '이 대시보드로 처음 보내는 주소입니다' }).locator('.rc-reason')).toContainText(reasonText);
   await expect(decide).toContainText('은행 착오송금처럼 되돌려 받는 절차도 없습니다');
-  // 지문과 점검은 결정 버튼보다 먼저 읽힌다
+  // 무엇을 결정하는지 요약 → 지문 → 점검이 결정 버튼보다 먼저 읽힌다(A1: 요약이 맨 위)
   const order = await decide.evaluate((el) => {
     const pos = (s: string) => [...el.querySelectorAll('*')].indexOf(el.querySelector(s)!);
-    return { intent: pos('.rc-intent'), checks: pos('.rc-list'), approve: pos('button.btn-primary') };
+    return { summary: pos('.rc-decide-summary'), intent: pos('.rc-intent'), checks: pos('.rc-list'), approve: pos('button.btn-primary') };
   });
+  expect(order.summary).toBeGreaterThanOrEqual(0);
+  expect(order.summary).toBeLessThan(order.intent);
   expect(order.intent).toBeLessThan(order.checks);
   expect(order.checks).toBeLessThan(order.approve);
+  // 기준 이내 항목은 접힌 묶음 안에 있다(항목은 그대로 5개). 기준 각주(설계 가정·보증 아님)는 펼치지 않아도 보인다.
+  await expect(decide.locator('.rc-item')).toHaveCount(5);
+  const passGroup = decide.locator('details.rc-pass-group');
+  await expect(passGroup).toHaveCount(1);
+  await expect(passGroup.locator('.rc-item').first()).toBeHidden();
+  await expect(decide.locator('.rc-footnote')).toBeVisible();
+  await expect(decide.locator('.rc-footnote')).toContainText('설계 가정');
+  await expect(decide.locator('.rc-footnote')).toContainText('보증하지 않습니다');
+  await passGroup.locator('summary').click();
+  await expect(passGroup.locator('.rc-item').first()).toBeVisible();
   // 같은 지문이 두 번 보이지 않는다(정의 목록에는 쓰지 않는다)
   await expect(page.locator('.dl dt', { hasText: '승인 대상 지문' })).toHaveCount(0);
   const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
@@ -143,7 +158,7 @@ test('요청자: 작성 미리 보기와 검토 단계의 점검, 진행 사유�
   await page.getByLabel(/받는 곳과 목적이/).check();
   await page.getByLabel(/근거 문서와 같습니다/).check();
   await page.getByLabel(/앞·뒤 묶음과 네트워크/).check();
-  await page.getByRole('button', { name: '승인', exact: true }).click();
+  await page.getByRole('button', { name: '승인하고 처리 시작', exact: true }).click(); // 필요 승인 1명: 마지막 승인
   await expect(page.getByText('처리 중').first()).toBeVisible();
   // 승인 기록 줄 자체에 지문이 남는다(승인 요청 줄에도 같은 지문이 있으므로 승인 줄로 좁혀 본다).
   await expect(page.locator('.timeline li').filter({ hasText: '승인 (유효' })).toContainText(`지문 ${fp}`);
@@ -166,7 +181,7 @@ test('승인자 화면에 보인 지문이 서버의 지문과 다르면 승인�
   await page.goto(`/requests/${pending.id}`);
   await expect(page.locator('.rc-intent-value')).toHaveText('FFFF FFFF FFFF FFFF');
   await tickApprovalChecks(page);
-  await page.getByRole('button', { name: '승인', exact: true }).click();
+  await page.getByRole('button', { name: '승인하고 처리 시작', exact: true }).click();
   // 안내는 결정 카드 안(결정 버튼 위)에 보이고, 안내로 포커스가 옮겨져 화면 안에 있다. 승인 전 확인 표시는 지워진다.
   const decide = page.locator('section.card-action');
   const alert = decide.getByRole('alert').filter({ hasText: '결정하려던 내용과 지금 요청의 승인 대상 지문이 다릅니다.' });
@@ -178,7 +193,7 @@ test('승인자 화면에 보인 지문이 서버의 지문과 다르면 승인�
   await expect(page.getByLabel(/받는 곳과 목적이/)).not.toBeChecked();
   await expect(page.getByLabel(/근거 문서와 같습니다/)).not.toBeChecked();
   await expect(page.getByLabel(/앞·뒤 묶음과 네트워크/)).not.toBeChecked();
-  await expect(page.getByRole('button', { name: '승인', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '승인하고 처리 시작', exact: true })).toBeDisabled();
   expect((await (await page.request.get(`/api/requests/${pending.id}`)).json()).status).toBe('PENDING_APPROVAL');
 
   // 화면이 서버의 지문을 그대로 보이면 승인된다.
@@ -186,7 +201,7 @@ test('승인자 화면에 보인 지문이 서버의 지문과 다르면 승인�
   await page.reload();
   await expect(page.locator('.rc-intent-value')).toHaveText(pending.intentHashDisplay);
   await tickApprovalChecks(page);
-  await page.getByRole('button', { name: '승인', exact: true }).click();
+  await page.getByRole('button', { name: '승인하고 처리 시작', exact: true }).click();
   await expect(page.getByText('처리 중').first()).toBeVisible();
 });
 
@@ -383,7 +398,7 @@ test.describe('390px', () => {
     // 화면을 연 뒤 저장 계층에서 수량을 바꾼다(앱 경로 밖의 변경). 화면은 아직 이전 내용을 보이고 승인 버튼도 있다.
     onDb((db) => db.prepare('UPDATE withdrawal_requests SET amount_units = ? WHERE id = ?').run('15000000000', pending.id));
     await tickApprovalChecks(page);
-    await decide.getByRole('button', { name: '승인', exact: true }).click();
+    await decide.getByRole('button', { name: '승인하고 처리 시작', exact: true }).click();
 
     // 서버가 거부한 안내는 누른 자리(결정 카드 안)에 보이고 포커스가 옮겨진다. 좁은 화면에서도 화면 안에 있다.
     const alert = decide.getByRole('alert').filter({ hasText: '승인 대상 지문과 맞지 않아 처리하지 않았습니다' });
@@ -393,7 +408,7 @@ test.describe('390px', () => {
     await expect(decide.locator('.rc-focus-target')).toBeFocused();
 
     // 다시 불러온 내용: 승인은 사라지고, 지문 옆에 지금 내용과 다르다는 표시, 미리 채운 반려 사유
-    await expect(decide.getByRole('button', { name: '승인', exact: true })).toHaveCount(0);
+    await expect(decide.getByRole('button', { name: /^승인(하고 처리 시작)?$/ })).toHaveCount(0); // 어느 이름으로도 승인 버튼이 없다
     await expect(decide.getByRole('heading', { name: '반려', exact: true })).toBeVisible();
     await expect(decide.locator('.rc-intent-mismatch')).toContainText('지금 요청 내용으로 다시 계산한 지문과 다릅니다');
     await expect(decide.locator('#reason')).toHaveValue(/승인 대상 지문/);

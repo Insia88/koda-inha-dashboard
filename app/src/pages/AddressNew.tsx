@@ -12,6 +12,7 @@ import { LookalikeComparisons } from '../components/AddressCompare.tsx';
 import { GLOSSARY, RECEIVED_VIA, VERIFIED_VIA } from '../../shared/terms.ts';
 import { checkAddressFormat, CONFIRM_MIDDLE_LENGTH, middleSegment, XRPL_TAG_PATTERN, type Finding, type NetworkRule } from '../../shared/address-rules.ts';
 import { LifecycleSteps, useAddressPolicy } from './AddressDetail.tsx';
+import { NETWORK_ASK_HINT } from '../components/RequestForm.tsx';
 import '../components/address-lifecycle.css';
 
 const EMPTY = {
@@ -109,7 +110,7 @@ export function AddressNewPage() {
             </select>
           </Field>
           <Field label={<Term label="네트워크">{GLOSSARY.network}</Term>} htmlFor="networkCode" required error={fe('networkCode')}
-            hint={networks.length > 1 ? `${f.assetCode}는 여러 네트워크에서 쓰입니다. 받는 곳이 안내한 네트워크를 고르세요.` : undefined}>
+            hint={`${networks.length > 1 ? `${f.assetCode}는 여러 네트워크에서 쓰입니다. 받는 곳이 안내한 네트워크를 고르세요. ` : ''}${NETWORK_ASK_HINT}`}>
             <select id="networkCode" value={f.networkCode} onChange={(e) => set({ networkCode: e.target.value })} disabled={!f.assetCode} required>
               <option value="">{f.assetCode ? '네트워크 선택' : '자산을 먼저 고르세요'}</option>
               {networks.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}
@@ -149,8 +150,8 @@ export function AddressNewPage() {
           <Field label={`주소 끝 ${n}자리를 원본을 보고 다시 입력`} htmlFor="confirmTail" required error={fe('confirmTail')} hint="붙여 넣은 값이 아니라 받는 곳이 보낸 원본 문서를 보고 입력하세요.">
             <input id="confirmTail" className="mono" value={f.confirmTail} onChange={(e) => set({ confirmTail: e.target.value })} maxLength={20} autoComplete="off" spellCheck={false} onPaste={blockPaste} onDrop={blockPaste} />
           </Field>
-          <Field label={`원본 주소의 가운데 ${CONFIRM_MIDDLE_LENGTH}자리${formatOk ? ` (고유부 ${mid.start}~${mid.end}번째)` : ''}`} htmlFor="confirmMiddle" required error={fe('confirmMiddle')}
-            hint={`고유부는 주소에서 ${bodyPrefix} 다음부터 센 글자입니다. 앞·뒤만 같게 만든 가짜 주소는 가운데가 다르므로, 원본 문서에서 이 위치의 글자를 직접 보고 입력하세요.`}>
+          <Field label={`원본 주소의 가운데 ${CONFIRM_MIDDLE_LENGTH}자리${formatOk ? ` (${bodyPrefix} 뒤 ${mid.start}~${mid.end}번째 글자)` : ''}`} htmlFor="confirmMiddle" required error={fe('confirmMiddle')}
+            hint={`${bodyPrefix} 뒤의 글자(고유부)를 1부터 셉니다. 앞·뒤만 같게 만든 가짜 주소는 가운데가 다르므로, 원본 문서에서 이 위치의 글자를 직접 보고 입력하세요.`}>
             <input id="confirmMiddle" className="mono" value={f.confirmMiddle} onChange={(e) => set({ confirmMiddle: e.target.value })} maxLength={20} autoComplete="off" spellCheck={false} onPaste={blockPaste} onDrop={blockPaste} />
           </Field>
           {lookalike && (

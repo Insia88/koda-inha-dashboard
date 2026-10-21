@@ -36,7 +36,7 @@ test.describe('390px 표 화면', () => {
     ['한지수', '/activity', '자산 활동 내역'],
     ['문태호', '/audit?pageSize=25', '감사 기록'],
     ['윤가람', '/org', '조직 관리'],
-    ['한지수', '/addresses', '주소록 관리'],
+    ['한지수', '/addresses', '보낼 곳 주소록'],
     ['한지수', '/balances', '잔고'],
   ];
   for (const [user, path, title] of tour) {
@@ -71,22 +71,42 @@ test.describe('390px 표 화면', () => {
     });
   }
 
-  test('상단 막대: 조직명 옆 모의 표시가 잘리지 않고, 로그아웃 버튼 이름이 남는다', async ({ page }) => {
+  test('상단 막대: 조직명 옆 모의 표시가 잘리지 않고, 로그아웃 버튼 이름이 남고, 출금 요청 버튼이 화면 안에 있다', async ({ page }) => {
     await loginAs(page, '한지수');
     await expect(page.getByRole('heading', { name: '지금 처리할 일' })).toBeVisible();
-    const tag = page.locator('.topbar .mock-tag');
-    await expect(tag).toBeVisible();
-    await expect(tag).toHaveText('모의');
-    const box = await page.evaluate(() => {
-      const r = (s: string) => document.querySelector(s)!.getBoundingClientRect().toJSON() as DOMRect;
-      return { tag: r('.topbar .mock-tag'), org: r('.topbar .org-name'), name: r('.topbar .org-name-text'), user: r('.topbar-user') };
-    });
-    // 예전에는 조직명 칸이 overflow:hidden이라 '모의' 표시가 칸 밖으로 밀려 잘렸다.
-    expect(box.tag.width).toBeGreaterThan(20);
-    expect(box.tag.right).toBeLessThanOrEqual(box.org.right + 0.5);
-    expect(box.tag.right).toBeLessThanOrEqual(box.user.left);
-    expect(box.name.width).toBeGreaterThan(40);
-    await expect(page.getByRole('button', { name: '로그아웃' })).toBeVisible();
+    // 390px와 더 좁은 360px(아이콘만 남는 폭보다 넓음)에서 같은 조건을 본다.
+    for (const width of [390, 360]) {
+      await page.setViewportSize({ width, height: 844 });
+      const tag = page.locator('.topbar .mock-tag');
+      await expect(tag).toBeVisible();
+      await expect(tag).toHaveText('모의');
+      // 머리글의 출금 요청 버튼(A1): 이름은 '출금 요청 작성' 그대로, 보이는 글자는 '출금 요청', 누르는 영역 40px 이상
+      const send = page.getByRole('banner').getByRole('link', { name: '출금 요청 작성' });
+      await expect(send).toHaveCount(1);
+      await expect(send).toBeVisible();
+      await expect(send).toHaveAttribute('href', '/requests/new');
+      const box = await page.evaluate(() => {
+        const r = (s: string) => document.querySelector(s)!.getBoundingClientRect().toJSON() as DOMRect;
+        return { tag: r('.topbar .mock-tag'), org: r('.topbar .org-name'), name: r('.topbar .org-name-text'), user: r('.topbar-user'), send: r('.topbar-send'), more: r('.topbar-send-more'), label: r('.topbar-send-text') };
+      });
+      // 예전에는 조직명 칸이 overflow:hidden이라 '모의' 표시가 칸 밖으로 밀려 잘렸다.
+      expect(box.tag.width, `${width}px`).toBeGreaterThan(20);
+      expect(box.tag.right, `${width}px`).toBeLessThanOrEqual(box.org.right + 0.5);
+      expect(box.tag.right, `${width}px`).toBeLessThanOrEqual(box.send.left);
+      expect(box.send.right, `${width}px`).toBeLessThanOrEqual(box.user.left);
+      expect(box.name.width, `${width}px`).toBeGreaterThan(40);
+      expect(box.send.height, `${width}px`).toBeGreaterThanOrEqual(40);
+      expect(box.send.width, `${width}px`).toBeGreaterThanOrEqual(40);
+      // 390px: '출금 요청'이 보이고 '작성'은 화면 낭독기에만. 380px 아래(360px): 아이콘만 보이고 이름·툴팁은 '출금 요청 작성'.
+      if (width >= 380) expect(box.label.width, `${width}px '출금 요청' 글자`).toBeGreaterThan(20);
+      else expect(box.label.width, `${width}px 아이콘만`).toBeLessThanOrEqual(1);
+      expect(box.more.width, `${width}px '작성'은 화면 낭독기에만`).toBeLessThanOrEqual(1);
+      await expect(send).toHaveAttribute('title', '출금 요청 작성');
+      expect(box.user.right, `${width}px`).toBeLessThanOrEqual(width);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `${width}px`).toBeLessThanOrEqual(0);
+      await expect(page.getByRole('button', { name: '로그아웃' })).toBeVisible();
+    }
   });
 });
 
@@ -196,9 +216,11 @@ test('모바일: 메뉴 열기/닫기, 가로 넘침 없음', async ({ page }) =
   await expect(page.getByRole('heading', { name: '지금 처리할 일' })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
-  await expect(page.getByRole('link', { name: '주소록 관리' })).toBeHidden();
+  await expect(page.getByRole('link', { name: '보낼 곳 주소록' })).toBeHidden();
   await page.getByRole('button', { name: '메뉴 열기' }).click();
-  await page.getByRole('link', { name: '주소록 관리' }).click();
-  await expect(page.getByRole('heading', { name: '주소록 관리' })).toBeVisible();
+  // 메뉴 안에는 머리글의 출금 요청 버튼을 두지 않는다(A1).
+  await expect(page.locator('#sidenav').getByRole('link', { name: '출금 요청 작성' })).toHaveCount(0);
+  await page.getByRole('link', { name: '보낼 곳 주소록' }).click();
+  await expect(page.getByRole('heading', { name: '보낼 곳 주소록' })).toBeVisible();
   await expect(page.getByRole('link', { name: '잔고' })).toBeHidden();
 });

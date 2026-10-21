@@ -9,7 +9,7 @@ export function WalletsPage() {
   if (q.error) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   return (
     <div className="page">
-      <PageHeader title="지갑 관리" description="KODA가 보관하는 조직 지갑입니다. 입금 받을 때는 네트워크가 맞는 지갑의 주소를 알려 주세요." />
+      <PageHeader title="우리 회사 입금 주소" description="다른 곳에서 우리 회사로 입금받을 때 알려 줄 주소입니다(KODA가 보관하는 조직 지갑). 네트워크가 맞는 지갑의 주소를 알려 주세요." />
       <Notice tone="warning" title="입금 주소를 알려 줄 때 네트워크도 함께 알려 주세요">
         지갑마다 받을 수 있는 자산과 네트워크가 정해져 있습니다. 다른 네트워크로 보내면 입금이 확인되지 않거나 회수가 어려울 수 있습니다. 화면의 주소는 모의 주소입니다.
       </Notice>

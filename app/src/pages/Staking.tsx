@@ -8,8 +8,8 @@ export function StakingPage() {
   const q = useQuery({ queryKey: ['staking'], queryFn: () => api('/api/staking') });
   return (
     <div className="page">
-      <PageHeader title="스테이킹" description={<><Term label={GLOSSARY_LABEL.staking}>{GLOSSARY.staking}</Term>에 맡긴 자산과 최근 30일 보상입니다.</>} />
-      <Notice tone="info">스테이킹 신청·해제 절차와 권한은 확인된 자료가 없어 이 화면은 조회만 제공합니다. 맡긴 자산은 해제 기간 동안 출금할 수 없습니다.</Notice>
+      <PageHeader title="스테이킹 현황" description={<><Term label={GLOSSARY_LABEL.staking}>{GLOSSARY.staking}</Term>에 맡긴 자산과 최근 30일 보상입니다.</>} />
+      <Notice tone="info">스테이킹 신청·해제 절차와 권한은 확인된 자료가 없어 이 화면은 조회만 제공합니다. 맡긴 자산은 해제 기간 동안 출금할 수 없습니다. 이 화면의 수량은 잔고의 총 평가액에 따로 더하지 않습니다.</Notice>
       {q.isPending ? <Loading /> : q.error ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : q.data.length === 0 ? (
         <Empty title="스테이킹 중인 자산이 없습니다">스테이킹 이용은 KODA 담당자와 협의합니다.</Empty>
       ) : (

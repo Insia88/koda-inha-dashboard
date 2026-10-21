@@ -1,13 +1,34 @@
+import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { IconPlus, IconX } from '@tabler/icons-react';
+import { IconX } from '@tabler/icons-react';
 import { api } from '../api.ts';
-import { useMe } from '../auth.tsx';
+import { useMe, type Me } from '../auth.tsx';
 import { useUrlState } from '../hooks.ts';
 import { Badge, Empty, ErrorState, Loading, PageHeader, Pagination, StatusRail } from '../components/ui.tsx';
 import { SearchField } from '../components/SearchField.tsx';
+import { Faq } from '../components/Faq.tsx';
+import { krwThreshold } from '../components/RequestForm.tsx';
 import { amount, dateTime } from '../format.ts';
 import { REQUEST_STATUS, type RequestStatus } from '../../shared/terms.ts';
+
+/**
+ * 결재 및 요청의 짧은 자주 묻는 질문(A1). 승인 기준 숫자는 로그인 정보의 정책 값(me.policy, 설계 가정)에서 가져온다.
+ * 일괄 승인이 없다는 점(A-34), 알림이 없다는 점, 마지막 승인 뒤 되돌릴 수 없다는 점을 다시 설명할 뿐 규칙을 바꾸지 않는다.
+ */
+function requestFaq(policy: Me['policy']['approval']) {
+  const threshold = krwThreshold(policy.highValueThresholdKrw);
+  const high = Math.max(policy.highValueRequiredApprovals, policy.defaultRequiredApprovals);
+  return [
+    { q: '누가 승인하나요?', a: '승인자 역할을 가진 사람 중 요청을 작성하지 않은 사람입니다. 역할은 조직 관리에서 볼 수 있습니다.' },
+    { q: '몇 명이 승인해야 하나요?', a: `원화 평가액 ${threshold} 미만은 ${policy.defaultRequiredApprovals}명, 이상은 서로 다른 ${high}명입니다. 시세가 없거나 지연되면 ${high}명입니다(설계 가정, KODA 정책 아님).` },
+    { q: "'검토 중'은 누구 차례인가요?", a: '요청자 차례입니다. 요청자가 주소와 수량을 마지막으로 대조하고 승인 요청을 보내면 승인 대기가 되어 승인자에게 보입니다.' },
+    { q: '승인 요청을 보내면 알림이 가나요?', a: '아니요. 승인자에게 직접 알려 주세요.' },
+    { q: '마지막 승인을 하면 어떻게 되나요?', a: '바로 수탁사 처리가 시작되고, 그 뒤에는 요청자도 취소할 수 없습니다. 블록체인 전송은 되돌릴 수 없습니다. 완료되면 처리 완료로 바뀌고 자산 활동 내역에 출금으로 기록됩니다.' },
+    { q: '여러 건을 한 번에 승인할 수 있나요?', a: '없습니다. 건마다 받는 주소·수량·승인 대상 지문을 대조하도록 한 건씩 처리합니다.' },
+    { q: '승인 대기 중인 수량은 어떻게 되나요?', a: '다른 요청에 쓰지 못하게 묶입니다(예약). 반려되거나 취소되면 풀립니다.' },
+  ];
+}
 
 // '진행 중'은 홈의 '진행 중인 요청'과 같은 상태 묶음이다(작성 중 제외). 작성 중·검토 중은 따로 묶는다.
 const STATUS_GROUPS: { key: string; label: string; statuses: string }[] = [
@@ -35,10 +56,15 @@ export function RequestsPage() {
   const { state, set, qs } = useUrlState({ view: '', status: '', q: '', order: 'desc', page: '1', pageSize: '10' });
   const params = new URLSearchParams(Object.entries(state).filter(([, v]) => v));
   const q = useQuery({ queryKey: ['requests', qs], queryFn: ({ signal }) => api(`/api/requests?${params}`, { signal }), placeholderData: (p) => p, refetchInterval: 10_000 });
-  const views = [
+  // 탭 옆 건수(A1): 메뉴 배지와 같은 서버 할 일 건수(['dashboard'] 조회를 함께 쓴다). 0건이거나 아직 못 받았으면 숫자를 쓰지 않는다.
+  const dash = useQuery({ queryKey: ['dashboard'], queryFn: () => api('/api/dashboard'), enabled: can('dashboard.read'), staleTime: 10_000 });
+  const taskN = (kind: string): number => dash.data?.tasks.find((t: any) => t.kind === kind)?.count ?? 0;
+  const approveN = taskN('approve_requests');
+  const draftN = taskN('my_drafts');
+  const views: { key: string; label: ReactNode }[] = [
     { key: '', label: '조직 전체' },
-    ...(can('request.approve') ? [{ key: 'to_approve', label: '내가 승인할 요청' }] : []),
-    ...(can('request.create') ? [{ key: 'mine', label: '내가 작성한 요청' }] : []),
+    ...(can('request.approve') ? [{ key: 'to_approve', label: <>내가 승인할 요청{approveN > 0 && <> <span className="tab-count">{approveN}</span></>}</> }] : []),
+    ...(can('request.create') ? [{ key: 'mine', label: <>내가 작성한 요청{draftN > 0 && <> <span className="tab-sub">· 제출 전 {draftN}</span></>}</> }] : []),
     { key: 'blocked', label: '승인 불가(주소 중지)' },
   ];
   const filtered = !!(state.status || state.q || state.view);
@@ -54,8 +80,8 @@ export function RequestsPage() {
       <PageHeader
         title="결재 및 요청"
         description="출금 요청은 작성 → 검토 → 승인 대기 → 처리 결과 순서로 진행됩니다. 요청자는 자기 요청을 승인할 수 없습니다."
-        actions={can('request.create') && <Link className="btn btn-primary" to="/requests/new"><IconPlus size={16} aria-hidden="true" />출금 요청 작성</Link>}
       />
+      <Faq items={requestFaq(me.policy.approval)} />
       <div className="tabs" role="tablist" aria-label="요청 보기">
         {views.map((v) => (
           <button key={v.key} role="tab" aria-selected={state.view === v.key} className={`tab ${state.view === v.key ? 'active' : ''}`} onClick={() => set({ view: v.key })}>{v.label}</button>
@@ -109,6 +135,8 @@ export function RequestsPage() {
                     <div className="req-main">
                       <span className="ref">{r.refNo}</span>
                       <Badge tone={st.tone}>{st.label}</Badge>
+                      {/* 누구 차례인지(표시용, A1). 상태 이름은 그대로 두고 옆에 덧붙인다. */}
+                      {st.turn && <span className="turn-text">{st.turn}</span>}
                       {addrOff && <Badge tone="danger">{r.blockedReason === 'ADDRESS_NOT_ACTIVE' ? '승인 불가 · 주소 사용 중지' : '받는 주소 사용 중지'}</Badge>}
                       <span className="req-purpose" title={r.purpose}>{r.purpose}</span>
                     </div>

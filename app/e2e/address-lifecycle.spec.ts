@@ -7,7 +7,8 @@ import { loginAs, logout } from './helpers.ts';
 // 이 파일은 ab-14를 마지막 정지 검사에서 사용 중지로 바꾼다. 다른 시드 행은 읽기만 한다.
 
 const COOLING_LABEL = '신규 거래처 L 정산 주소';
-const TASK_TITLE = /새 받는 주소 1건이 사용 대기 중입니다 — 요청하지 않은 등록이면 정지하세요/;
+// 홈 할 일 제목(A1에서 화면 문구만 짧게 바꿈). 경고 색과 '정지하세요'는 그대로 '지금 처리할 일' 안에 있다(A-31).
+const TASK_TITLE = /사용 대기 중인 새 주소 — 모르는 등록이면 정지하세요/;
 const activeDialog = (page: Page) => page.locator('dialog[open]');
 /** 레이아웃 폭 기준 가로 넘침(px) */
 const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -35,9 +36,11 @@ test('사용 대기: 홈 알림 → 목록 필터 → 상세의 사용 가능 �
   const ab14 = await (await page.request.get('/api/addresses/ab-14')).json();
   expect(ab14.status).toBe('COOLING_DOWN');
 
-  // 홈: 정지 권한이 있는 사람에게 경고 할 일로 보인다.
+  // 홈: 정지 권한이 있는 사람에게 '지금 처리할 일' 안의 경고 할 일로 보인다.
   const task = page.getByRole('link', { name: TASK_TITLE });
   await expect(task).toBeVisible();
+  await expect(task).toHaveClass(/task-warning/);
+  await expect(page.locator('section.card-tasks').getByRole('link', { name: TASK_TITLE })).toHaveCount(1);
   await task.click();
   await expect(page).toHaveURL(/\/addresses\?status=COOLING_DOWN/);
   await expect(page.getByRole('combobox', { name: '상태' })).toHaveValue('COOLING_DOWN');

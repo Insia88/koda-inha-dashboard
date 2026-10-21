@@ -133,7 +133,7 @@ export function AddressStrip({ address, memo, memoLabel, compact, verify }: { ad
       {mid && mid.text && (
         <span className="addr-verify-note">
           <span className="addr-verify-key" aria-hidden="true" />
-          테두리 친 글자는 원본에서 확인해 다시 입력할 가운데 {mid.text.length}자리(고유부 {mid.start}~{mid.end}번째)입니다.
+          테두리 친 글자는 원본에서 확인해 다시 입력할 가운데 {mid.text.length}자리({prefix ? `${prefix}- 뒤 ` : ''}{mid.start}~{mid.end}번째 글자)입니다.
         </span>
       )}
       {copy === 'failed' && <span className="addr-copy-failed">복사하지 못했습니다. 브라우저의 클립보드 권한을 확인하거나 주소를 직접 선택해 복사하세요.</span>}

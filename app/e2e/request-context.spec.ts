@@ -43,16 +43,20 @@ test('WR-000003: 평가액·출처·기준 시각과 필요 승인 근거, 승�
   const card = page.locator('section.card-action');
   await expect(card.getByRole('heading', { name: '승인 또는 반려' })).toBeVisible();
   await expect(card).toContainText('블록체인 전송은 처리 후 되돌릴 수 없습니다');
+  // 필요 승인 2명 중 첫 번째: 마지막 승인이 아니므로 버튼 이름은 '승인'이고, 몇 번째인지와 남은 인원을 버튼 위에 쓴다(A1).
   const approve = page.getByRole('button', { name: '승인', exact: true });
   const hint = page.getByText('세 항목을 모두 확인하면 승인할 수 있습니다.');
   await expect(approve).toBeDisabled();
+  await expect(page.getByRole('button', { name: '승인하고 처리 시작' })).toHaveCount(0);
+  await expect(page.locator('#approve-effect')).toHaveText('이번 승인은 필요한 2명 중 1번째입니다. 1명이 더 승인해야 처리가 시작됩니다.');
   await expect(hint).toBeVisible();
-  await expect(approve).toHaveAttribute('aria-describedby', 'approve-hint');
+  await expect(approve).toHaveAttribute('aria-describedby', 'approve-effect approve-hint');
   await page.getByLabel(/받는 곳과 목적이/).check();
   await page.getByLabel(/근거 문서와 같습니다/).check();
   await expect(hint).toBeVisible();
   await page.getByLabel('받는 주소 전체(가운데 묶음 포함)를 원본과 대조했고, 앞·뒤 묶음과 네트워크(Kaia)도 확인했습니다.').check();
   await expect(hint).toHaveCount(0);
+  await expect(approve).toHaveAttribute('aria-describedby', 'approve-effect');
   await expect(approve).toBeEnabled(); // 누르지 않는다(WR-000003은 다른 검사가 쓴다)
 });
 
@@ -111,7 +115,7 @@ test('받는 주소가 사용 중지된 승인 대기 요청: 서버 거부 안�
   await page.getByLabel(/받는 곳과 목적이/).check();
   await page.getByLabel(/근거 문서와 같습니다/).check();
   await page.getByLabel(/앞·뒤 묶음과 네트워크/).check();
-  await page.getByRole('button', { name: '승인', exact: true }).click();
+  await page.getByRole('button', { name: '승인하고 처리 시작', exact: true }).click(); // 필요 승인 1명: 마지막 승인
   // 서버가 거부한 원인과 복구 행동을 보이고, 최신 상태를 다시 불러와 승인 불가 상태로 바뀐다.
   const refused = page.getByRole('alert').filter({ hasText: '받는 주소가 더 이상 사용 가능 상태가 아닙니다.' });
   await expect(refused).toBeVisible();
@@ -120,7 +124,7 @@ test('받는 주소가 사용 중지된 승인 대기 요청: 서버 거부 안�
   await page.unroute(`**/api/requests/${draft.id}/approve`);
   await expect(page.getByText('받는 주소가 사용 중지되어 승인할 수 없습니다. 사유와 함께 반려하세요').first()).toBeVisible();
   await expect(page.getByRole('heading', { name: '반려', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '승인', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^승인(하고 처리 시작)?$/ })).toHaveCount(0); // 어느 이름으로도 승인 버튼이 없다
   // 직접 적은 사유는 덮어쓰지 않고, 작성 중 보호도 그대로다. 제안 사유는 버튼으로 넣을 수 있다.
   await expect(reason).toHaveValue(ownReason);
   const nextPanel = page.locator('section.next-action');
@@ -186,12 +190,13 @@ test('받는 주소가 사용 중지된 승인 대기 요청: 서버 거부 안�
 test('홈의 할 일 링크·전체 보기는 눌린 상태 칩으로 이어지고, 진행 중 건수가 같다', async ({ page }) => {
   for (const user of ['한지수', '오민재']) {
     await loginAs(page, user);
-    await expect(page.locator('.task-list a').first()).toBeVisible();
-    const hrefs =(await page.locator('.task-list a').evaluateAll((els) => els.map((e) => e.getAttribute('href') ?? ''))).filter((h) => h.startsWith('/requests'));
+    // 할 일 링크(a.task)만 본다. 그 아래 한 줄 목록(A1)은 필터 목록이 아니라 상세 화면으로 가는 링크다.
+    await expect(page.locator('.task-list a.task').first()).toBeVisible();
+    const hrefs =(await page.locator('.task-list a.task').evaluateAll((els) => els.map((e) => e.getAttribute('href') ?? ''))).filter((h) => h.startsWith('/requests'));
     expect(hrefs.length, user).toBeGreaterThan(0);
     for (const href of hrefs) {
       await page.goto('/');
-      await page.locator(`.task-list a[href="${href}"]`).click();
+      await page.locator(`.task-list a.task[href="${href}"]`).click();
       await expect(page).toHaveURL(/\/requests\?/);
       await expect(pressedChips(page), href).toHaveCount(1);
       await expect(pressedChips(page)).toBeVisible();

@@ -8,7 +8,7 @@ import { ConfirmDialog } from '../components/Dialog.tsx';
 import { useFocusFirstError } from '../lib/forms.ts';
 import { useUnsavedGuard } from '../lib/unsaved.tsx';
 import { CheckList, IntentFingerprint, krwThreshold, RequestForm, type RequestFormValue } from '../components/RequestForm.tsx';
-import { amount, dateTime, krw, krwShort } from '../format.ts';
+import { amount, date, dateTime, krw, krwShort } from '../format.ts';
 import { krwValue } from '../../shared/decimal.ts';
 import { ADDRESS_STATUS, REQUEST_STATUS, type AddressStatus, type RequestCheck, type RequestStatus } from '../../shared/terms.ts';
 
@@ -27,11 +27,12 @@ const NO_CHECKS = { counterparty: false, amount: false, address: false };
 type RoleKey = 'requester' | 'approver' | 'other';
 
 const NEXT_FOR_ROLE: Record<string, Record<RoleKey, string>> = {
-  DRAFT: { requester: '내용을 확인하고 「검토로 이동」을 누르세요.', approver: '요청자가 작성 중입니다. 승인 요청이 오면 알려 드립니다.', other: '요청자가 작성 중입니다.' },
+  // 이 대시보드는 알림을 보내지 않는다(A1): 알려 준다고 약속하지 않고, 어디에 나타나는지만 쓴다.
+  DRAFT: { requester: '내용을 확인하고 「검토로 이동」을 누르세요.', approver: "요청자가 작성 중입니다. 승인 요청이 오면 '지금 처리할 일'과 「내가 승인할 요청」에 표시됩니다. 알림은 보내지 않습니다.", other: '요청자가 작성 중입니다.' },
   // REVIEW 요청자 문구는 끝자리 길이에 따라 nextAction()에서 만든다.
   REVIEW: { requester: '', approver: '요청자가 최종 검토 중입니다.', other: '요청자가 최종 검토 중입니다.' },
-  PENDING_APPROVAL: { requester: '승인자의 결정을 기다리는 중입니다. 필요하면 취소할 수 있습니다.', approver: '받는 곳·주소·수량·목적을 확인하고 승인하거나 사유와 함께 반려하세요.', other: '승인자의 결정을 기다리는 중입니다.' },
-  PROCESSING: { requester: '커스터디 처리 중입니다. 더 할 일은 없습니다.', approver: '커스터디 처리 중입니다.', other: '커스터디 처리 중입니다.' },
+  PENDING_APPROVAL: { requester: '승인자의 결정을 기다리는 중입니다. 이 대시보드는 승인자에게 알림을 보내지 않으니 필요하면 직접 알려 주세요. 필요하면 요청을 취소할 수 있습니다.', approver: '받는 곳·주소·수량·목적을 확인하고 승인하거나 사유와 함께 반려하세요.', other: '승인자의 결정을 기다리는 중입니다.' },
+  PROCESSING: { requester: '수탁사 처리 중입니다(이 환경은 모의 커스터디). 더 할 일은 없습니다.', approver: '수탁사 처리 중입니다(이 환경은 모의 커스터디).', other: '수탁사 처리 중입니다(이 환경은 모의 커스터디).' },
   COMPLETED: { requester: '처리가 끝났습니다. 받는 곳에 입금 확인을 요청하세요.', approver: '처리가 끝났습니다.', other: '처리가 끝났습니다.' },
   REJECTED: { requester: '반려 사유를 확인하고 필요하면 새 요청을 작성하세요.', approver: '반려된 요청입니다.', other: '반려된 요청입니다.' },
   CANCELLED: { requester: '취소된 요청입니다.', approver: '취소된 요청입니다.', other: '취소된 요청입니다.' },
@@ -153,6 +154,9 @@ export function RequestDetailPage() {
   // 제출 전(작성·검토 중) 요청의 평가액은 지금 모의 시세로 계산한다. 제출된 요청은 제출 시 저장한 값을 쓴다.
   const preSubmit = !!q.data && ['DRAFT', 'REVIEW'].includes(q.data.status);
   const bal = useQuery({ queryKey: ['balances'], queryFn: () => api('/api/balances'), enabled: preSubmit });
+  // 결정 카드의 '주소록 기록' 한 줄(A1): 이미 있는 주소 조회로 등록·확인한 사람과 날짜를 보인다. 못 불러오면 주소 기록 링크만 둔다.
+  const decideNow = !!q.data && ['approve', 'reject'].some((a) => q.data.allowedActions.includes(a));
+  const addrRecord = useQuery({ queryKey: ['address', q.data?.address.id], queryFn: () => api(`/api/addresses/${q.data.address.id}`), enabled: decideNow, staleTime: 60_000, retry: false });
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<RequestFormValue | null>(null);
   const [original, setOriginal] = useState<RequestFormValue | null>(null);
@@ -323,8 +327,11 @@ export function RequestDetailPage() {
     : justDecided.action === 'reject'
       ? { title: '반려했습니다', body: '요청자에게 반려 사유가 보이고, 승인 요청 때 예약한 수량이 풀렸습니다.' }
       : justDecided.status === 'PENDING_APPROVAL'
-        ? { title: `승인했습니다 (${justDecided.approved}/${justDecided.required})`, body: '다른 승인자의 결정을 기다립니다. 필요한 승인 수가 채워지면 바로 커스터디 처리가 시작됩니다.' }
-        : { title: '승인했습니다', body: '필요한 승인 수가 채워져 커스터디 처리를 시작했습니다. 블록체인 전송은 처리 후 되돌릴 수 없습니다.' };
+        ? { title: `승인했습니다 (${justDecided.approved}/${justDecided.required})`, body: '다른 승인자의 결정을 기다립니다. 필요한 승인 수가 채워지면 바로 커스터디 처리가 시작됩니다. 알림은 가지 않으니 필요하면 다른 승인자에게 직접 알려 주세요.' }
+        : { title: '승인했습니다', body: '필요한 승인 수가 채워져 커스터디 처리를 시작했습니다. 블록체인 전송은 처리 후 되돌릴 수 없습니다. 완료되면 이 화면과 자산 활동 내역에 표시됩니다.' };
+  // 이번 승인으로 필요한 승인 수가 채워지는지(표시용, A1). 정족수와 처리 시작은 서버가 정하고(A-15, A-18), 화면의 승인 수가 낡았으면 서버의 버전 검사(409)가 막는다.
+  const finalApproval = can('approve') && r.approvedCount + 1 >= r.requiredApprovals;
+  const addr = addrRecord.data as undefined | { createdBy: { name: string }; createdAt: string; reviewedBy: { name: string } | null; reviewedAt: string | null };
   // 승인 요청 때 보낼 진행 사유: 지금 보이는 점검 항목 id만 보낸다.
   const reasonsToSend = Object.fromEntries((checks?.items ?? []).filter((c) => (checkReasons[c.id] ?? '').trim() !== '').map((c) => [c.id, checkReasons[c.id]!]));
 
@@ -362,11 +369,20 @@ export function RequestDetailPage() {
     <div className="page page-narrow">
       <PageHeader title={`출금 요청 ${r.refNo}`} eyebrow={<Link to={back}>← 결재 및 요청</Link>} description={<><Badge tone={st.tone}>{st.label}</Badge> <span className="muted">{st.description}</span></>} />
       <StatusRail step={st.step} status={r.status} />
+      {/* 레일 마지막 칸이 무엇인지(A1). 단계 이름(DASH-004)은 그대로 두고 설명만 붙인다. */}
+      {(r.status === 'PENDING_APPROVAL' || r.status === 'PROCESSING') && (
+        <p className="muted small rail-caption">마지막 칸 '처리 결과'는 필요한 승인이 모두 모인 뒤 수탁사가 처리한 결과(처리 완료·처리 실패)입니다.</p>
+      )}
 
       <section ref={nextRef} tabIndex={-1} className="next-action" aria-labelledby="next-h">
         <h2 id="next-h">다음 할 일</h2>
         <p>{nextAction(r, roleKey, n, can('reject'), reasonPrefilled, !!decided)}</p>
-        {mine && r.status === 'PENDING_APPROVAL' && <p className="muted small">본인이 작성한 요청은 승인할 수 없습니다. 승인 {r.approvedCount}/{r.requiredApprovals}명.</p>}
+        {/* 서버는 승인자 이름이 아니라 승인 수만 준다. 누가 승인할 수 있는지는 조직 관리의 역할 표로 안내한다. */}
+        {mine && r.status === 'PENDING_APPROVAL' && (
+          <p className="muted small">
+            본인이 작성한 요청은 승인할 수 없습니다. 승인 {r.approvedCount}/{r.requiredApprovals}명. 승인할 수 있는 사람은 {me.permissions.includes('org.read') ? <Link to="/org">「조직 관리」</Link> : '「조직 관리」'}의 역할 표에서 승인자로 표시된 구성원입니다.
+          </p>
+        )}
         {decided && <p className="muted small">내 결정: {decided.decision === 'approved' ? '승인' : '반려'} ({dateTime(decided.createdAt)})</p>}
       </section>
 
@@ -408,7 +424,7 @@ export function RequestDetailPage() {
       {showSubmitted && (
         <div ref={submittedRef} tabIndex={-1} className="rc-focus-target">
           <Notice tone="success" role="status" title="승인 요청을 보냈습니다">
-            승인 대상 지문은 <b className="rc-intent-inline">{r.intentHashDisplay}</b>입니다. 승인자 화면에도 같은 지문이 보이므로, 필요하면 다른 연락 수단으로 승인자와 지문을 대조하세요.
+            승인자에게 알림은 가지 않으니 직접 알려 주세요. 권장: 메신저가 아닌 다른 연락 수단으로 승인 대상 지문 <b className="rc-intent-inline">{r.intentHashDisplay}</b>도 함께 알려 주면, 승인자가 자기 화면의 지문과 같은지 대조할 수 있습니다.
           </Notice>
         </div>
       )}
@@ -532,6 +548,15 @@ export function RequestDetailPage() {
       {decideCard && (
         <section className="card card-action" aria-labelledby="approve-h">
           <h2 id="approve-h">{can('approve') ? '승인 또는 반려' : '반려'}</h2>
+          {/* 무엇을 결정하는지 한 줄 요약(A1): 누가·어디로·얼마·왜·몇 명 중 몇 명. 평가액은 제출 때 저장한 값이다. */}
+          <p className="rc-decide-summary">
+            {r.createdBy.name}님의 출금 요청: {r.address.label}({r.address.counterparty})에 {amount(r.amount, r.assetCode)}{r.krwValueAtSubmit ? ` (${krwShort(r.krwValueAtSubmit)})` : ''} · 목적: {r.purpose} · 승인 {r.approvedCount}/{r.requiredApprovals}명
+          </p>
+          {/* 받는 주소의 주소록 기록(사람이 남긴 기록이지 증명이 아니다, A-32). 못 불러오면 링크만 보인다. */}
+          <p className="rc-addr-record small">
+            {addr && <>주소록 기록(사람이 남긴 기록): {addr.createdBy.name} 등록 {date(addr.createdAt)}{addr.reviewedBy ? ` · ${addr.reviewedBy.name} 확인 ${date(addr.reviewedAt)}` : ''} · </>}
+            <Link to={`/addresses/${r.address.id}`}>주소 기록 보기</Link>
+          </p>
           {/* 같은 내용의 409 안내(지문 불일치)가 바로 아래에 있으면 되풀이하지 않는다. */}
           {tampered && conflict?.code !== 'INTENT_TAMPERED' && (
             <Notice tone="danger" title="요청 내용이 승인 대상 지문과 맞지 않아 승인할 수 없습니다. 사유와 함께 반려하세요">
@@ -554,17 +579,30 @@ export function RequestDetailPage() {
           {conflictNotice}
           {can('approve') && (
             <>
+              {/* 이번 승인이 마지막인지(A1). 마지막이면 버튼 이름도 '승인하고 처리 시작'으로 바꾼다. 아래 되돌릴 수 없음 문장은 그대로 둔다. */}
+              <p id="approve-effect" className="rc-approve-effect">
+                {finalApproval
+                  ? <><b>이번 승인이 마지막 승인입니다.</b> 승인하면 바로 수탁사 처리가 시작되고, 그 뒤에는 요청자도 취소할 수 없습니다.</>
+                  : <>이번 승인은 필요한 {r.requiredApprovals}명 중 {r.approvedCount + 1}번째입니다. {r.requiredApprovals - r.approvedCount - 1}명이 더 승인해야 처리가 시작됩니다.</>}
+              </p>
               <p className="rc-irreversible">필요한 승인 수가 채워지면 바로 처리가 시작되며, 블록체인 전송은 처리 후 되돌릴 수 없습니다. 은행 착오송금처럼 되돌려 받는 절차도 없습니다.</p>
               <fieldset className="checks">
                 <legend className="field-label">승인 전 확인</legend>
                 <label className="check"><input type="checkbox" checked={checked.counterparty} onChange={(e) => setChecked({ ...checked, counterparty: e.target.checked })} />받는 곳과 목적이 실제 업무와 맞습니다.</label>
-                <label className="check"><input type="checkbox" checked={checked.amount} onChange={(e) => setChecked({ ...checked, amount: e.target.checked })} />수량({amount(r.amount, r.assetCode)})이 근거 문서와 같습니다.</label>
+                <label className="check"><input type="checkbox" checked={checked.amount} onChange={(e) => setChecked({ ...checked, amount: e.target.checked })} aria-describedby="check-amount-hint" />수량({amount(r.amount, r.assetCode)})이 근거 문서와 같습니다.</label>
+                <p id="check-amount-hint" className="rc-check-hint">이 화면에는 근거 문서가 첨부되지 않습니다. 요청자에게 받은 문서와 직접 대조하세요.</p>
+                {/* 주소 대조 체크 바로 위에 전체 주소(모든 묶음 같은 굵기, 메모·태그 포함)를 다시 보인다. 앞·뒤만 줄인 표시는 쓰지 않는다. */}
+                <div className="verify-box rc-check-address">
+                  <div className="verify-label">대조할 받는 주소 ({r.networkName})</div>
+                  <AddressStrip address={r.address.address} memo={r.address.memo} memoLabel={r.networkCode === 'XRPL' ? '데스티네이션 태그' : '메모'} />
+                </div>
                 <label className="check"><input type="checkbox" checked={checked.address} onChange={(e) => setChecked({ ...checked, address: e.target.checked })} />받는 주소 전체(가운데 묶음 포함)를 원본과 대조했고, 앞·뒤 묶음과 네트워크({r.networkName})도 확인했습니다.</label>
               </fieldset>
               <div className="form-actions" style={{ alignItems: 'center' }}>
                 {!allChecked && <p id="approve-hint" className="small" style={{ margin: 0, color: 'var(--ink-2)' }}>세 항목을 모두 확인하면 승인할 수 있습니다.</p>}
-                <button className="btn btn-primary" onClick={() => act.mutate({ action: 'approve', body: { intentHash: r.intentHash } })} disabled={act.isPending || !allChecked} aria-describedby={allChecked ? undefined : 'approve-hint'}>승인</button>
+                <button className="btn btn-primary" onClick={() => act.mutate({ action: 'approve', body: { intentHash: r.intentHash } })} disabled={act.isPending || !allChecked} aria-describedby={allChecked ? 'approve-effect' : 'approve-effect approve-hint'}>{finalApproval ? '승인하고 처리 시작' : '승인'}</button>
               </div>
+              <p className="muted small rc-after-approve">승인 뒤에는 수탁사 처리(이 환경은 모의 커스터디)를 거쳐 처리 완료가 됩니다. 완료되면 이 화면의 상태가 '처리 완료'로 바뀌고 자산 활동 내역에 출금으로 기록됩니다.</p>
               <hr />
             </>
           )}

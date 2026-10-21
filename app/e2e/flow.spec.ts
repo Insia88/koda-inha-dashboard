@@ -11,7 +11,7 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await expect(page.getByText('모의 데이터').first()).toBeVisible();
 
   // 2) 주소 등록: 네트워크 불일치 안내 → 올바른 주소 → 대조 확인
-  await page.getByRole('link', { name: '주소록 관리' }).click();
+  await page.getByRole('link', { name: '보낼 곳 주소록' }).click();
   await page.getByRole('link', { name: '주소 등록' }).click();
   await page.getByRole('combobox', { name: /^자산/ }).selectOption('USDC');
   await expect(page.getByText('네트워크를 잘못 고르면')).toBeVisible();
@@ -24,8 +24,8 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await page.getByRole('textbox', { name: /^주소 이름/ }).fill('E2E 거래처 입금 주소');
   await page.getByRole('textbox', { name: /^받는 곳/ }).fill('모의 E2E 거래처');
   await page.getByLabel(/주소 끝 6자리/).fill('000000');
-  // 앞·뒤만 같게 만든 가짜 주소를 가려내기 위한 가운데 8자리 재입력(고유부 17~24번째)
-  await expect(page.getByLabel('원본 주소의 가운데 8자리 (고유부 17~24번째)')).toBeVisible();
+  // 앞·뒤만 같게 만든 가짜 주소를 가려내기 위한 가운데 8자리 재입력(접두 MOCK-EVM- 뒤 17~24번째 글자)
+  await expect(page.getByLabel('원본 주소의 가운데 8자리 (MOCK-EVM- 뒤 17~24번째 글자)')).toBeVisible();
   await page.getByLabel(/가운데 8자리/).fill('ABCDEF01');
   await page.getByRole('combobox', { name: /^받은 경로/ }).selectOption('email');
   await page.getByRole('combobox', { name: /^다시 확인한 경로/ }).selectOption('registered_phone');
@@ -36,8 +36,18 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await expect(page.getByRole('alert').filter({ hasText: '끝 6자리가 주소와 다릅니다' }).first()).toBeVisible();
   await page.getByLabel(/주소 끝 6자리/).fill('CD9876');
   await page.getByRole('button', { name: '확인 요청 보내기' }).click();
-  await expect(page.getByText('확인 요청을 보냈습니다')).toBeVisible();
-  await expect(page.getByText('본인이 등록한 주소는 직접 확인할 수 없습니다')).toBeVisible();
+  // 등록 직후에는 다음 단계 안내 하나만 보인다: 알림이 가지 않는다는 점과, 등록자가 아닌 승인자가 확인해야 한다는 점(A1).
+  const created = page.getByRole('status').filter({ hasText: '주소를 등록했습니다 — 다른 승인자의 확인이 필요합니다' });
+  await expect(created).toBeVisible();
+  await expect(created).toContainText('이 대시보드는 알림을 보내지 않습니다. 확인할 승인자에게 직접 알려 주세요.');
+  await expect(created).toContainText('등록자가 아닌 승인자가 원본과 대조해 확인하면');
+  await expect(page.getByText('본인이 등록한 주소는 직접 확인할 수 없습니다')).toHaveCount(0);
+  await expect(page.getByText('확인 요청을 보냈습니다')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /사용 가능으로 확인/ })).toHaveCount(0);
+  // 나중에 다시 열면 등록자에게 직접 확인할 수 없다는 안내가 보이고, 확인 버튼은 여전히 없다.
+  await page.goto('/addresses?status=PENDING_REVIEW');
+  await page.getByRole('link', { name: 'E2E 거래처 입금 주소' }).click();
+  await expect(page.getByText('본인이 등록한 주소는 직접 확인할 수 없습니다. 등록자가 아닌 승인자가 확인해야 합니다.')).toBeVisible();
   await expect(page.getByRole('button', { name: /사용 가능으로 확인/ })).toHaveCount(0);
   await logout(page);
 
@@ -76,20 +86,26 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await page.getByRole('button', { name: '승인 요청 보내기' }).click();
   await expect(page.getByText('승인 대기').first()).toBeVisible();
   await expect(page.getByText('본인이 작성한 요청은 승인할 수 없습니다')).toBeVisible();
-  await expect(page.getByRole('button', { name: '승인', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^승인(하고 처리 시작)?$/ })).toHaveCount(0); // 승인 버튼은 어느 이름(승인·승인하고 처리 시작)으로도 없다
   await logout(page);
 
   // 5) 승인자: 체크리스트 후 승인 → 모의 처리 완료
   await loginAs(page, '오민재');
   await page.goto(url);
-  const approve = page.getByRole('button', { name: '승인', exact: true });
+  // 필요 승인 1명인 요청이라 이번 승인이 마지막이다: 버튼 이름이 처리 시작을 말한다(A1).
+  const approve = page.getByRole('button', { name: '승인하고 처리 시작', exact: true });
   await expect(approve).toBeDisabled();
+  await expect(page.getByRole('button', { name: '승인', exact: true })).toHaveCount(0);
   await page.getByLabel(/받는 곳과 목적이/).check();
   await page.getByLabel(/근거 문서와 같습니다/).check();
   await page.getByLabel(/앞·뒤 묶음과 네트워크/).check();
   await approve.click();
   await expect(page.getByText('처리 중').first()).toBeVisible();
-  await expect(page.getByText('처리 완료').first()).toBeVisible({ timeout: 15_000 });
+  // 레일 설명(A1)에도 '처리 완료'라는 낱말이 있으므로 상태 배지로 완료를 기다린다.
+  await expect(page.locator('.page-header .badge')).toHaveText('처리 완료', { timeout: 15_000 });
+  // 결정 카드가 말한 대로 자산 활동 내역에 출금으로 기록된다(A1-06의 안내 문장과 같은 기존 동작).
+  await page.goto('/activity?type=withdrawal');
+  await expect(page.getByRole('row').filter({ hasText: 'E2E 거래처 입금 주소' }).first()).toBeVisible();
   await logout(page);
 
   // 6) 감사 담당자: 기록 확인, 무결성 표시

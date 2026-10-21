@@ -83,7 +83,7 @@ test('목록에서 상세로 이동: 불러오기가 끝난 뒤 화면 제목으
 
   // 주소록 → 주소 상세(클릭)
   await page.goto('/addresses');
-  await expect(page.getByRole('heading', { name: '주소록 관리' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '보낼 곳 주소록' })).toBeVisible();
   await page.getByRole('link', { name: '모의 거래소 A 입금 (USDC)' }).click();
   await expect(page).toHaveURL(/\/addresses\/ab-01$/);
   await expect(title).toHaveText('모의 거래소 A 입금 (USDC)');
@@ -154,13 +154,13 @@ test('작성 중 이탈: 인앱 이동 확인(계속 작성/버리기), 깨끗�
   await loginAs(page, '한지수');
   // 깨끗한 폼은 확인 없이 이동
   await page.goto('/requests/new');
-  await page.getByRole('link', { name: '주소록 관리' }).click();
+  await page.getByRole('link', { name: '보낼 곳 주소록' }).click();
   await expect(page).toHaveURL(/\/addresses$/);
   await expect(activeDialog(page)).toHaveCount(0);
 
   await page.goto('/requests/new');
   await page.getByRole('combobox', { name: /^자산/ }).selectOption('USDC');
-  await page.getByRole('link', { name: '주소록 관리' }).click();
+  await page.getByRole('link', { name: '보낼 곳 주소록' }).click();
   const dlg = page.getByRole('alertdialog', { name: '작성 중인 내용이 있습니다' });
   await expect(dlg).toBeVisible();
   await expect(dlg.getByRole('button', { name: '계속 작성' })).toBeFocused();
@@ -196,6 +196,21 @@ test('작성 중 이탈: 인앱 이동 확인(계속 작성/버리기), 깨끗�
   await page.getByRole('link', { name: '홈' }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(activeDialog(page)).toHaveCount(0);
+
+  // 머리글의 '출금 요청 작성'(A1)도 같은 이탈 확인을 거친다: 계속 작성은 입력을 지키고, 버리기를 고르면 작성 화면으로 간다.
+  await page.goto('/addresses/new');
+  await page.getByRole('combobox', { name: /^자산/ }).selectOption('USDC');
+  await page.getByRole('banner').getByRole('link', { name: '출금 요청 작성' }).click();
+  await expect(dlg).toBeVisible();
+  await expect(dlg.getByRole('button', { name: '계속 작성' })).toBeFocused();
+  await dlg.getByRole('button', { name: '계속 작성' }).click();
+  await expect(page).toHaveURL(/\/addresses\/new$/);
+  await expect(page.getByRole('combobox', { name: /^자산/ })).toHaveValue('USDC');
+  await page.getByRole('banner').getByRole('link', { name: '출금 요청 작성' }).click();
+  await dlg.getByRole('button', { name: '작성 내용 버리기' }).click();
+  await expect(page).toHaveURL(/\/requests\/new$/);
+  await expect(page.getByRole('heading', { name: '출금 요청 작성', level: 1 })).toBeVisible();
+  await expect(page.getByRole('banner').getByRole('link', { name: '출금 요청 작성' })).toHaveCount(0); // 작성 화면 자체에는 두지 않는다
 
   // 창 닫기: 작성 중일 때만 표준 beforeunload
   await page.goto('/addresses/new');
@@ -306,7 +321,7 @@ test('주소 등록 오류: 끝자리 불일치 시 해당 입력으로 포커�
 test('공통 검색: debounce, Enter 즉시, 한국어 IME 조합 중 조회 없음, 지우기 버튼·Escape, 늦은 응답이 최신 결과를 덮지 않음', async ({ page }) => {
   await loginAs(page, '한지수');
   await page.goto('/addresses');
-  await expect(page.getByRole('heading', { name: '주소록 관리' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '보낼 곳 주소록' })).toBeVisible();
   const qs: string[] = [];
   page.on('request', (r) => { const u = new URL(r.url()); if (u.pathname === '/api/addresses') qs.push(u.searchParams.get('q') ?? ''); });
   const box = page.getByRole('searchbox', { name: '주소 검색' });

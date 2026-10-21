@@ -49,6 +49,21 @@ describe('상태 설명', () => {
     });
   });
 
+  it('says whose turn each open status is (display-only turn text, A1) and leaves it empty for finished requests', () => {
+    expect(Object.fromEntries(Object.entries(REQUEST_STATUS).map(([k, v]) => [k, v.turn]))).toEqual({
+      DRAFT: '요청자 작성 중', REVIEW: '요청자 최종 확인 중', PENDING_APPROVAL: '승인자 결정 대기', PROCESSING: '수탁사 처리 중',
+      COMPLETED: '', REJECTED: '', CANCELLED: '', FAILED: '',
+    });
+    for (const [k, v] of Object.entries(REQUEST_STATUS)) expect(v.turn, k).not.toMatch(POSITIVE_SAFETY_CLAIM);
+  });
+
+  it("defines 처리 중 as the custodian's step, run here by the mock custody, after which cancelling is not possible", () => {
+    const d = REQUEST_STATUS.PROCESSING.description;
+    expect(d).toContain('수탁사');
+    expect(d).toContain('모의 커스터디');
+    expect(d).toContain('취소할 수 없습니다');
+  });
+
   it("defines 처리 완료 as the mock custody's report, with the completion basis left to KODA", () => {
     const d = REQUEST_STATUS.COMPLETED.description;
     expect(d).toContain('모의 커스터디');
@@ -96,6 +111,7 @@ describe('문구 규칙', () => {
   it('makes no positive safety claim in any status, glossary or role text', () => {
     for (const [k, t] of allTexts) expect(t, k).not.toMatch(POSITIVE_SAFETY_CLAIM);
     for (const l of allLabels) expect(l).not.toMatch(POSITIVE_SAFETY_CLAIM);
+    for (const [k, v] of Object.entries(REQUEST_STATUS)) expect(v.turn, `REQUEST_STATUS.${k}.turn`).not.toMatch(POSITIVE_SAFETY_CLAIM);
   });
 
   it("allows the word '안전' only in a negated sentence", () => {

@@ -14,6 +14,10 @@ import './request-checks.css';
 export interface RequestFormValue { assetCode: string; networkCode: string; addressId: string; amount: string; purpose: string }
 
 const OUTCOME_ICON: Record<CheckOutcome, typeof IconCircleCheck> = { pass: IconCircleCheck, caution: IconAlertTriangle, unknown: IconHelpCircle };
+/** 네트워크 선택 칸의 도움말 끝에 붙이는 문장(A1). 주소 등록 화면도 같은 문장을 쓴다. 낱말 '네트워크'는 그대로 두고 거래처에 물을 질문을 알려 준다. */
+export const NETWORK_ASK_HINT = '거래처 안내문의 네트워크 이름이 이 목록과 다르면, 거래처에 어느 블록체인 네트워크로 받는지 물어 확인하세요.';
+/** 점검 목록의 보이는 순서: 주의 → 확인 불가 → 기준 이내 */
+const OUTCOME_RANK: Record<CheckOutcome, number> = { caution: 0, unknown: 1, pass: 2 };
 
 /** '주의 1건 · 확인 불가 1건 · 기준 이내 3건' (0건인 결과는 쓰지 않는다) */
 export function checkSummary(items: RequestCheck[]): string {
@@ -29,13 +33,50 @@ export function checkSummary(items: RequestCheck[]): string {
  * - onReason을 주면 사유가 필요한 주의 항목 아래에 진행 사유 입력을 둔다(검토 단계).
  * - showReasons면 제출 때 저장한 요청자 사유를 보인다(승인 화면).
  * - 둘 다 아니면(작성 화면 미리 보기·작성 중 상세) 사유가 필요한 주의 항목에 「사유 필요」 표시를 붙인다(어느 항목에 사유를 적어야 하는지 미리 알 수 있게).
- * - compact(작성 화면 미리 보기)는 기준 이내 항목을 한 줄로 줄이고 그 기준 문장을 생략한다. 주의·확인 불가 항목은 기준(자료 범위)까지 보인다.
+ * - compact(작성 화면 미리 보기)는 항목 사이 간격을 줄인다.
+ * 보이는 순서(A1): 주의 → 확인 불가를 펼쳐 먼저 두고, 기준 이내 항목은 아래 접힌 묶음(네이티브 <details>)에 넣는다.
+ * 항목은 하나도 빼지 않는다(묶음 안에도 같은 결과·세부 내용·기준이 있다). 사유가 필요하거나 저장된 사유가 있는 항목은 결과와 관계없이 접지 않는다(A-28).
+ * 요약 줄('주의 n건 · 확인 불가 n건 · 기준 이내 n건')과 각주(기준은 설계 가정, 보증 아님)는 접히지 않는다.
  */
 export function CheckList({ items, title, intro, reasons, onReason, reasonError, showReasons, compact, footnote, level = 3 }: {
   items: RequestCheck[]; title: string; level?: 2 | 3; intro?: string; reasons?: Record<string, string>; onReason?: (id: string, value: string) => void;
   reasonError?: (id: string) => string | undefined; showReasons?: boolean; compact?: boolean; footnote?: string;
 }) {
   const headId = useId();
+  const folded = (c: RequestCheck) => c.outcome === 'pass' && !c.requiresReason && !(showReasons && c.reason);
+  // 서버가 정한 항목 순서는 결과 안에서 그대로 둔다(안정 정렬).
+  const shownFirst = items.filter((c) => !folded(c)).sort((a, b) => (OUTCOME_RANK[a.outcome] ?? 1) - (OUTCOME_RANK[b.outcome] ?? 1));
+  const passItems = items.filter(folded);
+  const renderItem = (c: RequestCheck) => {
+    const Icon = OUTCOME_ICON[c.outcome] ?? IconHelpCircle;
+    const fieldId = `check-reason-${c.id}`;
+    const outcomeLabel = CHECK_OUTCOME[c.outcome]?.label ?? c.outcome;
+    // '확인 불가(시세 없음)'처럼 결과 글자로 시작하는 문장은 결과 표시와 겹치지 않게 괄호 안만 보인다(결과 표시 + '시세 없음').
+    const shown = c.label.startsWith(`${outcomeLabel}(`) && c.label.endsWith(')') ? c.label.slice(outcomeLabel.length + 1, -1) : c.label;
+    return (
+      <li key={c.id} className={`rc-item rc-${c.outcome}`}>
+        <Icon size={18} aria-hidden="true" className="rc-icon" />
+        <div className="rc-body">
+          <p className="rc-line">
+            <span className="rc-outcome">{outcomeLabel}</span><span className="rc-label">{shown}</span>
+            {c.requiresReason && !onReason && !showReasons && <span className="rc-need">사유 필요</span>}
+          </p>
+          {/* '확인 불가'가 실패나 통과로 읽히지 않게 뜻을 한 줄로 붙인다(A1). */}
+          {c.outcome === 'unknown' && (
+            <p className="rc-unknown-note">{c.requiresReason ? '자료가 부족해 판단하지 못한 항목입니다. 문제가 없다는 뜻은 아닙니다.' : '자료가 부족해 판단하지 못한 항목입니다. 문제가 없다는 뜻은 아니며, 진행 사유는 적지 않아도 됩니다.'}</p>
+          )}
+          <p className="rc-detail">{c.detail}</p>
+          <p className="rc-basis">기준: {c.basis}</p>
+          {showReasons && c.reason && <div className="rc-reason"><b>요청자 진행 사유</b><p>{c.reason}</p></div>}
+          {onReason && c.requiresReason && (
+            <Field label={`진행 사유: ${c.label}`} htmlFor={fieldId} required error={reasonError?.(c.id)} hint={`그대로 진행하는 이유를 글자·숫자 ${CHECK_REASON_MIN_LENGTH}자 이상으로 적어 주세요. 승인자에게 함께 보입니다.`}>
+              <TextareaAuto id={fieldId} rows={2} maxRows={6} maxLength={300} value={reasons?.[c.id] ?? ''} onChange={(e) => onReason(c.id, e.target.value)} />
+            </Field>
+          )}
+        </div>
+      </li>
+    );
+  };
   return (
     <div className={`rc-block${compact ? ' rc-compact' : ''}`}>
       <div className="rc-head">
@@ -43,34 +84,15 @@ export function CheckList({ items, title, intro, reasons, onReason, reasonError,
         <span className="rc-summary">{checkSummary(items)}</span>
       </div>
       {intro && <p className="rc-intro">{intro}</p>}
-      <ul className="rc-list" aria-labelledby={headId}>
-        {items.map((c) => {
-          const Icon = OUTCOME_ICON[c.outcome] ?? IconHelpCircle;
-          const fieldId = `check-reason-${c.id}`;
-          const outcomeLabel = CHECK_OUTCOME[c.outcome]?.label ?? c.outcome;
-          // '확인 불가(시세 없음)'처럼 결과 글자로 시작하는 문장은 결과 표시와 겹치지 않게 괄호 안만 보인다(결과 표시 + '시세 없음').
-          const shown = c.label.startsWith(`${outcomeLabel}(`) && c.label.endsWith(')') ? c.label.slice(outcomeLabel.length + 1, -1) : c.label;
-          return (
-            <li key={c.id} className={`rc-item rc-${c.outcome}`}>
-              <Icon size={18} aria-hidden="true" className="rc-icon" />
-              <div className="rc-body">
-                <p className="rc-line">
-                  <span className="rc-outcome">{outcomeLabel}</span><span className="rc-label">{shown}</span>
-                  {c.requiresReason && !onReason && !showReasons && <span className="rc-need">사유 필요</span>}
-                </p>
-                {(!compact || c.outcome !== 'pass') && <p className="rc-detail">{c.detail}</p>}
-                {(!compact || c.outcome !== 'pass') && <p className="rc-basis">기준: {c.basis}</p>}
-                {showReasons && c.reason && <div className="rc-reason"><b>요청자 진행 사유</b><p>{c.reason}</p></div>}
-                {onReason && c.requiresReason && (
-                  <Field label={`진행 사유: ${c.label}`} htmlFor={fieldId} required error={reasonError?.(c.id)} hint={`그대로 진행하는 이유를 글자·숫자 ${CHECK_REASON_MIN_LENGTH}자 이상으로 적어 주세요. 승인자에게 함께 보입니다.`}>
-                    <TextareaAuto id={fieldId} rows={2} maxRows={6} maxLength={300} value={reasons?.[c.id] ?? ''} onChange={(e) => onReason(c.id, e.target.value)} />
-                  </Field>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+      {shownFirst.length > 0
+        ? <ul className="rc-list" aria-labelledby={headId}>{shownFirst.map(renderItem)}</ul>
+        : <p className="rc-none">주의·확인 불가 항목이 없습니다.</p>}
+      {passItems.length > 0 && (
+        <details className="rc-pass-group">
+          <summary>기준 이내 {passItems.length}건 · 기준과 세부 내용 보기</summary>
+          <ul className="rc-list" aria-label={`기준 이내 ${passItems.length}건`}>{passItems.map(renderItem)}</ul>
+        </details>
+      )}
       {footnote && <p className="rc-footnote">{footnote}</p>}
     </div>
   );
@@ -212,7 +234,7 @@ export function RequestForm({ value, onChange, error, requestId }: { value: Requ
             {cat.data?.assets.filter((a) => heldAssets.has(a.code)).map((a) => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}
           </select>
         </Field>
-        <Field label={<Term label="네트워크">{GLOSSARY.network}</Term>} htmlFor="networkCode" required error={err?.fieldError('networkCode')} hint={networks.length > 1 ? '받는 주소가 등록된 네트워크와 같아야 합니다.' : undefined}>
+        <Field label={<Term label="네트워크">{GLOSSARY.network}</Term>} htmlFor="networkCode" required error={err?.fieldError('networkCode')} hint={`${networks.length > 1 ? '받는 주소가 등록된 네트워크와 같아야 합니다. ' : ''}${NETWORK_ASK_HINT}`}>
           <select id="networkCode" value={value.networkCode} onChange={(e) => set({ networkCode: e.target.value, addressId: '' })} disabled={!value.assetCode}>
             <option value="">{value.assetCode ? '네트워크 선택' : '자산을 먼저 고르세요'}</option>
             {networks.map((n) => <option key={n.code} value={n.code}>{n.name}</option>)}

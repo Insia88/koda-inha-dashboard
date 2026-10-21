@@ -58,7 +58,7 @@ test('유사 주소: 등록자는 비교를 보고 사유를 남기고, 승인�
   await page.getByRole('textbox', { name: /^받는 곳/ }).fill('모의 유사 거래처');
   await expect(page.getByText(/가운데를 포함한 전체 글자를 받는 곳의 원본과/)).toBeVisible();
   await page.getByLabel(/주소 끝 6자리/).fill(p.tail);
-  await page.getByLabel('원본 주소의 가운데 8자리 (고유부 17~24번째)').fill(p.middle);
+  await page.getByLabel('원본 주소의 가운데 8자리 (MOCK-EVM- 뒤 17~24번째 글자)').fill(p.middle);
   expect(await pasteBlocked(page, '#confirmTail')).toBe(true);
   expect(await pasteBlocked(page, '#confirmMiddle')).toBe(true);
   await page.getByRole('combobox', { name: /^받은 경로/ }).selectOption('email');
@@ -74,7 +74,7 @@ test('유사 주소: 등록자는 비교를 보고 사유를 남기고, 승인�
   await expect(page.getByRole('alert').filter({ hasText: '비슷한 기존 주소가 있어 등록 사유가 필요합니다' })).toBeVisible();
   await reason.fill('거래처 재무팀에 전화로 전체 주소를 한 글자씩 확인했습니다');
   await page.getByRole('button', { name: '확인 요청 보내기' }).click();
-  await expect(page.getByText('확인 요청을 보냈습니다')).toBeVisible();
+  await expect(page.getByText('주소를 등록했습니다 — 다른 승인자의 확인이 필요합니다')).toBeVisible();
   // 등록자 화면에도 비교 결과가 남는다
   await expect(page.getByRole('heading', { name: '비슷한 기존 주소' })).toBeVisible();
   await expect(page.getByText('거래처 재무팀에 전화로 전체 주소를 한 글자씩 확인했습니다')).toBeVisible();
@@ -92,7 +92,7 @@ test('유사 주소: 등록자는 비교를 보고 사유를 남기고, 승인�
   await expect(reviewCmp).toBeVisible();
   await expect(reviewCmp).toContainText(AB01_LABEL);
   await expect(reviewCmp.locator('.cmp-diff')).toHaveCount(60);
-  await expect(card.getByText(/가운데 8자리\(고유부 17~24번째\)를 입력한 뒤 확인합니다/)).toBeVisible();
+  await expect(card.getByText(/가운데 8자리\(MOCK-EVM- 뒤 17~24번째 글자\)를 입력한 뒤 확인합니다/)).toBeVisible();
   // 접근성 자동 검사(비교 표시 포함)
   const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
   expect(axe.violations.map((v) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(' | ')}`)).toEqual([]);

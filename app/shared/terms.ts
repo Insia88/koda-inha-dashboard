@@ -5,15 +5,19 @@ export type RequestStatus =
 
 export type Tone = 'neutral' | 'info' | 'warning' | 'success' | 'danger';
 
-export const REQUEST_STATUS: Record<RequestStatus, { label: string; tone: Tone; description: string; step: number }> = {
-  DRAFT: { label: '작성 중', tone: 'neutral', step: 0, description: '요청자가 내용을 작성하고 있습니다. 아직 승인자에게 전달되지 않았습니다.' },
-  REVIEW: { label: '검토 중', tone: 'info', step: 1, description: '요청자가 받는 주소와 수량을 최종 대조하는 단계입니다. 확인을 마치면 승인 요청을 보냅니다.' },
-  PENDING_APPROVAL: { label: '승인 대기', tone: 'warning', step: 2, description: '요청자가 아닌 승인자의 승인을 기다립니다. 출금 수량은 예약되어 다른 요청에 쓸 수 없습니다.' },
-  PROCESSING: { label: '처리 중', tone: 'info', step: 3, description: '승인이 끝나 커스터디 처리 중입니다. 이 단계부터는 취소할 수 없습니다.' },
-  COMPLETED: { label: '처리 완료', tone: 'success', step: 3, description: '모의 커스터디가 처리 완료를 알린 상태입니다. 블록체인 확정을 완료 기준으로 삼을지는 KODA와 정할 항목입니다. 블록체인 전송은 되돌릴 수 없습니다.' },
-  REJECTED: { label: '반려', tone: 'danger', step: 3, description: '승인자가 반려했습니다. 반려 사유를 확인하고 필요하면 새 요청을 작성하세요.' },
-  CANCELLED: { label: '취소', tone: 'neutral', step: 3, description: '요청자가 취소했습니다. 예약된 수량은 해제되었습니다.' },
-  FAILED: { label: '처리 실패', tone: 'danger', step: 3, description: '처리 중 문제가 생겨 완료되지 않았습니다. 예약 수량은 해제되었습니다. 실패 사유를 확인하세요.' },
+/**
+ * 요청 상태. label·tone·step은 화면·서버 메시지·E2E가 함께 쓰는 값이라 바꾸지 않는다(tests/glossary.test.ts).
+ * turn: 지금 누구 차례인지 알려 주는 짧은 표시용 문구(A1). 서버는 쓰지 않으며, 끝난 상태는 빈 문자열이다.
+ */
+export const REQUEST_STATUS: Record<RequestStatus, { label: string; tone: Tone; description: string; step: number; turn: string }> = {
+  DRAFT: { label: '작성 중', tone: 'neutral', step: 0, turn: '요청자 작성 중', description: '요청자가 내용을 작성하고 있습니다. 아직 승인자에게 전달되지 않았습니다.' },
+  REVIEW: { label: '검토 중', tone: 'info', step: 1, turn: '요청자 최종 확인 중', description: '요청자가 받는 주소와 수량을 최종 대조하는 단계입니다. 확인을 마치면 승인 요청을 보냅니다.' },
+  PENDING_APPROVAL: { label: '승인 대기', tone: 'warning', step: 2, turn: '승인자 결정 대기', description: '요청자가 아닌 승인자의 승인을 기다립니다. 출금 수량은 예약되어 다른 요청에 쓸 수 없습니다.' },
+  PROCESSING: { label: '처리 중', tone: 'info', step: 3, turn: '수탁사 처리 중', description: '승인이 끝나 수탁사(KODA)가 처리하는 단계입니다. 이 환경에서는 모의 커스터디가 처리합니다. 이 단계부터는 취소할 수 없습니다.' },
+  COMPLETED: { label: '처리 완료', tone: 'success', step: 3, turn: '', description: '모의 커스터디가 처리 완료를 알린 상태입니다. 블록체인 확정을 완료 기준으로 삼을지는 KODA와 정할 항목입니다. 블록체인 전송은 되돌릴 수 없습니다.' },
+  REJECTED: { label: '반려', tone: 'danger', step: 3, turn: '', description: '승인자가 반려했습니다. 반려 사유를 확인하고 필요하면 새 요청을 작성하세요.' },
+  CANCELLED: { label: '취소', tone: 'neutral', step: 3, turn: '', description: '요청자가 취소했습니다. 예약된 수량은 해제되었습니다.' },
+  FAILED: { label: '처리 실패', tone: 'danger', step: 3, turn: '', description: '처리 중 문제가 생겨 완료되지 않았습니다. 예약 수량은 해제되었습니다. 실패 사유를 확인하세요.' },
 };
 
 export const REQUEST_STEPS = ['작성', '검토', '승인 대기', '처리 결과'] as const;

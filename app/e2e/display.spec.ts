@@ -82,8 +82,10 @@ test('주소 대조 띠: 상세 화면의 묶음은 같은 굵기·대비, 확�
     expect(new Set(await chunkStyles(strip)).size).toBe(1);
     const outlines = await strip.locator('.addr-verify').evaluateAll((els) => els.map((e) => `${getComputedStyle(e).outlineStyle} ${getComputedStyle(e).outlineWidth}`));
     expect(new Set(outlines)).toEqual(new Set(['solid 2px']));
-    await expect(card.getByText(`가운데 8자리(고유부 ${a.middle.start}~${a.middle.end}번째)입니다.`)).toBeVisible();
-    await expect(card.getByText(/고유부는 주소에서 MOCK-[A-Z]+- 다음부터 센 글자입니다/)).toBeVisible();
+    const prefix = String(a.address).match(/^MOCK-[A-Z]+-/)![0];
+    await expect(card.getByText(`가운데 8자리(${prefix} 뒤 ${a.middle.start}~${a.middle.end}번째 글자)입니다.`)).toBeVisible();
+    await expect(card.getByText(`${prefix} 뒤의 글자(고유부)를 1부터 셉니다.`, { exact: false })).toBeVisible();
+    await expect(card.getByText(/고유부는 주소에서/)).toHaveCount(0);
     await expect(card.getByText('서버')).toHaveCount(0);
   }
 });
@@ -99,21 +101,32 @@ test('주소 등록: 대조 단계의 띠는 다시 입력할 가운데 구간�
   await expect(strip.locator('.addr-verify').first()).toBeVisible();
   expect(await outlinedText(strip)).toBe(middleSegment(address).text);
   expect(new Set(await chunkStyles(strip)).size).toBe(1);
-  await expect(page.getByLabel('원본 주소의 가운데 8자리 (고유부 17~24번째)')).toBeVisible();
+  await expect(page.getByLabel('원본 주소의 가운데 8자리 (MOCK-EVM- 뒤 17~24번째 글자)')).toBeVisible();
 });
 
-test('메뉴 배지: 처리할 수 있는 승인 건수만, 중립 색으로 보인다', async ({ page }) => {
+test('메뉴 배지: 종류마다 따로(승인 n), 처리할 수 있는 건수만, 중립 색으로 보인다', async ({ page }) => {
   await loginAs(page, '오민재');
   const dash = await (await page.request.get('/api/dashboard')).json();
   const count = (k: string) => dash.tasks.find((t: any) => t.kind === k)?.count ?? 0;
-  const expected = count('approve_requests') + count('my_drafts'); // 주소가 사용 중지되어 승인할 수 없는 요청(blocked_requests)은 더하지 않는다
-  expect(expected).toBeGreaterThan(0); // 시드: 오민재가 승인할 요청이 있다
-  const badge = page.getByRole('link', { name: /결재 및 요청/ }).locator('.nav-badge');
-  await expect(badge.locator('[aria-hidden="true"]')).toHaveText(String(expected));
-  await expect(page.getByRole('link', { name: new RegExp(`결재 및 요청 처리할 일 ${expected}건`) })).toBeVisible();
-  const color = await badge.evaluate((e) => ({ bg: getComputedStyle(e).backgroundColor, fg: getComputedStyle(e).color }));
+  const approveN = count('approve_requests'); // 주소가 사용 중지되어 승인할 수 없는 요청(blocked_requests)은 세지 않는다
+  expect(approveN).toBeGreaterThan(0); // 시드: 오민재가 승인할 요청이 있다
+  expect(count('my_drafts')).toBe(0); // 오민재는 요청 작성 권한이 없어 '초안' 배지가 없다
+  const link = page.getByRole('link', { name: /결재 및 요청/ });
+  const badges = link.locator('.nav-badge');
+  // 보이는 배지는 종류마다 하나씩이고 숫자는 그 종류의 서버 건수다(합계가 아니다).
+  await expect(badges).toHaveText([`승인 ${approveN}`]);
+  await expect(badges.first()).toHaveAttribute('aria-hidden', 'true');
+  // 링크 이름은 처리할 일 합계와 종류별 건수를 함께 읽는다.
+  await expect(link).toHaveAccessibleName(new RegExp(`^결재 및 요청\\s*처리할 일 ${approveN}건: 승인할 요청 ${approveN}건$`));
+  const color = await badges.first().evaluate((e) => ({ bg: getComputedStyle(e).backgroundColor, fg: getComputedStyle(e).color }));
   expect(color.fg).toBe('rgb(16, 32, 27)'); // 잉크
   expect(color.bg).not.toBe('rgb(180, 35, 24)'); // 반려·실패용 빨강이 아님
+  // 확인할 주소(review_addresses)도 같은 방식으로 따로 보인다.
+  const reviewN = count('review_addresses');
+  expect(reviewN).toBeGreaterThan(0); // 시드: 확인 대기 주소가 있다
+  const addrLink = page.getByRole('link', { name: /보낼 곳 주소록/ });
+  await expect(addrLink.locator('.nav-badge')).toHaveText([`확인 ${reviewN}`]);
+  await expect(addrLink).toHaveAccessibleName(new RegExp(`^보낼 곳 주소록\\s*처리할 일 ${reviewN}건: 확인할 주소 ${reviewN}건$`));
 });
 
 test('주소 확인 중 비슷한 주소가 새로 확인되면 점검 결과를 자동으로 다시 불러와 보여 준다', async ({ page }) => {
@@ -190,9 +203,12 @@ test('감사 기록: 무결성 확인의 범위를 넘겨 말하지 않고 보�
   await loginAs(page, '문태호');
   await page.goto('/audit');
   await expect(page.getByText('무결성 확인됨')).toBeVisible();
+  // 무엇을 확인했는지(앞 기록과 이어짐, 해시 연결)와 확인하지 못하는 경우를 펼치지 않아도 보이게 쓴다(A1에서 문장만 짧게).
+  await expect(page.locator('.audit-integrity')).toContainText(/기록 \d+건이 앞 기록과 빠짐없이 이어져 있습니다\(해시 연결 확인\)\./);
   const scope = page.locator('.audit-scope');
-  await expect(scope).toContainText('바로 앞 기록의 해시와 맞게 이어지는지를 봅니다');
-  await expect(scope).toContainText('기록을 고친 뒤 그 뒤 기록의 해시를 모두 다시 계산한 경우는 이 확인만으로 찾을 수 없습니다');
+  await expect(scope).toBeVisible();
+  await expect(scope).toContainText('가장 최근 기록을 지웠거나 기록을 고친 뒤 뒤쪽 해시를 모두 다시 계산했다면 이 확인으로는 찾지 못합니다');
+  await expect(scope).toContainText('앱 밖에 적어 두었다가 다음 확인 때 대조하세요');
   await expect(scope).not.toContainText('수정·삭제를 찾아냅니다');
   await expect(scope.locator('.audit-anchor')).toContainText(/보관용 값: 기록 \d+건 · 마지막 기록 해시 [0-9a-f]{64}/);
 });

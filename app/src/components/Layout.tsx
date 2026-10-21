@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   IconHome, IconWallet, IconListDetails, IconChecklist, IconStack2, IconBuildingBank, IconAddressBook, IconCoins,
-  IconUsers, IconShieldCheck, IconNews, IconLogout, IconMenu2, IconX, IconFlask,
+  IconUsers, IconShieldCheck, IconNews, IconLogout, IconMenu2, IconX, IconFlask, IconPlus,
 } from '@tabler/icons-react';
 import { acknowledgeDemoSwitch, api, DEMO_INSTANCE_CHANGED, isDemoSwitchPending } from '../api.ts';
 import { useMe, type Me } from '../auth.tsx';
@@ -11,7 +11,20 @@ import { dateTime } from '../format.ts';
 import { Notice } from './ui.tsx';
 import './layout-demo.css';
 
-interface Item { to: string; label: string; icon: typeof IconHome; perm: string; badge?: number; end?: boolean }
+/** 메뉴 배지 하나: 눈에 보이는 짧은 글자(예: '승인 2')와 화면 낭독기가 읽는 조각(예: '승인할 요청 2건'). */
+interface NavBadge { text: string; spoken: string; count: number }
+interface Item { to: string; label: string; icon: typeof IconHome; perm: string; badges?: NavBadge[]; end?: boolean }
+
+/**
+ * 0건인 배지는 빼고 남은 배지의 건수를 더해 '처리할 일 3건: 승인할 요청 2건, 제출 전 내 요청 1건'처럼 읽힐 문장을 만든다.
+ * 보이는 배지(aria-hidden)는 종류마다 따로 두고, 링크 이름에는 이 문장 하나만 들어간다.
+ */
+function badgeSpeech(badges: NavBadge[] | undefined): string | null {
+  const shown = (badges ?? []).filter((b) => b.count > 0);
+  if (!shown.length) return null;
+  const total = shown.reduce((sum, b) => sum + b.count, 0);
+  return `처리할 일 ${total}건: ${shown.map((b) => b.spoken).join(', ')}`;
+}
 
 const NARROW = '(max-width: 560px)';
 function useNarrow() {
@@ -115,8 +128,13 @@ export function Layout() {
   const can = (p: string) => me.permissions.includes(p);
   const dash = useQuery({ queryKey: ['dashboard'], queryFn: () => api('/api/dashboard'), enabled: can('dashboard.read'), refetchInterval: 15_000 });
   const taskCount = (k: string) => dash.data?.tasks.find((t: any) => t.kind === k)?.count ?? 0;
-  // 메뉴 배지는 내가 바로 처리할 수 있는 일만 센다: 승인할 요청(승인자)과 제출 전 내 요청(요청자).
-  // 받는 주소가 사용 중지되어 승인할 수 없는 요청은 홈의 별도 위험 항목으로 보여 주고 배지에는 더하지 않는다.
+  // 메뉴 배지는 내가 바로 처리할 수 있는 일만 종류별로 센다(A1): 승인할 요청(승인자) '승인 n', 제출 전 내 요청(요청자) '초안 n', 확인할 주소 '확인 n'.
+  // 받는 주소가 사용 중지되어 승인할 수 없는 요청은 홈의 별도 위험 항목으로 보여 주고 배지에는 더하지 않는다(A-17).
+  const approveN = taskCount('approve_requests');
+  const draftN = taskCount('my_drafts');
+  const reviewN = taskCount('review_addresses');
+  // 요청 권한이 있으면 어느 화면에서나 머리글에서 출금 요청 작성으로 갈 수 있다(작성 화면 자체에는 두지 않는다).
+  const showSend = can('request.create') && loc.pathname !== '/requests/new';
 
   useEffect(() => {
     setOpen(false);
@@ -139,18 +157,26 @@ export function Layout() {
     void qc.invalidateQueries({ queryKey: ['me'] });
   }, [loc, qc]);
 
+  // 메뉴 이름은 방향과 쓰임을 말한다(A1): 보낼 곳(주소록)과 우리 회사 입금 주소를 구분하고, 조회만 하는 화면은 '참고'로 묶는다. 경로·권한은 그대로다.
   const groups: { title?: string; items: Item[] }[] = [
     { items: [{ to: '/', label: '홈', icon: IconHome, perm: 'dashboard.read', end: true }] },
+    { title: '업무', items: [
+      { to: '/requests', label: '결재 및 요청', icon: IconChecklist, perm: 'request.read', badges: [
+        { text: `승인 ${approveN}`, spoken: `승인할 요청 ${approveN}건`, count: approveN },
+        { text: `초안 ${draftN}`, spoken: `제출 전 내 요청 ${draftN}건`, count: draftN },
+      ] },
+      { to: '/addresses', label: '보낼 곳 주소록', icon: IconAddressBook, perm: 'address.read', badges: [
+        { text: `확인 ${reviewN}`, spoken: `확인할 주소 ${reviewN}건`, count: reviewN },
+      ] },
+    ] },
     { title: '자산', items: [
       { to: '/balances', label: '잔고', icon: IconWallet, perm: 'asset.read' },
       { to: '/activity', label: '자산 활동 내역', icon: IconListDetails, perm: 'activity.read' },
     ] },
-    { title: '업무', items: [
-      { to: '/requests', label: '결재 및 요청', icon: IconChecklist, perm: 'request.read', badge: taskCount('approve_requests') + taskCount('my_drafts') },
-      { to: '/addresses', label: '주소록 관리', icon: IconAddressBook, perm: 'address.read', badge: taskCount('review_addresses') },
-      { to: '/staking', label: '스테이킹', icon: IconStack2, perm: 'staking.read' },
-      { to: '/wallets', label: '지갑 관리', icon: IconBuildingBank, perm: 'wallet.read' },
-      { to: '/tokens', label: '토큰 목록', icon: IconCoins, perm: 'catalog.read' },
+    { title: '참고', items: [
+      { to: '/wallets', label: '우리 회사 입금 주소', icon: IconBuildingBank, perm: 'wallet.read' },
+      { to: '/staking', label: '스테이킹 현황', icon: IconStack2, perm: 'staking.read' },
+      { to: '/tokens', label: '지원 자산·네트워크', icon: IconCoins, perm: 'catalog.read' },
     ] },
     { title: '관리', items: [
       { to: '/org', label: '조직 관리', icon: IconUsers, perm: 'org.read' },
@@ -198,6 +224,14 @@ export function Layout() {
           <span className="org-name-text" title={me.org.name}>{me.org.name}</span>
           {me.org.isMock && <span className="mock-tag">모의</span>}
         </span>
+        {/* 이동만 한다(미리 채우는 값 없음). 권한 검사는 화면 경로(g('request.create'))와 서버가 그대로 한다. 작성 중인 화면에서 누르면 이탈 확인을 거친다.
+            좁은 화면(≤560px)에서는 '출금 요청'만 보이고, 아주 좁으면(<380px) 아이콘만 보인다. 이름은 어느 폭에서나 '출금 요청 작성'이다. */}
+        {showSend && (
+          <Link className="btn btn-primary btn-sm topbar-send" to="/requests/new" title="출금 요청 작성">
+            <IconPlus size={16} aria-hidden="true" />
+            <span className="topbar-send-text">출금 요청<span className="topbar-send-more"> 작성</span></span>
+          </Link>
+        )}
         <div className="topbar-user">
           <span className="user-name">{me.user.name}</span>
           <span className="user-roles">{me.roleLabels.join(' · ')}</span>
@@ -212,15 +246,24 @@ export function Layout() {
             <div key={gi} className="nav-group">
               {g.title && <div className="nav-title">{g.title}</div>}
               <ul>
-                {items.map((i) => (
-                  <li key={i.to}>
-                    <NavLink to={i.to} end={i.end ?? i.to === '/insights'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-                      <i.icon size={18} aria-hidden="true" />
-                      <span>{i.label}</span>
-                      {i.badge ? <span className="nav-badge"><span aria-hidden="true">{i.badge}</span><span className="sr-only">처리할 일 {i.badge}건</span></span> : null}
-                    </NavLink>
-                  </li>
-                ))}
+                {items.map((i) => {
+                  const speech = badgeSpeech(i.badges);
+                  const shown = (i.badges ?? []).filter((b) => b.count > 0);
+                  return (
+                    <li key={i.to}>
+                      <NavLink to={i.to} end={i.end ?? i.to === '/insights'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                        <i.icon size={18} aria-hidden="true" />
+                        <span className="nav-label">{i.label}</span>
+                        {speech && (
+                          <span className="nav-badges">
+                            {shown.map((b) => <span key={b.text} className="nav-badge" aria-hidden="true">{b.text}</span>)}
+                            <span className="sr-only">{speech}</span>
+                          </span>
+                        )}
+                      </NavLink>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           );

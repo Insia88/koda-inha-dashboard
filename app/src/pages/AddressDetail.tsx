@@ -153,6 +153,8 @@ export function AddressDetailPage() {
   const canReview = a.allowedActions.includes('review');
   const canStop = a.allowedActions.includes('stop');
   const isMineAndPending = a.status === 'PENDING_REVIEW' && a.createdBy.id === me.user.id;
+  // 방금 등록한 주소(등록 화면에서 넘어옴): 다음 단계 안내를 하나로 모은다.
+  const justCreated = !!loc.state?.created && a.status === 'PENDING_REVIEW';
   const findings: Finding[] = a.findings ?? [];
   const hasLookalike = findings.some((f) => f.code === 'ADDRESS_LOOKALIKE');
   // 저장된 점검 결과에 등록을 막는 결과(오류 수준, 예: 확인 때 찾은 '최근 0원·소액 입금을 보낸 주소와 같음')가 있으면
@@ -162,8 +164,10 @@ export function AddressDetailPage() {
     ? `${blocking.code === 'ADDRESS_POISON_SUSPECTED' ? '최근 0원·소액 입금을 보낸 주소와 같아' : '등록할 수 없는 점검 결과가 있어'} 이 주소는 확인할 수 없습니다. 거절 사유를 적고 「등록 거절」을 누르세요. 받는 곳에는 받은 경로와 다른 연락 수단으로 주소를 다시 확인하세요.`
     : null;
   const n = me.policy.confirmTailLength;
-  const midLabel = `원본 주소의 가운데 ${CONFIRM_MIDDLE_LENGTH}자리 (고유부 ${a.middle.start}~${a.middle.end}번째)`;
   const bodyPrefix: string = String(a.address).match(/^MOCK-[A-Z]+-/)?.[0] ?? "'MOCK-계열-'";
+  // 위치는 접두(MOCK-EVM- 등) 뒤에서 1부터 센다(A1: '고유부'라는 말은 서버 오류 문구와 맞추려 도움말 괄호 안에만 남긴다).
+  const midPos = `${bodyPrefix} 뒤 ${a.middle.start}~${a.middle.end}번째 글자`;
+  const midLabel = `원본 주소의 가운데 ${CONFIRM_MIDDLE_LENGTH}자리 (${midPos})`;
   const openCount: number = a.openRequestCount ?? 0;
   const hours: number | undefined = policy.data?.addressBook?.cooldownHours;
   // 확인하는 사이 비슷한 주소가 새로 확인되면(409 LOOKALIKE_UPDATED) review의 onError가 주소를 다시 불러오고,
@@ -193,10 +197,11 @@ export function AddressDetailPage() {
       <PageHeader title={a.label} eyebrow={<Link to={back}>← 주소록</Link>} description={<><Badge tone={st.tone}>{st.label}</Badge> <span className="muted">{st.description}</span></>} />
       {disable.isSuccess && a.status === 'DISABLED' && <Notice tone="success" role="status" title="주소를 사용 중지했습니다">이 주소는 더 이상 출금 요청에 쓸 수 없습니다.</Notice>}
       {stop.isSuccess && a.status === 'DISABLED' && <Notice tone="success" role="status" title="사용 대기 중인 주소를 정지했습니다">이 주소는 출금 요청에 쓸 수 없습니다. 정지 사유는 변경 이력과 감사 기록에 남았습니다.</Notice>}
-      {loc.state?.created && a.status === 'PENDING_REVIEW' && (
-        <Notice tone="success" title="확인 요청을 보냈습니다" role="status">
+      {justCreated && (
+        <Notice tone="success" title="주소를 등록했습니다 — 다른 승인자의 확인이 필요합니다" role="status">
           <div className="lc-flow">
             <p>
+              이 대시보드는 알림을 보내지 않습니다. 확인할 승인자에게 직접 알려 주세요.{' '}
               {hours === 0
                 ? '등록자가 아닌 승인자가 원본과 대조해 확인하면 바로 출금 요청에 쓸 수 있습니다.'
                 : `등록자가 아닌 승인자가 원본과 대조해 확인하면 '사용 대기'가 되고, 대기 시간(${cooldownText(hours)})이 지나야 '사용 가능'이 되어 출금 요청에 쓸 수 있습니다. 대기 중에 요청하지 않은 등록이 보이면 바로 정지할 수 있습니다.`}
@@ -212,7 +217,8 @@ export function AddressDetailPage() {
           {reviewDone === 'REJECTED' && <Notice tone="info" role="status" title="등록을 거절했습니다">이 주소는 출금 요청에 쓸 수 없습니다. 등록자에게 거절 사유가 보입니다.</Notice>}
         </div>
       )}
-      {isMineAndPending && <Notice tone="info">본인이 등록한 주소는 직접 확인할 수 없습니다. 다른 승인자에게 확인을 요청하세요.</Notice>}
+      {/* 등록 직후에는 위 안내 하나만 보인다(알림이 없다는 점과 다음 단계를 함께 쓴다). 나중에 다시 열면 이 안내가 보인다. */}
+      {isMineAndPending && !justCreated && <Notice tone="info">본인이 등록한 주소는 직접 확인할 수 없습니다. 등록자가 아닌 승인자가 확인해야 합니다.</Notice>}
 
       {a.status === 'COOLING_DOWN' && a.activeFrom && (
         <section className="card lc-cooldown" aria-labelledby="cooldown-h">
@@ -295,9 +301,9 @@ export function AddressDetailPage() {
             <AddressStrip address={a.address} memo={a.memo} memoLabel={a.networkCode === 'XRPL' ? '데스티네이션 태그' : '메모'} verify={!approveBlockedText} />
           </div>
           {!approveBlockedText && <ol className="steps-text">
-            <li>받는 곳에 별도로 연락해 자산·네트워크·주소를 확인합니다. 등록자가 전달한 자료만으로 확인하지 마세요.</li>
+            <li>받는 곳에 미리 알고 있던 연락처(거래처 대표번호 등)로 연락해 자산·네트워크·주소를 불러 달라고 합니다. 등록자가 전달한 자료만으로 확인하지 마세요.</li>
             <li>위 주소의 가운데를 포함한 전체 글자를 원본과 한 글자씩 대조합니다.</li>
-            <li>원본을 보고 끝 {n}자리와 가운데 {CONFIRM_MIDDLE_LENGTH}자리(고유부 {a.middle.start}~{a.middle.end}번째)를 입력한 뒤 확인합니다.</li>
+            <li>원본을 보고 끝 {n}자리와 가운데 {CONFIRM_MIDDLE_LENGTH}자리({midPos})를 입력한 뒤 확인합니다.</li>
             {hasLookalike && <li>비슷한 기존 주소가 있으므로 어떤 방법으로 확인했는지 메모에 남깁니다. 메모 없이는 확인할 수 없습니다.</li>}
             {hours !== 0 && <li>확인해도 바로 쓰이지 않습니다. 사용 대기({cooldownText(hours)})가 지나야 출금 요청에 쓸 수 있습니다.</li>}
           </ol>}
@@ -305,7 +311,7 @@ export function AddressDetailPage() {
             <input id="tail" className="mono" value={tail} onChange={(e) => setTail(e.target.value)} maxLength={20} autoComplete="off" spellCheck={false} onPaste={blockPaste} onDrop={blockPaste} />
           </Field>}
           {!approveBlockedText && <Field label={midLabel} htmlFor="middle" error={err?.fieldError('confirmMiddle')}
-            hint={`고유부는 주소에서 ${bodyPrefix} 다음부터 센 글자입니다. 위 테두리는 위치만 알려 줍니다. 글자는 화면이 아니라 받는 곳에서 받은 원본 주소의 같은 위치를 보고 입력하세요.`}>
+            hint={`${bodyPrefix} 뒤의 글자(고유부)를 1부터 셉니다. 위 테두리는 위치만 알려 줍니다. 글자는 화면이 아니라 받는 곳에서 받은 원본 주소의 같은 위치를 보고 입력하세요.`}>
             <input id="middle" className="mono" value={middle} onChange={(e) => setMiddle(e.target.value)} maxLength={20} autoComplete="off" spellCheck={false} onPaste={blockPaste} onDrop={blockPaste} />
           </Field>}
           <Field label={approveBlockedText ? '거절 사유' : hasLookalike ? '확인 메모 (확인한 방법)' : '메모 (거절 시 필수)'} htmlFor="note" required={hasLookalike || !!approveBlockedText} error={err?.fieldError('note')}

@@ -152,6 +152,8 @@ test('주소 확인 뒤 결과 안내로 포커스, 승인 1/2 뒤 결과 안내
   await loginAs(page, '오민재');
   await page.goto(`/requests/${draft.id}`);
   await tick();
+  // 첫 번째 승인(1/2): 마지막 승인이 아니므로 버튼 이름은 '승인'이다(A1).
+  await expect(page.getByRole('button', { name: '승인하고 처리 시작' })).toHaveCount(0);
   await page.getByRole('button', { name: '승인', exact: true }).click();
   const partial = page.getByRole('status').filter({ hasText: '승인했습니다 (1/2)' });
   await expect(partial).toBeVisible();
@@ -166,20 +168,23 @@ test('주소 확인 뒤 결과 안내로 포커스, 승인 1/2 뒤 결과 안내
   await loginAs(page, '서예린');
   await page.goto(`/requests/${draft.id}`);
   await tick();
-  await page.getByRole('button', { name: '승인', exact: true }).click();
+  // 두 번째(마지막) 승인: 버튼 이름이 처리 시작을 말한다(A1).
+  await expect(page.getByRole('button', { name: '승인', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '승인하고 처리 시작', exact: true }).click();
   const final = page.getByRole('status').filter({ hasText: '커스터디 처리를 시작했습니다' });
   await expect(final).toBeVisible();
   await expect(final).toContainText('승인했습니다');
   await expect(page.locator('.rc-focus-target').filter({ has: final })).toBeFocused();
   await expect(final).toBeInViewport();
   await expect(page.locator('.page-header .badge')).toBeInViewport();
-  await expect(page.getByText('처리 완료').first()).toBeVisible({ timeout: 15_000 });
+  // 레일 설명(A1)에도 '처리 완료'라는 낱말이 있으므로 상태 배지로 완료를 기다린다.
+  await expect(page.locator('.page-header .badge')).toHaveText('처리 완료', { timeout: 15_000 });
 });
 
 test('주소록 목록: 확인 대기 중인 유사 주소(ab-13)에 \'비슷한 주소 있음\'과 무엇과 비슷한지, 흉내 낸 원래 주소(ab-02)에는 표시 없음', async ({ page }) => {
   await loginAs(page, '한지수');
   await page.goto('/addresses');
-  await expect(page.getByRole('heading', { name: '주소록 관리', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '보낼 곳 주소록', level: 1 })).toBeVisible();
   const look = page.getByRole('row').filter({ has: page.getByRole('link', { name: '정산 파트너 B (Kaia USDC, 변경 안내분)', exact: true }) });
   const genuine = page.getByRole('row').filter({ has: page.getByRole('link', { name: '정산 파트너 B (Kaia USDC)', exact: true }) });
   await expect(look).toHaveCount(1);
