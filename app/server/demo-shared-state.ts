@@ -68,15 +68,18 @@ export function createDemoSharedState(db: DB): DemoSharedState {
   let lastPullAt = 0;
   let inflightPull: Promise<void> | null = null;
 
-  const push = async () => {
+  const push = async (initial = false) => {
     if (!enabled) return;
     try {
       rev += 1;
       const body = JSON.stringify({ rev, at: new Date().toISOString(), tables: exportSnapshot(db) });
-      await put(key, body, { access: 'private', allowOverwrite: true, addRandomSuffix: false, contentType: 'application/json' });
+      // 첫 기준 스냅샷은 덮어쓰지 않는다(allowOverwrite: false). 여러 인스턴스가 동시에 기준을 올려
+      // 먼저 올라간 쓰기(예: 로그인 감사 기록)를 늦게 뜬 인스턴스의 초기 스냅샷이 덮어쓰는 사고를 막는다.
+      await put(key, body, { access: 'private', allowOverwrite: !initial, addRandomSuffix: false, contentType: 'application/json' });
       etag = null; // 다음 pull은 자기 스냅샷을 한 번 더 내려받아 etag를 새로 잡는다.
-    } catch {
+    } catch (e) {
       rev = Math.max(0, rev - 1);
+      if (initial) return; // 이미 다른 인스턴스가 기준을 만들었다. 다음 pull에서 가져온다.
     }
   };
 
@@ -91,7 +94,7 @@ export function createDemoSharedState(db: DB): DemoSharedState {
       try {
         const got = await get(key, { access: 'private', useCache: false, ...(etag ? { ifNoneMatch: etag } : {}) });
         if (!got) {
-          await push(); // 첫 인스턴스가 기준 스냅샷을 만든다.
+          await push(true); // 첫 인스턴스가 기준 스냅샷을 만든다(동시에 여러 인스턴스가 시도하면 하나만 성공).
           return;
         }
         if (got.statusCode === 304) return;
