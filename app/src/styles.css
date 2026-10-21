@@ -37,6 +37,16 @@
   --fs-metric: 32px; --lh-metric: 40px;   /* 총 평가액(좁은 화면 28/36) */
   --fw-regular: 400; --fw-medium: 500; --fw-semibold: 600; --fw-bold: 700; /* 800은 쓰지 않는다 */
   --ls-caption: 0.01em; --ls-heading: -0.01em; --ls-metric: -0.02em; --ls-code: 0.03em; /* 17px 이하 한글은 0 */
+  /* 모션(A4): IBM Carbon productive 값(@carbon/motion 11.54.0을 참고만, 설치하지 않음). 상태를 알리는 짧은 피드백에만 쓴다 */
+  --dur-fast-01: 70ms;       /* 누르기·가리키기 색 */
+  --dur-fast-02: 110ms;      /* 접기 꺾쇠·용어 설명 */
+  --dur-moderate-01: 150ms;  /* 대화상자·막·안내 상자 등장, 진행 점 색 */
+  --dur-moderate-02: 240ms;  /* 상한: 메뉴 서랍 열기, 진행선 채움 */
+  --ease-standard: cubic-bezier(0.2, 0, 0.38, 0.9);
+  --ease-entrance: cubic-bezier(0, 0, 0.38, 0.9);
+  --ease-exit: cubic-bezier(0.2, 0, 1, 0.9);   /* 예약. 이번에는 닫힘·사라짐을 모두 즉시 처리한다 */
+  --motion-rise: 4px;        /* 등장할 때 움직이는 최대 거리(transform만, 자리 이동 없음) */
+  --tr-feedback: background-color var(--dur-fast-01) var(--ease-standard), border-color var(--dur-fast-01) var(--ease-standard), color var(--dur-fast-01) var(--ease-standard);
   color-scheme: light;
   /* 전역 스크롤바 기준(표준 속성). 개별 화면에서 켜지 않는다 */
   scrollbar-width: thin;
@@ -251,18 +261,20 @@ input[type='checkbox'] { width: 18px; height: 18px; min-height: 0; accent-color:
 /* 진행 단계 */
 .rail { display: grid; grid-template-columns: repeat(4, 1fr); list-style: none; margin: 0; padding: 0; counter-reset: s; }
 .rail-step { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-3); text-align: center; }
+/* 단계 사이 연결선: 회색 길(::before)은 늘 그대로이고, 지난·지금 단계로 오는 선은 그 위의 Action 색 선(::after)이 채운다(A4 모션: 단계가 바뀌면 왼쪽부터 채움) */
 .rail-step::before { content: ''; position: absolute; top: 7px; left: -50%; width: 100%; height: 2px; background: var(--line); z-index: 0; }
-.rail-step:first-child::before { display: none; }
+.rail-step::after { content: ''; position: absolute; top: 7px; left: -50%; width: 100%; height: 2px; background: var(--action); z-index: 0; transform: scaleX(0); transform-origin: left center; }
+.rail-step:first-child::before, .rail-step:first-child::after { display: none; }
+.rail-done::after, .rail-current::after, .rail-bad::after { transform: scaleX(1); }
 .rail-dot { width: 16px; height: 16px; border-radius: 50%; background: var(--surface); border: 2px solid var(--line-strong); z-index: 1; }
 .rail-done .rail-dot { background: var(--action); border-color: var(--action); }
-.rail-done::before, .rail-current::before, .rail-bad::before { background: var(--action); }
 .rail-current .rail-dot { border-color: var(--action); box-shadow: 0 0 0 4px var(--action-soft); }
 .rail-current { color: var(--ink); font-weight: 700; }
 .rail-bad .rail-dot { background: var(--danger); border-color: var(--danger); }
 .rail-bad { color: var(--danger); font-weight: 700; }
 .rail-compact .rail-label { font-size: var(--fs-xs); line-height: var(--lh-xs); }
 .rail-compact .rail-dot { width: 10px; height: 10px; }
-.rail-compact .rail-step::before { top: 4px; }
+.rail-compact .rail-step::before, .rail-compact .rail-step::after { top: 4px; }
 .next-action { background: var(--ink); color: #fff; border-radius: var(--radius); padding: var(--s4) var(--s5); border-left: 6px solid var(--brand); }
 .next-action h2 { font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: 600; color: var(--focus-on-dark); margin-bottom: 2px; }
 .next-action p { margin: 0; font-size: var(--fs-lg); line-height: var(--lh-lg); font-weight: 600; }
@@ -472,6 +484,37 @@ body:has(dialog[open]) { overflow: hidden; }
 .login-user-roles { font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: 600; color: var(--action-ink); }
 .login-user-desc { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-2); }
 
+/* 모션(A4, DESIGN.md '모션'): 상태가 바뀌었다는 짧은 피드백만. 시간은 토큰(70·110·150·240ms)만 쓰고 240ms를 넘지 않는다(불러오는 중 고리만 예외).
+   - 전환 목록은 속성마다 시간을 따로 적는다(all 금지). 포커스 링(outline)·오류 테두리(box-shadow)·글자 굵기·크기·행간·자간은 전환하지 않는다.
+   - 글자가 있는 요소는 투명도로 나타나지 않는다(투명도는 글자 없는 ::backdrop·.nav-scrim에만).
+   - 금액·주소 묶음·지문·사용 대기 시간·경고(notice-warning·notice-danger·role="alert")·검증 오류·표의 행은 움직이지 않는다.
+   - @starting-style(처음 그려질 때의 출발 모습)은 모두 prefers-reduced-motion: no-preference 안에만 둔다. 줄인 움직임에서는 처음부터 끝 모습이다. */
+.btn, .nav-link, .task, .task-sub-link, .progress-item, .req-item, .chip, .tab, .login-user, .search .search-clear, .term-btn, .link-more, a, .table tbody td, .table tbody th { transition: var(--tr-feedback); }
+/* 진행 단계: 단계가 바뀌면 연결선이 왼쪽부터 Action 색으로 채워지고(240ms) 점 색이 바뀐다(150ms). 단계 이름의 색·굵기는 바로 바뀐다 */
+.rail-step::after { transition: transform var(--dur-moderate-02) var(--ease-standard); }
+.rail-dot { transition: background-color var(--dur-moderate-01) var(--ease-standard), border-color var(--dur-moderate-01) var(--ease-standard), box-shadow var(--dur-moderate-01) var(--ease-standard); }
+/* 접는 영역(자주 묻는 질문·'기준 이내' 묶음)의 꺾쇠: 펼치면 아래로 돈다. 내용 높이는 움직이지 않는다 */
+.faq > summary, .rc-pass-group > summary { list-style: none; }
+.faq > summary::-webkit-details-marker, .rc-pass-group > summary::-webkit-details-marker { display: none; }
+.faq > summary::before, .rc-pass-group > summary::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: var(--s2); vertical-align: 2px; border-top: 2px solid currentColor; border-right: 2px solid currentColor; transform: rotate(45deg); transition: transform var(--dur-fast-02) var(--ease-standard); }
+.faq[open] > summary::before, .rc-pass-group[open] > summary::before { transform: rotate(135deg); }
+@media (prefers-reduced-motion: no-preference) {
+  /* 확인 대화상자: 열릴 때만 4px 올라오며 자리 잡고(투명도 없음) 바탕이 어두워진다. 닫힘은 즉시. ::backdrop은 Chrome 122 전에 사용자 정의 속성을 물려받지 않아 값을 함께 적는다 */
+  .dialog[open] { transition: transform var(--dur-moderate-01) var(--ease-entrance); }
+  @starting-style { .dialog[open] { transform: translateY(var(--motion-rise)); } }
+  .dialog[open]::backdrop { transition: background-color var(--dur-moderate-01, 150ms) var(--ease-entrance, cubic-bezier(0, 0, 0.38, 0.9)); }
+  @starting-style { .dialog[open]::backdrop { background-color: rgba(16, 32, 27, 0); } }
+  /* 성공·정보·중립 알림(role="status")만 4px 자리 잡기. 경고·위험·role="alert"는 바로 보인다 */
+  .notice[role='status']:is(.notice-success, .notice-info, .notice-neutral) { transition: transform var(--dur-moderate-01) var(--ease-entrance); }
+  @starting-style { .notice[role='status']:is(.notice-success, .notice-info, .notice-neutral) { transform: translateY(var(--motion-rise)); } }
+  /* 용어 설명 말풍선: 4px 내려오며 자리 잡기(투명도 없음) */
+  .term-pop { transition: transform var(--dur-fast-02) var(--ease-entrance); }
+  @starting-style { .term-pop { transform: translateY(calc(-1 * var(--motion-rise))); } }
+  /* 메뉴 서랍의 막(글자 없음): 열 때만 어두워진다. 닫힘은 즉시 */
+  .nav-open .nav-scrim { transition: opacity var(--dur-moderate-01) var(--ease-entrance); }
+  @starting-style { .nav-open .nav-scrim { opacity: 0; } }
+}
+
 /* 반응형 */
 @media (max-width: 1100px) {
   .home-grid { grid-template-columns: 1fr; }
@@ -484,8 +527,9 @@ body:has(dialog[open]) { overflow: hidden; }
   .topbar .nav-toggle { display: inline-flex; }
   /* 메뉴 서랍(A3): 머리글 바로 아래(--nav-top, 열 때 Layout이 잰 머리글 아래 끝)에서 시작해 머리글의 토글(「메뉴 닫기」)이 가리지 않고 늘 보인다.
      열려 있는 동안 본문·환경 띠·머리글의 다른 버튼은 inert이고 포커스는 토글과 메뉴 안에서만 돈다(Layout.tsx) */
-  .sidenav { position: fixed; top: var(--nav-top, 0px); left: 0; bottom: 0; width: 272px; height: auto; align-self: stretch; z-index: 40; transform: translateX(-100%); transition: transform 0.2s ease; box-shadow: 0 0 24px rgba(0,0,0,0.15); padding-top: var(--s4); visibility: hidden; }
-  .nav-open .sidenav { transform: none; visibility: visible; }
+  .sidenav { position: fixed; top: var(--nav-top, 0px); left: 0; bottom: 0; width: 272px; height: auto; align-self: stretch; z-index: 40; transform: translateX(-100%); transition: none; box-shadow: 0 0 24px rgba(0,0,0,0.15); padding-top: var(--s4); visibility: hidden; }
+  /* 여는 것만 움직이고(240ms) 닫기는 지금처럼 즉시 숨긴다: 포커스·inert 처리(Layout.tsx)가 바뀌지 않는다(A4) */
+  .nav-open .sidenav { transform: none; visibility: visible; transition: transform var(--dur-moderate-02) var(--ease-standard); }
   .nav-open .nav-scrim { display: block; position: fixed; inset: var(--nav-top, 0px) 0 0 0; background: rgba(16,32,27,0.35); z-index: 35; }
   .user-roles, .topbar-user .user-name { display: none; }
   .topbar { padding: 0 var(--s3); gap: var(--s2); }
@@ -589,4 +633,13 @@ body:has(dialog[open]) { overflow: hidden; }
   .topbar-send svg { display: inline-block; }
   .topbar-send-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
-@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+/* 줄인 움직임(A4): 시간 토큰을 0으로 두고, 의사 요소(진행선 채움 ::after 포함)와 대화상자 바탕(::backdrop)까지 모든 전환·애니메이션을 끈다.
+   불러오는 중 표시(.spinner)도 멈춘 고리로 바로 보인다. 포커스 링은 원래 전환하지 않는다 */
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast-01: 0ms; --dur-fast-02: 0ms; --dur-moderate-01: 0ms; --dur-moderate-02: 0ms; --motion-rise: 0px; }
+  *, *::before, *::after, ::backdrop { animation: none !important; transition: none !important; }
+}
+/* 화면 전환 의사 요소는 따로 둔다(지원하지 않는 브라우저가 위 선택자 목록 전체를 버리지 않게). 지금은 화면 전환을 쓰지 않는다 */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}

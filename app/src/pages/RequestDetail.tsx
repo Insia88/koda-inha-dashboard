@@ -396,7 +396,8 @@ export function RequestDetailPage() {
   return (
     <div className="page page-narrow">
       <PageHeader title={`출금 요청 ${r.refNo}`} eyebrow={<Link to={back}>← 결재 및 요청</Link>} description={<><Badge tone={st.tone}>{st.label}</Badge> <span className="muted">{st.description}</span></>} />
-      <StatusRail step={st.step} status={r.status} />
+      {/* key: 다른 요청으로 옮겨 가면 레일을 새로 그려, 두 요청 사이를 진행선 채움으로 잇지 않는다(A4) */}
+      <StatusRail key={r.id} step={st.step} status={r.status} />
       {/* 레일 마지막 칸이 무엇인지(A1). 단계 이름(DASH-004)은 그대로 두고 설명만 붙인다. */}
       {(r.status === 'PENDING_APPROVAL' || r.status === 'PROCESSING') && (
         <p className="muted small rail-caption">마지막 칸 '처리 결과'는 필요한 승인이 모두 모인 뒤 수탁사가 처리한 결과(처리 완료·처리 실패)입니다.</p>
