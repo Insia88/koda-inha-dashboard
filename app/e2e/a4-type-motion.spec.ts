@@ -33,38 +33,52 @@ async function open(page: Page, s: Screen) {
   await page.waitForLoadState('networkidle');
 }
 
-/** 자기 글자(빈칸이 아닌 글자 노드)를 가진 보이는 요소 가운데 눈금 밖 크기·굵기를 쓴 것 */
+/**
+ * 자기 글자(빈칸이 아닌 글자 노드)를 가진 보이는 요소 가운데 눈금 밖 크기·굵기를 쓴 것(scale)과,
+ * 행간이 글자 크기의 1.2~1.75배를 벗어난 블록 요소(leading). 본문 행간이 24px 절대값이라 글자 크기만 정한 요소는 24px을 물려받는다
+ * (A4 검토: 공개 데모 띠가 13/24·12/24가 되어 4px 높아졌다). 줄 안의 글자(display: inline)는 줄 높이를 부모가 정하므로 보지 않는다.
+ */
 function offScale(page: Page, allow28OnTotal: boolean) {
   return page.evaluate((allow28) => {
     const sizes = new Set([12, 13, 14, 15, 17, 20, 24, 32]);
     const weights = new Set(['400', '500', '600', '700']);
-    const bad: string[] = [];
+    const scale: string[] = [];
+    const leading: string[] = [];
     for (const el of document.body.querySelectorAll('*')) {
       if (['OPTION', 'SCRIPT', 'STYLE'].includes(el.tagName)) continue;
       if (![...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim() !== '')) continue;
       if (el.getClientRects().length === 0) continue;
       const cs = getComputedStyle(el);
       if (cs.visibility === 'hidden') continue;
+      const name = `${el.tagName.toLowerCase()}.${[...el.classList].join('.')} "${(el.textContent ?? '').trim().slice(0, 24)}"`;
       const size = parseFloat(cs.fontSize);
       const sizeOk = sizes.has(size) || (allow28 && size === 28 && !!el.closest('.total-value'));
-      if (!sizeOk || !weights.has(cs.fontWeight)) bad.push(`${el.tagName.toLowerCase()}.${[...el.classList].join('.')} "${(el.textContent ?? '').trim().slice(0, 24)}" ${cs.fontSize}/${cs.fontWeight}`);
+      if (!sizeOk || !weights.has(cs.fontWeight)) scale.push(`${name} ${cs.fontSize}/${cs.fontWeight}`);
+      if (cs.display !== 'inline' && cs.display !== 'contents' && cs.lineHeight !== 'normal') {
+        const ratio = parseFloat(cs.lineHeight) / size;
+        if (ratio < 1.2 || ratio > 1.75) leading.push(`${name} ${cs.fontSize}/${cs.lineHeight}`);
+      }
     }
-    return bad;
+    return { scale, leading };
   }, allow28OnTotal);
 }
 
-test.describe('글자 눈금: 크기 12·13·14·15·17·20·24·32, 굵기 400·500·600·700', () => {
+test.describe('글자 눈금: 크기 12·13·14·15·17·20·24·32, 굵기 400·500·600·700, 행간 1.2~1.75배', () => {
   for (const s of SCREENS) {
     test(`${s.path} (${s.user}) 1440px·390px`, async ({ page }) => {
       await open(page, s);
-      expect(await offScale(page, false), '1440px').toEqual([]);
+      const wide = await offScale(page, false);
+      expect(wide.scale, '1440px 크기·굵기').toEqual([]);
+      expect(wide.leading, '1440px 행간').toEqual([]);
       await page.setViewportSize(PHONE);
       await page.reload();
       await page.locator('#page-title').waitFor();
       await s.ready(page);
       await page.waitForLoadState('networkidle');
       // 좁은 화면의 총 평가액만 28px(--fs-metric)을 쓴다
-      expect(await offScale(page, true), '390px').toEqual([]);
+      const narrow = await offScale(page, true);
+      expect(narrow.scale, '390px 크기·굵기').toEqual([]);
+      expect(narrow.leading, '390px 행간').toEqual([]);
     });
   }
 });
@@ -104,6 +118,16 @@ test('식별자 글꼴: 지문·주소 묶음은 Adobe Source Code Pro, 홈·요
   expect(monoRequests[0]).toMatch(/^\/assets\/SourceCodeVF-Upright\.ttf-[\w-]+\.woff2$/);
 });
 
+/** 고정폭 숫자를 쓰는 보이는 글자 요소 가운데 글꼴 스택에 'Pretendard Fallback Tnum'이 없는 것(styles.css의 두 목록이 어긋났는지) */
+function tnumWithoutFallback(page: Page) {
+  return page.evaluate(() => [...document.body.querySelectorAll('*')].filter((el) => {
+    if (!el.getClientRects().length) return false;
+    if (![...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim() !== '')) return false;
+    const cs = getComputedStyle(el);
+    return cs.fontVariantNumeric.includes('tabular-nums') && cs.fontFamily.startsWith('"Pretendard Variable"') && !cs.fontFamily.includes('Pretendard Fallback Tnum');
+  }).map((el) => `${el.tagName.toLowerCase()}.${[...el.classList].join('.')} "${(el.textContent ?? '').trim().slice(0, 24)}"`));
+}
+
 test('숫자: 금액·수량 칸은 고정폭 숫자이고, 숫자 폭을 바꾸는 글꼴 기능(ss01·ss02·ss06·zero)을 켜지 않는다', async ({ page }) => {
   await loginAs(page, '한지수');
   await page.goto('/balances');
@@ -120,7 +144,11 @@ test('숫자: 금액·수량 칸은 고정폭 숫자이고, 숫자 폭을 바꾸
     const rows = [...document.querySelectorAll('.bal-wide tbody tr')].map((tr) => [...tr.querySelectorAll('td.num')]
       .map((td) => td.querySelector('.amt-n')).filter((n): n is Element => !!n).map((n) => n.getBoundingClientRect().right));
     const cols = [0, 1, 2].map((k) => rows.map((row) => row[k]).filter((x): x is number => x !== undefined));
-    return { styles, ones: probe('1111'), zeros: probe('0000'), sixes: probe('6969'), fours: probe('4444'), cols };
+    // 가장 긴 단위(USDC)의 오른쪽 끝이 오른쪽 정렬한 머리글 글자 끝과 만난다(단위 칸 폭을 가장 긴 단위에 맞춤, A4 검토)
+    const heads = [...document.querySelectorAll('.bal-wide thead th')].slice(2, 5).map((th) => th.getBoundingClientRect().right - parseFloat(getComputedStyle(th).paddingRight));
+    const textRight = (e: Element) => { const r = document.createRange(); r.selectNodeContents(e); return r.getBoundingClientRect().right; };
+    const unitEdges = [0, 1, 2].map((k) => Math.max(...[...document.querySelectorAll('.bal-wide tbody tr')].map((tr) => tr.querySelectorAll('td.qty')[k]?.querySelector('.amt-u')).filter((u): u is Element => !!u).map(textRight)));
+    return { styles, ones: probe('1111'), zeros: probe('0000'), sixes: probe('6969'), fours: probe('4444'), cols, heads, unitEdges };
   });
   for (const s of r.styles) {
     expect(s.num, s.s).toContain('tabular-nums');
@@ -133,11 +161,28 @@ test('숫자: 금액·수량 칸은 고정폭 숫자이고, 숫자 폭을 바꾸
     expect(col.length).toBeGreaterThan(1);
     expect(Math.max(...col) - Math.min(...col)).toBeLessThanOrEqual(1);
   }
+  r.heads.forEach((h, k) => expect(Math.abs(h - r.unitEdges[k]!), `${k}번째 수량 열: 머리글 끝 ${h.toFixed(1)}, 단위 끝 ${r.unitEdges[k]!.toFixed(1)}`).toBeLessThanOrEqual(1.5));
+  expect(await tnumWithoutFallback(page), '잔고: 고정폭 숫자 자리의 대체 글꼴').toEqual([]);
+  // 홈 보유 자산 표도 같은 방식(AmountText와 단위 칸)으로 수량을 쓴다: 열마다 숫자 오른쪽 끝이 1px 이내
+  await page.goto('/');
+  await page.locator('.card-holdings td.qty .amt-n').filter({ visible: true }).first().waitFor();
+  await page.waitForLoadState('networkidle');
+  const home = await page.evaluate(async () => {
+    await document.fonts.ready;
+    const rows = [...document.querySelectorAll('.card-holdings tbody tr')].filter((tr) => tr.getClientRects().length > 0).map((tr) => [...tr.querySelectorAll('td.qty .amt-n')].map((n) => n.getBoundingClientRect().right));
+    return [0, 1].map((k) => rows.map((row) => row[k]).filter((x): x is number => x !== undefined));
+  });
+  for (const col of home) {
+    expect(col.length).toBeGreaterThan(1);
+    expect(Math.max(...col) - Math.min(...col), '홈 보유 자산 수량 열').toBeLessThanOrEqual(1);
+  }
+  expect(await tnumWithoutFallback(page), '홈: 고정폭 숫자 자리의 대체 글꼴').toEqual([]);
   // 요청 목록·홈의 수량과 요청 번호
   await page.goto('/requests');
   await page.locator('.req-amt').first().waitFor();
   for (const s of ['.req-amt', '.ref']) expect(await page.locator(s).first().evaluate((e) => getComputedStyle(e).fontVariantNumeric), s).toContain('tabular-nums');
   expect(await page.locator('.ref').first().evaluate((e) => getComputedStyle(e).fontFeatureSettings)).toBe('"case"');
+  expect(await tnumWithoutFallback(page), '요청 목록: 고정폭 숫자 자리의 대체 글꼴').toEqual([]);
 });
 
 /** 모든 요소와 ::before·::after의 전환·애니메이션 */
@@ -283,45 +328,80 @@ test('CSS 규칙: @starting-style은 모두 움직임 허용(no-preference) 안�
   }
 });
 
-test.describe('글꼴이 늦게 와도 홈의 자리가 거의 그대로다(크기를 맞춘 대체 글꼴)', () => {
-  for (const vp of [{ width: 1440, height: 900 }, PHONE]) {
-    test(`${vp.width}px: 글꼴이 바뀔 때 페이지 높이 차 10px 이하, 자리 이동(CLS) 0.02 이하`, async ({ page }) => {
-      await page.setViewportSize(vp);
-      await loginAs(page, '한지수');
-      await expect(page.getByRole('heading', { name: '지금 처리할 일' }).first()).toBeVisible();
-      // 글꼴 파일을 붙잡아 두고 홈을 새로 연다(라우팅 중에는 HTTP 캐시를 쓰지 않는다)
-      let release!: () => void;
-      const gate = new Promise<void>((r) => { release = r; });
-      let held = 0;
-      await page.route(/\.woff2(\?.*)?$/, async (route) => { held += 1; await gate; await route.continue(); });
-      await page.goto('/');
-      await page.locator('.progress-item').first().waitFor();
-      await page.locator('.task').first().waitFor();
-      // 글꼴 요청이 붙잡혀 있어 networkidle을 쓸 수 없다. 늦게 오는 할 일 한 줄 목록까지 자리 잡을 시간을 둔다
-      await page.waitForTimeout(1500);
-      expect(held).toBeGreaterThan(0);
-      const fallback = await page.evaluate(() => [...document.fonts].filter((f) => f.family.replace(/["']/g, '') === 'Pretendard Fallback').map((f) => f.status));
-      test.skip(!fallback.includes('loaded'), '이 환경에는 맑은 고딕이 없어 크기를 맞춘 대체 글꼴(Pretendard Fallback)을 쓰지 않는다');
-      const before = await page.evaluate(() => {
-        const w = window as unknown as { __a4Shift: number };
-        w.__a4Shift = 0;
-        new PerformanceObserver((list) => { for (const e of list.getEntries() as (PerformanceEntry & { value: number; hadRecentInput: boolean })[]) if (!e.hadRecentInput) w.__a4Shift += e.value; }).observe({ type: 'layout-shift' });
-        return document.documentElement.scrollHeight;
+// 글꼴이 바뀔 때의 자리 이동 예산(A4 검토): 홈만 보던 것을 요청 목록·잔고·요청 상세(주소 띠·재입력·승인 버튼이 있는 화면)까지 넓혔다.
+// 고치기 전(A4 첫 판) 측정: 요청 목록 390px +32px, 잔고 1440px CLS 0.0206(글꼴 조각이 오는 중간에 설명이 두 줄이 되었다 돌아옴),
+// 요청 상세 1440px −25px·390px +21px. 지금은 모두 0~1px, CLS 0.0002 이하다.
+const SWAP: { user: string; path: string; ready: (page: Page) => Promise<void> }[] = [
+  { user: '한지수', path: '/', ready: async (page) => { await page.locator('.progress-item').first().waitFor(); await page.locator('.task').first().waitFor(); } },
+  { user: '한지수', path: '/requests', ready: async (page) => { await page.locator('.req-item').first().waitFor(); } },
+  { user: '한지수', path: '/balances', ready: async (page) => { await page.locator('.total-value').waitFor(); } },
+  { user: '오민재', path: '/requests/wr-4', ready: async (page) => { await page.locator('.rc-intent-value').waitFor(); } },
+];
+
+test.describe('글꼴이 늦게 와도 자리가 거의 그대로다(크기를 맞춘 대체 글꼴)', () => {
+  for (const s of SWAP) {
+    for (const vp of [{ width: 1440, height: 900 }, PHONE]) {
+      test(`${s.path} ${vp.width}px: 글꼴이 바뀔 때 페이지 높이 차 10px 이하, 자리 이동(CLS) 0.02 이하`, async ({ page }) => {
+        await page.setViewportSize(vp);
+        await loginAs(page, s.user);
+        await page.locator('#page-title').waitFor();
+        await page.waitForLoadState('networkidle');
+        // 글꼴 파일을 붙잡아 두고 화면을 새로 연다(라우팅 중에는 HTTP 캐시를 쓰지 않는다)
+        let release!: () => void;
+        const gate = new Promise<void>((r) => { release = r; });
+        let held = 0;
+        await page.route(/\.woff2(\?.*)?$/, async (route) => { held += 1; await gate; await route.continue(); });
+        await page.goto(s.path);
+        await page.locator('#page-title').waitFor();
+        await s.ready(page);
+        // 글꼴 요청이 붙잡혀 있어 networkidle을 쓸 수 없다. 늦게 오는 목록까지 자리 잡을 시간을 둔다
+        await page.waitForTimeout(1500);
+        expect(held).toBeGreaterThan(0);
+        const fallback = await page.evaluate(() => [...document.fonts].filter((f) => f.family.replace(/["']/g, '') === 'Pretendard Fallback').map((f) => f.status));
+        test.skip(!fallback.includes('loaded'), '이 환경에는 맑은 고딕이 없어 크기를 맞춘 대체 글꼴(Pretendard Fallback)을 쓰지 않는다');
+        const before = await page.evaluate(() => {
+          const w = window as unknown as { __a4Shift: number };
+          w.__a4Shift = 0;
+          new PerformanceObserver((list) => { for (const e of list.getEntries() as (PerformanceEntry & { value: number; hadRecentInput: boolean })[]) if (!e.hadRecentInput) w.__a4Shift += e.value; }).observe({ type: 'layout-shift' });
+          return document.documentElement.scrollHeight;
+        });
+        release();
+        await page.waitForLoadState('networkidle');
+        const after = await page.evaluate(async () => {
+          await document.fonts.ready;
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          const loaded = [...document.fonts].filter((f) => f.family.replace(/["']/g, '') === 'Pretendard Variable' && f.status === 'loaded').length;
+          return { height: document.documentElement.scrollHeight, shift: (window as unknown as { __a4Shift: number }).__a4Shift, loaded };
+        });
+        await page.unroute(/\.woff2(\?.*)?$/);
+        expect(after.loaded).toBeGreaterThan(0);
+        expect(Math.abs(after.height - before), `높이 ${before} → ${after.height}`).toBeLessThanOrEqual(10);
+        expect(after.shift, 'CLS').toBeLessThanOrEqual(0.02);
       });
-      release();
-      await page.waitForLoadState('networkidle');
-      const after = await page.evaluate(async () => {
-        await document.fonts.ready;
-        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-        const loaded = [...document.fonts].filter((f) => f.family.replace(/["']/g, '') === 'Pretendard Variable' && f.status === 'loaded').length;
-        return { height: document.documentElement.scrollHeight, shift: (window as unknown as { __a4Shift: number }).__a4Shift, loaded };
-      });
-      await page.unroute(/\.woff2(\?.*)?$/);
-      expect(after.loaded).toBeGreaterThan(0);
-      expect(Math.abs(after.height - before), `높이 ${before} → ${after.height}`).toBeLessThanOrEqual(10);
-      expect(after.shift).toBeLessThanOrEqual(0.02);
-    });
+    }
   }
+});
+
+// 400% 확대(1280px 화면의 320px)에서 가로 스크롤 없이 다시 배치된다(WCAG 1.4.10). A4 검토에서 지갑·인사이트가 12px 넘쳤다(8f2dcb5부터 있던 문제)
+test.describe('400% 확대(320px)에서 가로 스크롤이 없다', () => {
+  const REFLOW: [string, string][] = [
+    ['한지수', '/'], ['한지수', '/requests'], ['한지수', '/balances'], ['한지수', '/addresses'], ['한지수', '/addresses/new'], ['한지수', '/activity'],
+    ['한지수', '/wallets'], ['한지수', '/insights'], ['한지수', '/staking'], ['한지수', '/tokens'], ['한지수', '/org'], ['오민재', '/requests/wr-4'], ['문태호', '/audit'],
+  ];
+  test.use({ viewport: { width: 320, height: 640 } });
+  test('주요 화면 13개', async ({ page }) => {
+    const over: string[] = [];
+    let user = '';
+    for (const [who, path] of REFLOW) {
+      if (who !== user) { await page.context().clearCookies(); await loginAs(page, who); user = who; }
+      await page.goto(path);
+      await page.locator('#page-title').waitFor();
+      await page.waitForLoadState('networkidle');
+      const d = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      if (d > 0) over.push(`${path} +${d}px`);
+    }
+    expect(over).toEqual([]);
+  });
 });
 
 test.describe('접근성 자동 검사(A4 화면, WCAG 2.2 AA 규칙 포함)', () => {

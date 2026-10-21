@@ -36,9 +36,9 @@ export function BalancesPage() {
                   <tr key={a.assetCode + w.walletId} className={i === 0 ? 'group-start' : ''}>
                     {i === 0 && <th scope="rowgroup" rowSpan={a.byWallet.length}><span className="asset-code">{a.assetCode}</span><div className="muted small">{a.name}</div></th>}
                     <td>{w.walletName}<div className="muted small">{w.networkName}</div></td>
-                    <td className="num"><AmountText text={amount(w.total, a.assetCode)} /></td>
-                    <td className={`num ${w.reserved === '0' ? 'muted' : ''}`}><AmountText text={amount(w.reserved, a.assetCode)} /></td>
-                    <td className="num strong"><AmountText text={amount(w.available, a.assetCode)} /></td>
+                    <td className="num qty"><AmountText text={amount(w.total, a.assetCode)} /></td>
+                    <td className={`num qty ${w.reserved === '0' ? 'muted' : ''}`}><AmountText text={amount(w.reserved, a.assetCode)} /></td>
+                    <td className="num qty strong"><AmountText text={amount(w.available, a.assetCode)} /></td>
                     {i === 0 && <td className="num" rowSpan={a.byWallet.length}>{krw(a.krwPrice)}</td>}
                     {i === 0 && <td className="num" rowSpan={a.byWallet.length}>{krwShort(a.krwValue)}<div className="muted small">{krw(a.krwValue)}</div></td>}
                   </tr>
@@ -66,9 +66,9 @@ export function BalancesPage() {
                     {a.byWallet.map((w: any) => (
                       <tr key={w.walletId}>
                         <th scope="row">{w.walletName}<div className="muted small">{w.networkName}</div></th>
-                        <td className="num" data-label="보유 수량">{amount(w.total, a.assetCode)}</td>
-                        <td className="num strong" data-label="사용 가능">{amount(w.available, a.assetCode)}</td>
-                        <td className={`num ${w.reserved === '0' ? 'muted' : ''}`} data-label="묶인 수량(예약)">{amount(w.reserved, a.assetCode)}</td>
+                        <td className="num qty" data-label="보유 수량"><AmountText text={amount(w.total, a.assetCode)} /></td>
+                        <td className="num qty strong" data-label="사용 가능"><AmountText text={amount(w.available, a.assetCode)} /></td>
+                        <td className={`num qty ${w.reserved === '0' ? 'muted' : ''}`} data-label="묶인 수량(예약)"><AmountText text={amount(w.reserved, a.assetCode)} /></td>
                       </tr>
                     ))}
                   </tbody>

@@ -24,6 +24,8 @@
   /* 글꼴(A4, fonts.css): 본문 Pretendard. 웹 글꼴이 오기 전에는 크기를 맞춘 맑은 고딕('Pretendard Fallback')이 자리를 지킨다 */
   --font: 'Pretendard Variable', Pretendard, 'Pretendard Fallback', 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
   /* 식별자(주소·지문·해시·재입력 칸) 전용 고정폭: Adobe Source Code Pro 원본. 오기 전에는 폭을 맞춘 Consolas. 한글은 Pretendard로 넘어간다 */
+  /* 고정폭 숫자 자리(아래 :where 묶음)의 스택: 글꼴이 오기 전 숫자만 Pretendard 고정폭 숫자 폭에 맞춘 'Pretendard Fallback Tnum'으로 그린다(fonts.css). 글꼴이 온 뒤에는 --font와 같다 */
+  --font-tnum: 'Pretendard Variable', Pretendard, 'Pretendard Fallback Tnum', 'Pretendard Fallback', 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
   --mono: 'Source Code Pro Variable', 'Source Code Pro Fallback', D2Coding, ui-monospace, 'SFMono-Regular', Menlo, 'Pretendard Variable', monospace;
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
   /* 글자 크기·행간(A4): 8단계, 행간은 4px 격자. 글자 크기를 정하는 곳에는 짝이 되는 행간도 함께 정한다(DESIGN.md '서체') */
@@ -90,6 +92,8 @@ hr { border: 0; border-top: 1px solid var(--line); margin: var(--s4) 0; }
    Pretendard의 ss01·ss02·ss06·zero는 숫자 6·9·4·0의 폭을 바꿔 열 정렬을 깨므로 숫자가 들어가는 선택자에 쓰지 않는다(DESIGN.md '서체').
    'case'(하이픈을 대문자 높이로)는 영문 대문자 식별자(.ref, .asset-code)에만 쓴다. */
 .num, .tnum, .ref, .table td, .table th, .dl dd, .stamp, time, .timeline, .pager-info, .pager-page, .result-count, .badge, .nav-badge, .tab-count, .task-count, .task-sub, .turn-text, .total-value, .total-exact, .big-amount, .req-amt, .req-meta, .progress-amt, .progress-meta, .bal-value, .bal-price, .bal-blocks, .alloc-legend, .rc-summary, .rc-decide-summary, .rc-waiting-when, .lc-when, .lc-left, .lc-list-when, .evidence, .pe-meta, .pe-counter, .amount-preview, input[inputmode='decimal'], input[inputmode='numeric'] { font-variant-numeric: tabular-nums; }
+/* 위와 같은 목록(입력 칸 제외). 글꼴이 오기 전의 숫자 폭만 맞춘다. :where로 우선순위를 0으로 두어 .mono(식별자)·.btn(font: inherit)이 늘 이긴다. 목록을 바꾸면 둘 다 바꾼다(e2e a4 숫자 검사가 맞는지 본다) */
+:where(.num, .tnum, .ref, .table td, .table th, .dl dd, .stamp, time, .timeline, .pager-info, .pager-page, .result-count, .badge, .nav-badge, .tab-count, .task-count, .task-sub, .turn-text, .total-value, .total-exact, .big-amount, .req-amt, .req-meta, .progress-amt, .progress-meta, .bal-value, .bal-price, .bal-blocks, .alloc-legend, .rc-summary, .rc-decide-summary, .rc-waiting-when, .lc-when, .lc-left, .lc-list-when, .evidence, .pe-meta, .pe-counter, .amount-preview) { font-family: var(--font-tnum); }
 .ref, .asset-code { font-feature-settings: 'case' 1; }
 /* 식별자(주소·지문·해시)는 합자 없이 한 글자씩 */
 .mono, .addr-code, .cmp-code, .rc-intent-value, .rc-intent-inline, .pe-sha { font-variant-ligatures: none; }
@@ -97,10 +101,16 @@ hr { border: 0; border-top: 1px solid var(--line); margin: var(--s4) 0; }
 .total-value .amt-u { font-size: var(--fs-xl); font-weight: 600; color: var(--ink-2); letter-spacing: 0; }
 .big-amount .amt-u { font-size: var(--fs-base); font-weight: 600; color: var(--ink-2); letter-spacing: 0; }
 .bal-value .amt-u, .req-amt .amt-u { font-size: var(--fs-md); font-weight: 600; color: var(--ink-2); }
-/* 잔고 넓은 표: 단위 칸 폭을 맞춰 단위(BTC·ETH·USDC)가 달라도 숫자 오른쪽 끝이 한 줄로 선다. 숫자를 채워 소수점을 맞추지는 않는다(값이 달라 보이므로) */
-.bal-wide td.num .amt-u { display: inline-block; min-width: 3.25em; text-align: left; }
-.table-stack .amt-u { min-width: 0; }
+/* 표의 수량 칸(.qty: 잔고 넓은 표·홈 보유 자산 표): 단위 칸 폭을 가장 긴 단위(USDC, 굵은 꼴 2.76em)에 맞춰 단위가 달라도 숫자 오른쪽 끝이 한 줄로 서고,
+   가장 긴 단위의 오른쪽 끝이 오른쪽 정렬한 머리글 끝과 만난다(A4 검토: 3.25em일 때는 8~20px 모자랐다). 짧은 단위(BTC)는 숫자 바로 뒤에 붙어 왼쪽 정렬이다.
+   표 안의 단위는 칸 글자(14px)보다 작게 하지 않는다. 숫자를 채워 소수점을 맞추지는 않는다(값이 달라 보이므로). 평가액 칸('약 21.7억 원')은 단위가 모든 행에서 같아 나누지 않는다 */
+.table td.qty .amt-u { display: inline-block; min-width: 2.76em; text-align: left; }
 .rc-decide-amt { font-weight: 700; }
+/* 공개 데모 띠의 행간(A4 검토): 본문 행간이 24px(절대값)이 되며 글자 크기만 정한 띠가 13/24로 4px 높아졌다. 띠의 다른 규칙은 feat/a5-quiet-demo가 바꾸므로 건드리지 않고 행간 짝만 여기서 맞춘다(A4 전 13×1.55 ≈ 20px) */
+.env-ribbon { line-height: var(--lh-sm); }
+@media (max-width: 560px) { .env-ribbon { line-height: var(--lh-xs); } }
+/* 재입력 칸(주소 끝자리·가운데 8자리)과 주소 입력 칸도 식별자 자간(+0.03em). 지문·해시와 같다 */
+input.mono, textarea.mono { letter-spacing: var(--ls-code); }
 
 /* 셸 */
 .shell { background: linear-gradient(to right, var(--surface) 231px, var(--line) 231px, var(--line) 232px, var(--paper) 232px); display: grid; grid-template-columns: 232px 1fr; grid-template-rows: auto 56px 1fr; grid-template-areas: 'ribbon ribbon' 'top top' 'nav main'; min-height: 100vh; }
@@ -142,7 +152,9 @@ hr { border: 0; border-top: 1px solid var(--line); margin: var(--s4) 0; }
 /* 띄어쓰기 없는 긴 이름(keep-all에서는 한 단어)도 화면 안에서 줄을 바꾼다: 제목 칸이 줄어들 수 있게 하고, 제목·설명은 글자 단위로 끊는다 */
 .page-header > div { min-width: 0; }
 .page-header h1, .page-desc { overflow-wrap: anywhere; }
-.page-desc { margin: var(--s1) 0 0; color: var(--ink-2); max-width: 72ch; text-wrap: pretty; }
+/* 글 폭 상한은 em으로 둔다(A4 검토). ch는 '0'의 폭이라 Pretendard 조각 파일이 오는 순서에 따라 0.5em(숫자 없는 조각만 왔을 때)·0.583em(대체 글꼴)·0.596em(Pretendard)으로
+   바뀌어, 글꼴이 다 오기 전 잠깐 설명이 두 줄이 되었다 돌아오며 화면 전체가 밀렸다. 42.9em은 Pretendard의 72ch와 같은 폭(15px에서 643px)이다 */
+.page-desc { margin: var(--s1) 0 0; color: var(--ink-2); max-width: 42.9em; text-wrap: pretty; }
 .page-actions { display: flex; gap: var(--s2); }
 .eyebrow { font-size: var(--fs-md); line-height: var(--lh-md); margin-bottom: var(--s1); }
 .eyebrow a { text-decoration: none; }
@@ -249,7 +261,7 @@ input[type='checkbox'] { width: 18px; height: 18px; min-height: 0; accent-color:
 .progress-top { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 .progress-amt { margin-left: auto; font-weight: 700; }
 /* 요청 번호(WR-000012)는 안전 대조용 식별자가 아니라 Pretendard 고정폭 숫자로 쓴다(A4). 그래서 홈·요청 목록은 고정폭 글꼴 파일을 받지 않는다 */
-.ref { font-family: var(--font); font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: 500; color: var(--ink-2); white-space: nowrap; flex: none; }
+.ref { font-family: var(--font-tnum); font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: 500; color: var(--ink-2); white-space: nowrap; flex: none; }
 .recent-list li { display: grid; grid-template-columns: 88px minmax(0, 1fr) auto auto; gap: var(--s1) var(--s3); align-items: center; padding: var(--s2) 0; border-bottom: 1px solid var(--line); }
 .recent-list li:last-child { border-bottom: 0; }
 .recent-list li > .muted { grid-column: 2 / -1; }
@@ -457,7 +469,8 @@ body:has(dialog[open]) { overflow: hidden; }
 /* 지갑·인사이트 */
 .wallet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: var(--s4); }
 .disclosure { background: var(--surface); border: 1px solid var(--line-strong); border-left: 4px solid var(--ink-2); border-radius: var(--radius-sm); padding: var(--s3) var(--s4); font-size: var(--fs-base); line-height: var(--lh-base); }
-.insight-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--s3); }
+/* 칸 최소 폭은 화면 폭을 넘지 않는다(min(320px, 100%)): 320px(400% 확대)에서 가로 스크롤이 생기지 않게(WCAG 1.4.10, A4 검토) */
+.insight-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: var(--s3); }
 .insight { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s4); display: flex; flex-direction: column; gap: var(--s2); }
 .insight-meta { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s3); align-items: center; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-2); }
 .insight-provider { font-weight: 700; color: var(--ink); }
@@ -470,7 +483,7 @@ body:has(dialog[open]) { overflow: hidden; }
 .audit-export-hint { margin: calc(-1 * var(--s2)) 0 var(--s2); }
 .audit-integrity { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; }
 .audit-scope { display: flex; flex-direction: column; gap: 2px; color: var(--ink-2); margin-top: calc(-1 * var(--s2)); }
-.audit-scope p { margin: 0; max-width: 90ch; }
+.audit-scope p { margin: 0; max-width: 53.6em; } /* Pretendard의 90ch와 같은 폭(13px에서 697px). ch를 쓰지 않는 이유는 .page-desc */
 .audit-anchor .mono { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink); }
 
 /* 로그인 */
@@ -536,7 +549,7 @@ body:has(dialog[open]) { overflow: hidden; }
   .org-name { padding-left: var(--s2); font-size: 14px; }
   .dl { grid-template-columns: minmax(0, 1fr); gap: 2px; } /* 1fr(=minmax(auto, 1fr))이면 긴 값이 열을 화면 밖으로 민다 */
   .dl dd { margin-bottom: var(--s2); }
-  .wallet-grid { grid-template-columns: 1fr; }
+  .wallet-grid { grid-template-columns: minmax(0, 1fr); } /* 1fr이면 지갑 표의 최소 폭만큼 카드가 화면 밖으로 밀린다(320px, A4 검토) */
 }
 @media (max-width: 560px) {
   :root { --fs-metric: 28px; --lh-metric: 36px; }
@@ -569,6 +582,9 @@ body:has(dialog[open]) { overflow: hidden; }
   .table-stack td::before { content: attr(data-label); display: block; font-size: var(--fs-xs); line-height: var(--lh-xs); letter-spacing: var(--ls-caption); color: var(--ink-3); font-weight: 600; }
   .table-stack td:not([data-label])::before { content: none; }
   .table-stack td.num { text-align: left; white-space: normal; }
+  .table-stack td.qty .amt-u { min-width: 0; } /* 쌓인 카드는 왼쪽 정렬이라 단위 칸이 필요 없다 */
+  /* 지갑 카드의 작은 잔고 표: 칸이 모자랄 때만(320px, 400% 확대) 수량과 단위 사이에서 줄을 바꾼다. 390px에서는 지금처럼 한 줄이다 */
+  .wallet .table td.num { white-space: normal; }
   .table-stack tbody tr:last-child { border-bottom: 0; }
   .table-stack tbody tr:hover { background: #fafcfb; }
   .table-stack .stack-full { grid-column: 1 / -1; }
@@ -637,7 +653,9 @@ body:has(dialog[open]) { overflow: hidden; }
    불러오는 중 표시(.spinner)도 멈춘 고리로 바로 보인다. 포커스 링은 원래 전환하지 않는다 */
 @media (prefers-reduced-motion: reduce) {
   :root { --dur-fast-01: 0ms; --dur-fast-02: 0ms; --dur-moderate-01: 0ms; --dur-moderate-02: 0ms; --motion-rise: 0px; }
-  *, *::before, *::after, ::backdrop { animation: none !important; transition: none !important; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  /* ::backdrop은 따로 둔다: 이 의사 요소를 모르는 브라우저(Safari 15.4 전)가 선택자 목록 전체(위의 * 포함)를 버리지 않게 */
+  ::backdrop { animation: none !important; transition: none !important; }
 }
 /* 화면 전환 의사 요소는 따로 둔다(지원하지 않는 브라우저가 위 선택자 목록 전체를 버리지 않게). 지금은 화면 전환을 쓰지 않는다 */
 @media (prefers-reduced-motion: reduce) {

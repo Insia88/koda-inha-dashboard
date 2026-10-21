@@ -8,6 +8,7 @@
      폭(size-adjust)은 이 PC(Windows 11)의 Chromium에서 Pretendard와 맑은 고딕의 글자 폭을 100px로 재어 나눈 값이고,
      높이(ascent·descent-override)는 크기를 바꾼 뒤에도 Pretendard와 같은 0.952em·0.241em이 되도록 그 값으로 나눴다.
      글자 종류마다 비율이 달라(한글 86%, 숫자 106%) unicode-range로 나눈다. 나중에 적은 면이 그 범위에서 먼저 쓰인다.
+     고정폭 숫자(tabular-nums) 자리는 숫자 폭이 달라 'Pretendard Fallback Tnum'을 따로 둔다(아래).
      Apple SD Gothic Neo는 아직 재지 않아 그대로 둔다. Safari는 size-adjust만 쓰고 높이 값은 무시한다. */
 
 @font-face {
@@ -19,24 +20,53 @@
   unicode-range: U+0020-007E, U+00A0-00FF, U+2010-2027, U+2212;
 }
 
-/* (a) 라틴 글자와 나머지 문장 부호(기본). 식별자·단위가 대문자라 대문자에 맞춘다 */
-@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; font-style: normal; size-adjust: 102.5%; ascent-override: 92.9%; descent-override: 23.5%; line-gap-override: 0%; }
-@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; font-style: normal; size-adjust: 101.6%; ascent-override: 93.7%; descent-override: 23.7%; line-gap-override: 0%; }
-/* (b) 숫자: 맑은 고딕 숫자가 좁다(0.551em, Pretendard 0.583em) */
-@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; font-style: normal; unicode-range: U+0030-0039; size-adjust: 105.9%; ascent-override: 89.9%; descent-override: 22.8%; line-gap-override: 0%; }
-@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; font-style: normal; unicode-range: U+0030-0039; size-adjust: 106.2%; ascent-override: 89.6%; descent-override: 22.7%; line-gap-override: 0%; }
-/* (c) 마침표·쉼표·쌍점·가운뎃점·괄호: 맑은 고딕이 좁다 */
-@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; font-style: normal; unicode-range: U+0028-0029, U+002C, U+002E, U+003A, U+005B, U+005D, U+00B7; size-adjust: 114%; ascent-override: 83.5%; descent-override: 21.1%; line-gap-override: 0%; }
-@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; font-style: normal; unicode-range: U+0028-0029, U+002C, U+002E, U+003A, U+005B, U+005D, U+00B7; size-adjust: 108.5%; ascent-override: 87.7%; descent-override: 22.2%; line-gap-override: 0%; }
-/* (d) 줄표(–, —): 맑은 고딕이 넓다 */
-@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; font-style: normal; unicode-range: U+2013-2014; size-adjust: 92.5%; ascent-override: 102.9%; descent-override: 26.1%; line-gap-override: 0%; }
-@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; font-style: normal; unicode-range: U+2013-2014; size-adjust: 93.8%; ascent-override: 101.5%; descent-override: 25.7%; line-gap-override: 0%; }
-/* (e) 한글: 맑은 고딕 한글이 넓다(1.000em, Pretendard 평균 0.864em) */
-@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; font-style: normal; unicode-range: U+1100-11FF, U+3130-318F, U+AC00-D7A3; size-adjust: 86.4%; ascent-override: 110.2%; descent-override: 27.9%; line-gap-override: 0%; }
-@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; font-style: normal; unicode-range: U+1100-11FF, U+3130-318F, U+AC00-D7A3; size-adjust: 86.4%; ascent-override: 110.2%; descent-override: 27.9%; line-gap-override: 0%; }
+/* (a) 라틴 글자와 나머지 문장 부호(기본). 라틴 글자는 맑은 고딕과의 폭 비율이 글자마다 0.89~1.15배로 달라 셋으로 나눈다(A4 검토).
+   기본 면은 비율이 1에 가까운 글자(A G H R U V X Z a b d e h k r t %)와 그 밖의 문장 부호다. 한 비율(102.5%)로 두었을 때는 'BTC'가 10% 좁았다 */
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; size-adjust: 100.3%; ascent-override: 94.9%; descent-override: 24%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; size-adjust: 100.8%; ascent-override: 94.5%; descent-override: 23.9%; line-gap-override: 0%; }
+/* (a2) 맑은 고딕이 좁은 라틴 글자(B C E F J K L P S T Y c f s v w x y z): 자산 코드 BTC·ETH·USDC·KST에 많다 */
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; unicode-range: U+0042-0043, U+0045-0046, U+004A-004C, U+0050, U+0053-0054, U+0059, U+0063, U+0066, U+0073, U+0076-007A; size-adjust: 109.7%; ascent-override: 86.8%; descent-override: 22%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; unicode-range: U+0042-0043, U+0045-0046, U+004A-004C, U+0050, U+0053-0054, U+0059, U+0063, U+0066, U+0073, U+0076-007A; size-adjust: 107.6%; ascent-override: 88.5%; descent-override: 22.4%; line-gap-override: 0%; }
+/* (a3) 맑은 고딕이 넓은 라틴 글자(D I M N O Q W g i j l m n o p q u) */
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; unicode-range: U+0044, U+0049, U+004D-004F, U+0051, U+0057, U+0067, U+0069-006A, U+006C-0071, U+0075; size-adjust: 93.7%; ascent-override: 101.6%; descent-override: 25.7%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; unicode-range: U+0044, U+0049, U+004D-004F, U+0051, U+0057, U+0067, U+0069-006A, U+006C-0071, U+0075; size-adjust: 94.7%; ascent-override: 100.5%; descent-override: 25.4%; line-gap-override: 0%; }
+/* (b) 숫자와 하이픈(-): 맑은 고딕 숫자는 모두 한 폭(0.551em, 굵은 꼴 0.580em)이고 Pretendard 비례 숫자는 숫자마다 다르다(1 0.438 · 7 0.552 · 4 0.624em).
+   한 비율로 두면 문장 속 '1명'의 1이 33% 넓고 '3건'의 3이 6% 좁아 줄 끝이 바뀌므로 폭이 가까운 숫자끼리 넷으로 묶는다(A4 검토). 고정폭 숫자 자리는 아래 'Pretendard Fallback Tnum' */
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; unicode-range: U+0031; size-adjust: 79.6%; ascent-override: 119.6%; descent-override: 30.3%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; unicode-range: U+0031; size-adjust: 80.9%; ascent-override: 117.7%; descent-override: 29.8%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; unicode-range: U+0032, U+0037; size-adjust: 103.4%; ascent-override: 92.1%; descent-override: 23.3%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; unicode-range: U+0032, U+0037; size-adjust: 102.4%; ascent-override: 93%; descent-override: 23.5%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; unicode-range: U+002D, U+0030, U+0035, U+0038; size-adjust: 108.9%; ascent-override: 87.5%; descent-override: 22.1%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; unicode-range: U+002D, U+0030, U+0035, U+0038; size-adjust: 111%; ascent-override: 85.8%; descent-override: 21.7%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; unicode-range: U+0033-0034, U+0036, U+0039; size-adjust: 112%; ascent-override: 85%; descent-override: 21.5%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; unicode-range: U+0033-0034, U+0036, U+0039; size-adjust: 111.4%; ascent-override: 85.5%; descent-override: 21.6%; line-gap-override: 0%; }
+/* (c) 마침표·쉼표·쌍점·가운뎃점: 맑은 고딕이 좁다(0.219em, Pretendard 0.254em·굵은 꼴 0.262 → 0.282em) */
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; unicode-range: U+002C, U+002E, U+003A, U+00B7; size-adjust: 116%; ascent-override: 82.1%; descent-override: 20.8%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; unicode-range: U+002C, U+002E, U+003A, U+00B7; size-adjust: 107.8%; ascent-override: 88.3%; descent-override: 22.4%; line-gap-override: 0%; }
+/* (c2) 괄호: 맑은 고딕 0.305em(굵은 꼴 0.358em), Pretendard 0.341em(0.390em). 마침표와 한 비율로 묶으면 괄호가 넓어져 따로 둔다(A4 검토) */
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; unicode-range: U+0028-0029, U+005B, U+005D; size-adjust: 111.8%; ascent-override: 85.2%; descent-override: 21.6%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; unicode-range: U+0028-0029, U+005B, U+005D; size-adjust: 109%; ascent-override: 87.3%; descent-override: 22.1%; line-gap-override: 0%; }
+/* (d) 줄표(–, —)와 +·~·×: 맑은 고딕이 넓다(+ 0.701em, Pretendard 0.627em. 라틴 비율로 두면 15% 넓다, A4 검토) */
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; unicode-range: U+002B, U+007E, U+00D7, U+2013-2014; size-adjust: 92.5%; ascent-override: 102.9%; descent-override: 26.1%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; unicode-range: U+002B, U+007E, U+00D7, U+2013-2014; size-adjust: 93.8%; ascent-override: 101.5%; descent-override: 25.7%; line-gap-override: 0%; }
+/* (g) 화살표(←↑→↓): 맑은 고딕 0.950em(굵은 꼴 1.000em), Pretendard 0.913em(0.921em). 요청 목록 '강도윤 → 운영비 정산' 줄에 있다(A4 검토) */
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; unicode-range: U+2190-2193; size-adjust: 96.1%; ascent-override: 99.1%; descent-override: 25.1%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; unicode-range: U+2190-2193; size-adjust: 92.1%; ascent-override: 103.4%; descent-override: 26.2%; line-gap-override: 0%; }
+/* (e) 한글과 빗금(/): 맑은 고딕 한글이 넓다(1.000em, Pretendard는 모든 음절이 0.8643em). 86.4%로는 25자 줄에서 0.2px 좁아 줄 끝이 아슬아슬한 문단이 바뀌어 86.43%로 맞춘다.
+   빗금도 맑은 고딕이 넓어(0.396em, Pretendard 0.334em) 비율이 가까운 이 면에 둔다(A4 검토) */
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; unicode-range: U+002F, U+1100-11FF, U+3130-318F, U+AC00-D7A3; size-adjust: 86.43%; ascent-override: 110.1%; descent-override: 27.9%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; unicode-range: U+002F, U+1100-11FF, U+3130-318F, U+AC00-D7A3; size-adjust: 86.43%; ascent-override: 110.1%; descent-override: 27.9%; line-gap-override: 0%; }
 /* (f) 띄어쓰기: 맑은 고딕 0.352em, Pretendard 0.251em(굵은 꼴 0.231em) */
-@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; font-style: normal; unicode-range: U+0020; size-adjust: 71.4%; ascent-override: 133.3%; descent-override: 33.8%; line-gap-override: 0%; }
-@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; font-style: normal; unicode-range: U+0020; size-adjust: 65.7%; ascent-override: 144.9%; descent-override: 36.7%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; unicode-range: U+0020; size-adjust: 71.4%; ascent-override: 133.3%; descent-override: 33.8%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; unicode-range: U+0020; size-adjust: 65.7%; ascent-override: 144.9%; descent-override: 36.7%; line-gap-override: 0%; }
+
+/* 고정폭 숫자 자리(A4 검토): Pretendard의 tabular-nums 숫자는 비례 숫자보다 넓고(400에서 0.614em, 비례 평균 0.583em) 굵기마다 다르다(500 0.628·600 0.641·700 0.655em).
+   맑은 고딕 숫자는 한 폭(0.551em, 굵은 꼴 0.580em)이라 위 (b)로는 표·시각·건수 숫자가 글꼴이 오기 전 5% 좁아, 390px 요청 목록의 시각이 글꼴이 오면 다음 줄로 내려갔다.
+   숫자만 덮는 별도 이름으로 네 굵기를 두고, 고정폭 숫자를 쓰는 자리(styles.css의 --font-tnum)만 이 이름을 스택에 넣는다. 숫자가 아닌 글자는 이 이름에 면이 없어 'Pretendard Fallback'으로 넘어간다 */
+@font-face { font-family: 'Pretendard Fallback Tnum'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 400; unicode-range: U+0030-0039; size-adjust: 111.53%; ascent-override: 85.4%; descent-override: 21.6%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback Tnum'; src: local('Malgun Gothic'), local('MalgunGothic'); font-weight: 500; unicode-range: U+0030-0039; size-adjust: 114%; ascent-override: 83.5%; descent-override: 21.1%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback Tnum'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 600; unicode-range: U+0030-0039; size-adjust: 110.61%; ascent-override: 86.1%; descent-override: 21.8%; line-gap-override: 0%; }
+@font-face { font-family: 'Pretendard Fallback Tnum'; src: local('Malgun Gothic Bold'), local('MalgunGothicBold'); font-weight: 700; unicode-range: U+0030-0039; size-adjust: 112.97%; ascent-override: 84.3%; descent-override: 21.3%; line-gap-override: 0%; }
 
 /* 고정폭: Consolas 글자 폭(0.550em)을 Source Code Pro(0.600em)에 맞춰, 글꼴이 바뀌어도 주소 띠가 다시 줄을 바꾸지 않게 한다 */
 @font-face {
