@@ -205,6 +205,7 @@ export function LoginPage() {
       <main className="login-card">
         <img src="/koda-logo.svg" alt="KODA" width={140} height={31} />
         <h1 id="page-title" tabIndex={-1}>법인 대시보드 로그인</h1>
+        <a className="login-site-link" href="/site">KODA 브랜드 사이트 둘러보기 <span aria-hidden="true">→</span></a>
         {/* 실행 형태를 확인한 뒤 한 번만 그린다(공개 데모에서 개발 환경 문구가 잠깐 보였다 사라지지 않게).
             공개 데모는 안내 상자 없이 화면 맨 아래 한 줄(DemoFooter)만 둔다(A5, DEC-004). 로컬 실행의 개발용 로그인 안내는 그대로다. */}
         {!health.isPending && !isDemo && (

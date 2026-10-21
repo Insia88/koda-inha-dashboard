@@ -4,6 +4,7 @@ import { Layout } from './components/Layout.tsx';
 import { Loading, Forbidden, useDocumentTitle } from './components/ui.tsx';
 import { SoloScreen } from './components/DemoFooter.tsx';
 import { LoginPage } from './pages/Login.tsx';
+import { SitePage } from './pages/Site.tsx';
 import { HomePage } from './pages/Home.tsx';
 import { BalancesPage } from './pages/Balances.tsx';
 import { ActivityPage } from './pages/Activity.tsx';
@@ -63,6 +64,7 @@ const g = (perm: string, el: React.ReactNode) => <Guard perm={perm}>{el}</Guard>
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage />, errorElement: <RouteError /> },
+  { path: '/site', element: <SitePage />, errorElement: <RouteError /> },
   {
     element: <AuthGate fallback={<SoloScreen><Loading label="로그인 상태 확인 중" /></SoloScreen>}><Outlet /></AuthGate>,
     errorElement: <RouteError />,

@@ -728,3 +728,7 @@ body:has(dialog[open]) { overflow: hidden; }
   .mobile-account { display: flex; flex: 1 0 100%; order: 10; align-items: baseline; gap: var(--s2); padding: 2px 0 8px; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink); }
   .mobile-account-role { color: var(--ink-2); }
 }
+
+/* A8: 로그인 화면에서 공개 브랜드 사이트로 가는 길. */
+.login-site-link { display: inline-flex; align-items: center; gap: 4px; margin-top: -4px; font-size: var(--fs-sm); font-weight: 600; color: var(--action); text-decoration: none; }
+.login-site-link:hover { text-decoration: underline; text-underline-offset: 3px; }

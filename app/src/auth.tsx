@@ -56,14 +56,17 @@ export function AuthGate({ children, fallback }: { children: ReactNode; fallback
       // 작성 중인 화면이 있으면 화면을 떠나지 않고 같은 계정으로 다시 로그인하게 한다(입력은 메모리에만 유지).
       if (hasDirtyForms() && q.data) { setReauth((p) => p ?? { busy: false, error: null }); return; }
       qc.clear();
-      nav(`/login?next=${encodeURIComponent(loc.pathname + loc.search)}&reason=expired`, { replace: true });
+      // 첫 화면(/)의 비로그인 방문은 공개 사이트로 보낸다. 대시보드 안에서 만료된 경우는 기존처럼 로그인으로 보낸다.
+      if (loc.pathname === '/') nav('/site', { replace: true });
+      else nav(`/login?next=${encodeURIComponent(loc.pathname + loc.search)}&reason=expired`, { replace: true });
     };
     window.addEventListener('koda:unauthenticated', onUnauth);
     return () => window.removeEventListener('koda:unauthenticated', onUnauth);
   }, [nav, loc, qc, q.data]);
   useEffect(() => {
     if (q.error instanceof ApiError && q.error.status === 401) {
-      nav(`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`, { replace: true });
+      if (loc.pathname === '/') nav('/site', { replace: true });
+      else nav(`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`, { replace: true });
     }
   }, [q.error, nav, loc]);
   if (q.isPending) return <>{fallback}</>;
