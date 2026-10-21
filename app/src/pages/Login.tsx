@@ -37,7 +37,8 @@ export function LoginPage() {
 
   return (
     <div className="login">
-      <div className="login-card">
+      {/* 로그인 카드가 이 화면의 본문(main 랜드마크)이다. 공개 데모의 맨 아래 한 줄(contentinfo)은 그 밖의 형제로 둔다(A5 검토). */}
+      <main className="login-card">
         <img src="/koda-logo.svg" alt="KODA" width={140} height={31} />
         <h1 id="page-title" tabIndex={-1}>법인 대시보드 로그인</h1>
         {/* 실행 형태를 확인한 뒤 한 번만 그린다(공개 데모에서 개발 환경 문구가 잠깐 보였다 사라지지 않게).
@@ -68,7 +69,7 @@ export function LoginPage() {
             </ul>
           </section>
         ))}
-      </div>
+      </main>
       {/* 공개 데모: 화면 맨 아래 작은 한 줄(A5). 로컬 로그인 화면에는 없다(위 '개발용 로그인입니다' 안내를 쓴다). */}
       {isDemo && <DemoFooter />}
     </div>

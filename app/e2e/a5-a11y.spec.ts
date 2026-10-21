@@ -3,9 +3,10 @@ import AxeBuilder from '@axe-core/playwright';
 import { loginAs } from './helpers.ts';
 
 // A5 공개 데모 고지 축소(DEC-004, 저장소 소유자 결정 2026-10-21): 공개 데모는 상단 띠와 로그인 화면의 '공개 데모입니다' 안내 상자 없이
-// 모든 화면(로그인 포함) 맨 아래에 작은 한 줄 '모의 데이터 · KODA 공식 서비스 아님'만 보인다.
+// 로그인 화면·앱 화면과, 실행 형태를 이미 아는 셸 밖 단독 화면(로그인 상태 확인 중·오류 대체 화면) 맨 아래에 작은 한 줄 '모의 데이터 · KODA 공식 서비스 아님'만 보인다.
 // 로컬 E2E 서버는 로컬 모드라, 화면이 실행 형태를 읽는 두 응답(/api/healthz의 mode, /api/me의 environment.mode)만 'public-demo'로 바꿔 그린다.
 // 서버 동작(한도·세션·noindex·기동 조건)은 바꾸지 않는다. 배포 확인(E2E_BASE_URL)에서 서버가 이미 공개 데모이면 응답을 바꾸지 않고 그대로 검사한다.
+// 예외: 단독 화면 검사는 그 화면을 거치게 하려고 브라우저 안에서만 /api/me를 늦추거나(로그인 상태 확인 중) 500으로 바꾼다(오류 화면). 서버 데이터는 그대로다.
 // 로컬 실행의 상단 환경 띠·'개발용 로그인입니다' 안내가 그대로인지도 확인한다(DESIGN.md '고지·환경 표시': 운영 연동 전에는 없애지 않음).
 // 이 파일은 데이터를 바꾸지 않는다(로그인과 조회만).
 
@@ -15,6 +16,9 @@ const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 const OLD_DEMO_NOTICE = /공개 데모입니다|공개 데모 ·|KODA 공식 서비스가 아니며|데이터가 초기화됩니다|데이터 생성 \d/;
 
 const isPublicDemoServer = async (page: Page) => (await (await page.request.get('/api/healthz')).json()).mode === 'public-demo';
+
+/** 응답 머리글을 route.fulfill에 다시 쓸 수 있게 고른다(길이·압축 머리글은 뺀다). */
+const passHeaders = (h: Record<string, string>) => Object.fromEntries(Object.entries(h).filter(([k]) => !/^(content-length|content-encoding|transfer-encoding)$/i.test(k)));
 
 /**
  * 화면이 공개 데모로 그려지게 한다. 서버가 로컬 모드면 /api/healthz·/api/me 응답의 mode만 'public-demo'로 바꾼다(서버가 이미 공개 데모면 그대로).
@@ -29,7 +33,7 @@ async function asPublicDemo(page: Page, instance?: () => string) {
     const instanceRoute = !!instance && route.request().method() === 'GET' && !path.startsWith('/api/auth/');
     if (!modeRoute && !instanceRoute) return route.continue();
     const res = await route.fetch();
-    const headers = Object.fromEntries(Object.entries(res.headers()).filter(([k]) => !/^(content-length|content-encoding|transfer-encoding)$/i.test(k)));
+    const headers = passHeaders(res.headers());
     if (instanceRoute) headers['x-demo-instance'] = instance!();
     let body = await res.body();
     if (!real && res.ok() && modeRoute) {
@@ -122,6 +126,21 @@ async function expectAxeClean(page: Page, label: string) {
   expect(footerIn('color-contrast', r.incomplete), `${label}: 맨 아래 한 줄 대비 판정 보류`).toBe(false);
 }
 
+/** axe best-practice 중 랜드마크 규칙. WCAG 태그 검사에는 들어가지 않아 따로 돌린다(A5 검토: 로그인 화면에 main이 없어 랜드마크 이동이 맨 아래 한 줄로 건너뛰었다). */
+const LANDMARK_RULES = ['landmark-one-main', 'region', 'landmark-no-duplicate-main', 'landmark-no-duplicate-contentinfo', 'landmark-main-is-top-level', 'landmark-contentinfo-is-top-level', 'landmark-unique'];
+
+/** 본문(main)이 하나이고, 맨 아래 한 줄(contentinfo)은 그 밖의 최상위이며 알림 영역 밖이고, 모든 내용이 랜드마크 안에 있다. */
+async function expectLandmarks(page: Page, label: string) {
+  await expect(page.getByRole('main'), label).toHaveCount(1);
+  const where = await page.getByRole('contentinfo').evaluate((el) => ({
+    inMain: !!el.closest('main, [role="main"]'),
+    inLive: !!el.closest('[aria-live], [role="status"], [role="alert"], [role="log"]'),
+  }));
+  expect(where, `${label}: 맨 아래 한 줄의 자리`).toEqual({ inMain: false, inLive: false });
+  const r = await new AxeBuilder({ page }).withRules(LANDMARK_RULES).analyze();
+  expect(r.violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(' | ')}`), `${label}: 랜드마크`).toEqual([]);
+}
+
 for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
   test.describe(`공개 데모 맨 아래 한 줄 ${vp.width}px`, () => {
     test.use({ viewport: vp });
@@ -137,6 +156,9 @@ for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await expectDemoLine(page, `로그인 ${vp.width}`);
       await expectAxeClean(page, `로그인 ${vp.width}`);
+      // 로그인 카드가 본문(main)이라 랜드마크로 이동하면 사용자 목록을 건너뛰지 않는다(A5 검토).
+      await expect(page.getByRole('main')).toContainText('법인 대시보드 로그인');
+      await expectLandmarks(page, `로그인 ${vp.width}`);
 
       await page.getByRole('button', { name: /^한지수/ }).click();
       await page.waitForURL((u) => !u.pathname.startsWith('/login'));
@@ -147,6 +169,7 @@ for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await expectDemoLine(page, `홈 ${vp.width}`);
       await expectAxeClean(page, `홈 ${vp.width}`);
+      await expectLandmarks(page, `홈 ${vp.width}`);
 
       // 앱 안에서 화면을 옮겨도 같은 요소가 그대로 남는다(다시 그려 화면 낭독기에 새로 알리지 않음).
       await page.getByRole('contentinfo').evaluate((el) => { (el as HTMLElement & { a5?: boolean }).a5 = true; });
@@ -258,11 +281,62 @@ test('공개 데모: 다른 데모 서버 안내는 그대로 본문 위 알림 
   await expectDemoLine(page, '인스턴스 안내와 함께');
 });
 
+test('셸 밖 단독 화면(로그인 상태 확인 중): 공개 데모 서버의 응답을 이미 받았으면 맨 아래 한 줄이 이어서 보이고, 본문은 main이다', async ({ page }) => {
+  // X-Demo-Instance(공개 데모에서만 오는 머리글)를 로그인 화면에서 받은 뒤, /api/me를 잡아 두어 '로그인 상태 확인 중' 화면을 반드시 거치게 한다.
+  await asPublicDemo(page, () => 'a5-loading');
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  await page.route('**/api/me', async (route) => { await gate; await route.fallback(); });
+  await page.goto('/login');
+  await expect(page.getByRole('contentinfo')).toHaveText(LINE);
+  await page.waitForLoadState('networkidle');
+  await page.getByRole('button', { name: /^한지수/ }).click();
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'));
+  await expect(page.getByRole('status').filter({ hasText: '로그인 상태 확인 중' })).toBeVisible();
+  await expect(page.getByRole('main')).toContainText('로그인 상태 확인 중');
+  await expectDemoLine(page, '로그인 상태 확인 중');
+  await expectLandmarks(page, '로그인 상태 확인 중');
+  release();
+  await page.locator('#page-title').waitFor();
+  await page.waitForLoadState('networkidle');
+  await expectDemoLine(page, '확인 뒤 홈');
+});
+
+test('셸 밖 단독 화면(대시보드를 불러오지 못함): 공개 데모면 맨 아래 한 줄이 알림 밖에 있고, 본문은 main이다', async ({ page }) => {
+  const real = await isPublicDemoServer(page);
+  // /api/me만 500으로 바꾼다. 실제 응답의 머리글(공개 데모면 X-Demo-Instance)은 그대로 두고, 로컬 서버면 공개 데모처럼 붙인다.
+  await page.route('**/api/me', async (route) => {
+    const res = await route.fetch();
+    const headers = passHeaders(res.headers());
+    if (!real) headers['x-demo-instance'] = 'a5-error';
+    headers['content-type'] = 'application/json; charset=utf-8';
+    await route.fulfill({ status: 500, headers, body: JSON.stringify({ error: { code: 'INTERNAL', message: '검사용 서버 오류입니다.' } }) });
+  });
+  await page.goto('/');
+  const alert = page.getByRole('alert').filter({ hasText: '대시보드를 불러오지 못했습니다' });
+  await expect(alert).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('main')).toContainText('대시보드를 불러오지 못했습니다');
+  await expectDemoLine(page, '대시보드 오류 화면');
+  await expectLandmarks(page, '대시보드 오류 화면');
+  await expectAxeClean(page, '대시보드 오류 화면');
+});
+
+test('로컬 실행의 단독 오류 화면에는 맨 아래 한 줄이 없다(본문은 main)', async ({ page }) => {
+  test.skip(await isPublicDemoServer(page), '배포 확인(공개 데모)에서는 로컬 화면이 없다');
+  await page.route('**/api/me', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'INTERNAL', message: '검사용 서버 오류입니다.' } }) }));
+  await page.goto('/');
+  await expect(page.getByRole('alert').filter({ hasText: '대시보드를 불러오지 못했습니다' })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('main')).toHaveCount(1);
+  await expect(page.getByRole('contentinfo')).toHaveCount(0);
+  await expect(page.locator('.demo-footer')).toHaveCount(0);
+});
+
 test('로컬 실행은 그대로: 상단 개발 환경 띠와 로그인 화면 \'개발용 로그인입니다\' 안내가 있고 맨 아래 한 줄은 없다', async ({ page }) => {
   test.skip(await isPublicDemoServer(page), '배포 확인(공개 데모)에서는 로컬 화면이 없다');
   await page.goto('/login');
   await expect(page.getByRole('heading', { name: '법인 대시보드 로그인' })).toBeVisible();
   await expect(page.locator('.notice').filter({ hasText: '개발용 로그인입니다' })).toBeVisible();
+  await expect(page.getByRole('main')).toContainText('개발용 로그인입니다');
   await expect(page.getByRole('contentinfo')).toHaveCount(0);
   await loginAs(page, '한지수');
   await page.locator('#page-title').waitFor();

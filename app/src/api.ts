@@ -39,6 +39,11 @@ function trackDemoInstance(res: Response) {
     window.dispatchEvent(new CustomEvent(DEMO_INSTANCE_CHANGED, { detail: { previous, current: id } }));
   }
 }
+/**
+ * 이 탭이 공개 데모 서버의 응답을 한 번이라도 받았는지(X-Demo-Instance 헤더는 공개 데모에서만 붙는다, server/app.ts).
+ * 셸·로그인 화면 밖의 단독 화면(로그인 상태 확인 중·오류 대체 화면)이 실행 형태를 따로 묻지 않고 맨 아래 한 줄을 그릴지 정할 때 쓴다(A5).
+ */
+export function hasSeenDemoServer() { return demoInstance !== null; }
 /** 아직 닫지 않은 '다른 데모 서버로 연결됨' 안내가 있는지. */
 export function isDemoSwitchPending() { return demoSwitchPending; }
 export function acknowledgeDemoSwitch() { demoSwitchPending = false; }

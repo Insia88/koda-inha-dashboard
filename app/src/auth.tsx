@@ -5,6 +5,7 @@ import { api, setCsrf, ApiError } from './api.ts';
 import type { Role } from '../shared/terms.ts';
 import { hasDirtyForms, releaseAllGuards } from './lib/unsaved.tsx';
 import { ConfirmDialog } from './components/Dialog.tsx';
+import { SoloScreen } from './components/DemoFooter.tsx';
 
 export interface Me {
   user: { id: string; name: string; email: string; title: string };
@@ -68,12 +69,15 @@ export function AuthGate({ children, fallback }: { children: ReactNode; fallback
   if (q.isPending) return <>{fallback}</>;
   if (q.error) {
     if (q.error instanceof ApiError && q.error.status === 401) return <>{fallback}</>;
+    // 셸 밖 단독 화면: 본문은 <main>, 공개 데모임을 알면(오류 응답에도 X-Demo-Instance가 온다) 맨 아래 한 줄을 붙인다(A5).
     return (
-      <div className="center-screen" role="alert">
-        <h1>대시보드를 불러오지 못했습니다</h1>
-        <p>{(q.error as Error).message}</p>
-        <button className="btn btn-primary" onClick={() => q.refetch()}>다시 시도</button>
-      </div>
+      <SoloScreen>
+        <div className="center-screen" role="alert">
+          <h1>대시보드를 불러오지 못했습니다</h1>
+          <p>{(q.error as Error).message}</p>
+          <button className="btn btn-primary" onClick={() => q.refetch()}>다시 시도</button>
+        </div>
+      </SoloScreen>
     );
   }
   const relogin = async () => {

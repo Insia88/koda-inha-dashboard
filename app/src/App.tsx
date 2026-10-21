@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate, Outlet, useRouteError } from 'react-rout
 import { AuthGate, useMe } from './auth.tsx';
 import { Layout } from './components/Layout.tsx';
 import { Loading, Forbidden, useDocumentTitle } from './components/ui.tsx';
+import { SoloScreen } from './components/DemoFooter.tsx';
 import { LoginPage } from './pages/Login.tsx';
 import { HomePage } from './pages/Home.tsx';
 import { BalancesPage } from './pages/Balances.tsx';
@@ -32,15 +33,18 @@ function Home() {
   return <HomePage />;
 }
 
+/** 화면 오류 대체 화면. 셸 밖이라 SoloScreen이 본문을 <main>에 두고, 공개 데모임을 알면 맨 아래 한 줄을 붙인다(A5). */
 function RouteError() {
   const err = useRouteError() as Error;
   useDocumentTitle('오류');
   return (
-    <div className="center-screen" role="alert">
-      <h1>화면을 표시하지 못했습니다</h1>
-      <p>{err?.message ?? '알 수 없는 오류'}</p>
-      <a className="btn btn-primary" href="/">홈으로</a>
-    </div>
+    <SoloScreen>
+      <div className="center-screen" role="alert">
+        <h1>화면을 표시하지 못했습니다</h1>
+        <p>{err?.message ?? '알 수 없는 오류'}</p>
+        <a className="btn btn-primary" href="/">홈으로</a>
+      </div>
+    </SoloScreen>
   );
 }
 
@@ -60,7 +64,7 @@ const g = (perm: string, el: React.ReactNode) => <Guard perm={perm}>{el}</Guard>
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage />, errorElement: <RouteError /> },
   {
-    element: <AuthGate fallback={<Loading label="로그인 상태 확인 중" />}><Outlet /></AuthGate>,
+    element: <AuthGate fallback={<SoloScreen><Loading label="로그인 상태 확인 중" /></SoloScreen>}><Outlet /></AuthGate>,
     errorElement: <RouteError />,
     children: [{
       element: <Layout />,

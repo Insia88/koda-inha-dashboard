@@ -20,11 +20,17 @@ async function apiPost(page: Page, url: string, body: unknown) {
   return json;
 }
 
-/** 메뉴 묶음 제목과 항목 이름(보이는 글자)을 화면 순서대로 */
-const menu = (page: Page) => page.locator('#sidenav .nav-group').evaluateAll((groups) => groups.map((g) => ({
-  title: g.querySelector('.nav-title')?.textContent?.trim() ?? '',
-  items: [...g.querySelectorAll('.nav-label')].map((e) => e.textContent?.trim() ?? ''),
-})));
+/**
+ * 메뉴 묶음 제목과 항목 이름(보이는 글자)을 화면 순서대로. evaluateAll은 기다리지 않으므로, 로그인 직후('로그인 상태 확인 중' 동안)
+ * 빈 목록을 읽지 않게 메뉴의 첫 묶음이 그려질 때까지 먼저 기다린다(A5 검토 전체 실행에서 한 번 [] 를 읽었다).
+ */
+const menu = async (page: Page) => {
+  await page.locator('#sidenav .nav-group').first().waitFor({ state: 'attached' });
+  return page.locator('#sidenav .nav-group').evaluateAll((groups) => groups.map((g) => ({
+    title: g.querySelector('.nav-title')?.textContent?.trim() ?? '',
+    items: [...g.querySelectorAll('.nav-label')].map((e) => e.textContent?.trim() ?? ''),
+  })));
+};
 
 /** 결재 및 요청 '요청 보기'(A3): 상태 칩과 같은 눌림 버튼 묶음(탭 역할 없음) */
 const requestViews = (page: Page) => page.getByRole('group', { name: '요청 보기' });
