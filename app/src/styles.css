@@ -667,3 +667,34 @@ body:has(dialog[open]) { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 }
+
+
+/* ===== A7 신뢰·직관 패스 (2026-10-22) ===== */
+/* 로그인: 들어오기 전에 안전 장치 세 줄 + 추천 체험 순서. 사용자 선택은 카드 대신 한 줄짜리 행으로 줄여 스크롤을 줄인다. */
+.login-trust { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3) var(--s4); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.login-trust h2 { margin: 0; font-size: var(--fs-base); line-height: var(--lh-h3); color: var(--ink-2); }
+.login-trust ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
+.login-trust li { display: flex; gap: var(--s2); align-items: flex-start; font-size: var(--fs-md); line-height: var(--lh-md); color: var(--ink); }
+.login-trust li svg { flex: none; margin-top: 3px; color: var(--success); }
+.login-trust b { font-weight: 700; }
+.login-guide { margin: 0; }
+.login-user { gap: 6px; }
+.login-user-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--s2); min-width: 0; }
+.login-user-roles { display: flex; flex-wrap: wrap; gap: 4px; }
+.login-user-role { padding: 1px 8px; border-radius: 999px; background: var(--action-soft); color: var(--action-ink); font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: 600; }
+@media (max-width: 560px) { .login-users { grid-template-columns: 1fr; } }
+
+/* 홈: 첫 화면에서 주소 확인·사용 대기·내 승인 차례·진행 중 요청을 한눈에. 모두 0이면 지금 확인할 항목이 없다. */
+.safety-strip { display: flex; flex-direction: column; gap: var(--s2); margin-bottom: var(--s4); }
+.safety-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2) var(--s3); }
+.safety-head h2 { margin: 0; font-size: var(--fs-lg); line-height: var(--lh-lg); }
+.safety-head p { margin: 0; }
+.safety-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s2); }
+.safety-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: var(--s3) var(--s4); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); text-decoration: none; color: var(--ink); }
+.safety-item:hover { border-color: var(--action); }
+.safety-label { font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: 600; color: var(--ink-2); }
+.safety-value { font-size: var(--fs-2xl); line-height: var(--lh-2xl); font-weight: 700; letter-spacing: -0.01em; }
+.safety-unit { margin-left: 4px; font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: 600; color: var(--ink-2); }
+.safety-hint { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-3); }
+.safety-hint.is-warn { color: var(--warning); font-weight: 600; }
+@media (max-width: 860px) { .safety-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

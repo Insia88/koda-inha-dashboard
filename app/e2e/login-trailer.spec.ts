@@ -37,6 +37,10 @@ test.describe('로그인 브랜드 트레일러(DEC-006)', () => {
     // 영상 뒤에서도 본문(세션 만료 안내·로그인 사용자)이 그대로 동작한다.
     await expect(page.getByText('세션이 만료되어 로그아웃되었습니다. 다시 로그인하면 보던 화면으로 돌아갑니다.')).toBeVisible();
     await expect(page.locator('.login-user').first()).toBeVisible();
+    // 화면 고정: 로그인 목록을 스크롤해도 무대 내용(필름 창 + 태그라인)은 화면 위에 붙어 있다.
+    await page.mouse.wheel(0, 420);
+    await page.waitForTimeout(250);
+    expect(Math.abs(await page.locator('.login-stage-inner').evaluate((el) => Math.round(el.getBoundingClientRect().top)))).toBeLessThanOrEqual(1);
     expect(consoleErrors).toEqual([]);
   });
 

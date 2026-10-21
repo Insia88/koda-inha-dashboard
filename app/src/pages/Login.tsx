@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { IconCircleCheck } from '@tabler/icons-react';
 import { acknowledgeDemoSwitch, api, type HealthInfo } from '../api.ts';
 import { ApiErrorNotice, Loading, Notice, ErrorState, useDocumentTitle } from '../components/ui.tsx';
 import { DemoFooter } from '../components/DemoFooter.tsx';
@@ -137,6 +138,18 @@ export function LoginPage() {
         {/* 공개 데모에서도 다른 서버로 연결되는 것만으로는 로그아웃되지 않으므로, 여기서는 세션 만료만 알린다. */}
         {sp.get('reason') === 'expired' && <Notice tone="info" role="status">세션이 만료되어 로그아웃되었습니다. 다시 로그인하면 보던 화면으로 돌아갑니다.</Notice>}
         <ApiErrorNotice error={err} />
+        {/* A7(신뢰·직관): 들어오기 전에 이 대시보드가 지키는 안전 장치를 세 줄로 알린다. 구현된 동작만 쓴다. */}
+        <section className="login-trust" aria-labelledby="login-trust-h">
+          <h2 id="login-trust-h">이 대시보드가 지키는 것</h2>
+          <ul>
+            <li><IconCircleCheck size={16} aria-hidden="true" /><span>모든 출금은 <b>작성자와 다른 승인자</b>의 승인을 거칩니다.</span></li>
+            <li><IconCircleCheck size={16} aria-hidden="true" /><span>새 받는 주소는 확인과 <b>사용 대기</b>를 거친 뒤에만 출금에 쓸 수 있습니다.</span></li>
+            <li><IconCircleCheck size={16} aria-hidden="true" /><span>요청·승인·주소·역할 변경은 <b>감사 기록</b>에 남습니다.</span></li>
+          </ul>
+        </section>
+        <p className="login-guide small muted">
+          처음이면 <b>한지수</b>(자산 담당자) → <b>오민재</b>(승인자) → <b>문태호</b>(감사 담당자) 순으로 둘러보세요. 역할에 따라 보이는 화면이 다릅니다.
+        </p>
         {users.isPending && <Loading />}
         {users.error && <ErrorState error={users.error} onRetry={() => users.refetch()} />}
         {[...orgs.entries()].map(([org, list]) => (
@@ -146,9 +159,11 @@ export function LoginPage() {
               {list.map((u) => (
                 <li key={u.id}>
                   <button className="login-user" onClick={() => login(u.id)} disabled={busy !== null} aria-busy={busy === u.id}>
-                    <span className="login-user-name">{u.name}<span className="muted"> · {u.title}</span></span>
-                    <span className="login-user-roles">{u.roles.map((r) => ROLE_LABEL[r].label).join(', ')}</span>
-                    <span className="login-user-desc">{u.roles.map((r) => ROLE_LABEL[r].description).join(' ')}</span>
+                    <span className="login-user-head">
+                      <span className="login-user-name">{u.name}<span className="muted"> · {u.title}</span></span>
+                      <span className="login-user-roles">{u.roles.map((r) => <span key={r} className="login-user-role">{ROLE_LABEL[r].label}</span>)}</span>
+                    </span>
+                    <span className="sr-only">{u.roles.map((r) => ROLE_LABEL[r].description).join(' ')}</span>
                   </button>
                 </li>
               ))}

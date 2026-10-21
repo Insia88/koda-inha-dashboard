@@ -133,6 +133,39 @@ export function HomePage() {
         description={<>현재 보유 자산, 처리할 업무, 진행 중인 요청을 한 화면에서 확인합니다.</>}
       />
 
+      {/* A7(신뢰·직관): 첫 화면에서 주소 확인·사용 대기·내 승인 차례·진행 중 요청을 한눈에. 모두 0이면 지금 확인할 항목이 없습니다. */}
+      <section className="safety-strip" aria-labelledby="safety-h">
+        <div className="safety-head">
+          <h2 id="safety-h">확인 상태</h2>
+          <p className="muted small">주소·승인·진행 상황을 한눈에 확인합니다. 모두 0이면 지금 확인할 항목이 없습니다.</p>
+        </div>
+        <ul className="safety-list">
+          {([
+            ['review_addresses', '주소 확인 대기', reviewN, reviewN > 0 ? '확인이 필요합니다' : '없음', '/addresses'],
+            ['cooling_addresses', '사용 대기 주소', coolingN, coolingN > 0 ? '대기 중 · 모르는 등록이면 정지' : '없음', '/addresses'],
+            ['approve_requests', '내 승인 차례', approveN, approveN > 0 ? '내가 승인할 수 있습니다' : '없음', '/requests?status=PENDING_APPROVAL'],
+          ] as const).map(([kind, label, count, hint, fallback]) => {
+            const href = (q.data?.tasks ?? []).find((t: any) => t.kind === kind)?.href ?? fallback;
+            return (
+              <li key={kind}>
+                <Link to={href} className="safety-item">
+                  <span className="safety-label">{label}</span>
+                  <span className="safety-value">{count}<span className="safety-unit">건</span></span>
+                  <span className={`safety-hint${count > 0 ? ' is-warn' : ''}`}>{hint}</span>
+                </Link>
+              </li>
+            );
+          })}
+          <li>
+            <Link to={`/requests?status=${IN_PROGRESS_STATUSES}`} className="safety-item">
+              <span className="safety-label">진행 중 요청</span>
+              <span className="safety-value">{q.data?.inProgressCount ?? 0}<span className="safety-unit">건</span></span>
+              <span className="safety-hint">처리 결과를 기다리는 요청</span>
+            </Link>
+          </li>
+        </ul>
+      </section>
+
       <div className="home-grid">
         <div className="home-col">
         <section className="card card-tasks" aria-labelledby="tasks-h">
