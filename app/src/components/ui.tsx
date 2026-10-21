@@ -193,13 +193,17 @@ export function Term({ label, children }: { label: string; children: ReactNode }
   );
 }
 
-export function Pagination({ page, pageSize, total, onPage, onPageSize, sizes = [10, 25, 50, 100], label = '건' }: { page: number; pageSize: number; total: number; onPage: (p: number) => void; onPageSize?: (s: number) => void; sizes?: number[]; label?: string }) {
+/**
+ * 페이지 이동. 페이지 줄('전체 n건 중 a–b')은 기본으로 알림 영역(aria-live)이다.
+ * 화면에 늘 있는 결과 알림 줄을 따로 두는 목록(결재 및 요청, A3)은 live={false}로 같은 내용을 두 번 읽지 않게 한다.
+ */
+export function Pagination({ page, pageSize, total, onPage, onPageSize, sizes = [10, 25, 50, 100], label = '건', live = true }: { page: number; pageSize: number; total: number; onPage: (p: number) => void; onPageSize?: (s: number) => void; sizes?: number[]; label?: string; live?: boolean }) {
   const last = Math.max(1, Math.ceil(total / pageSize));
   const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const to = Math.min(total, page * pageSize);
   return (
     <nav className="pager" aria-label="페이지 이동">
-      <span className="pager-info" aria-live="polite">전체 {total.toLocaleString('ko-KR')}{label} 중 {from.toLocaleString('ko-KR')}–{to.toLocaleString('ko-KR')}</span>
+      <span className="pager-info" aria-live={live ? 'polite' : undefined}>전체 {total.toLocaleString('ko-KR')}{label} 중 {from.toLocaleString('ko-KR')}–{to.toLocaleString('ko-KR')}</span>
       {onPageSize && (
         <label className="pager-size">
           <span>한 번에</span>

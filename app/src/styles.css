@@ -7,6 +7,7 @@
   --surface: #ffffff;
   --line: #dbe2df;
   --line-strong: #b9c4c0;
+  --line-input: #7a8782;     /* 입력 칸(input·select·textarea) 테두리 전용. 흰 바탕 3.74:1·Paper 3.45:1(WCAG 1.4.11). 구분선(--line, --line-strong)과 따로 둔다 */
   --brand: #00d998;          /* 로고 색. 흰 바탕 글자색으로 쓰지 않는다(대비 부족) */
   --action: #00704f;         /* 버튼·링크 */
   --action-ink: #005a40;
@@ -16,6 +17,7 @@
   --danger: #b42318; --danger-soft: #fdeceb;
   --success: #116a45; --success-soft: #e4f4ec;
   --neutral: #4b5853; --neutral-soft: #edf0ef;
+  --focus-on-dark: #b9f3dd;  /* 어두운(Ink) 바탕 안의 포커스 링. Ink 위 13.6:1(전역 링 #1f4fbf는 Ink 위 2.35:1) */
   --radius: 8px;
   --radius-sm: 6px;
   --shadow: 0 1px 2px rgba(16, 32, 27, 0.06);
@@ -30,6 +32,8 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
+/* sticky 머리글(56px) 밑에 포커스·앵커로 옮긴 요소가 들어가지 않게, 브라우저가 스크롤할 때 위쪽 72px(머리글 + 여유 16px)를 비워 둔다(WCAG 2.4.11) */
+html { scroll-padding-top: 72px; }
 body { font-family: var(--font); color: var(--ink); background: var(--paper); font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased; word-break: keep-all; overflow-wrap: break-word; }
 /* anywhere는 min-content를 한 글자로 줄여 표 열이 무너진다. 긴 토큰(주소·고정폭·긴 셀)에만 쓴다. */
 h1, h2, h3 { line-height: 1.3; margin: 0; letter-spacing: -0.01em; }
@@ -38,6 +42,8 @@ h2 { font-size: 17px; font-weight: 700; }
 a { color: var(--action); }
 a:hover { color: var(--action-ink); }
 :focus-visible { outline: 3px solid #1f4fbf; outline-offset: 2px; border-radius: 4px; }
+/* 어두운 바탕(다음 할 일 패널) 안의 요소는 같은 굵기의 밝은 링. 패널 자체의 링은 바깥 2px(밝은 바탕)에 그려지므로 파랑 그대로 */
+.next-action :focus-visible { outline-color: var(--focus-on-dark); }
 h1:focus { outline: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .skip-link { position: absolute; left: -9999px; top: 0; background: var(--ink); color: #fff; padding: var(--s2) var(--s4); z-index: 100; }
@@ -57,9 +63,9 @@ hr { border: 0; border-top: 1px solid var(--line); margin: var(--s4) 0; }
 .env-ribbon { grid-area: ribbon; display: flex; gap: var(--s2); align-items: center; padding: 6px var(--s4); background: #fff3dc; color: #5c3600; font-size: 13px; border-bottom: 1px solid #f0d9a8; }
 .topbar { grid-area: top; display: flex; align-items: center; gap: var(--s4); padding: 0 var(--s5); background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; }
 .logo { height: 22px; width: auto; flex: none; }
-/* 조직명이 길면 이름만 줄이고(…) '모의' 표시는 줄이지 않는다 */
+/* 조직명이 칸보다 길면 두 줄까지 줄을 바꾸고(글자 간격을 늘려도 잘리지 않게, WCAG 1.4.12), 그보다 길 때만 둘째 줄 끝을 줄인다(…). '모의' 표시는 줄이지 않는다 */
 .org-name { display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: 700; padding-left: var(--s4); border-left: 1px solid var(--line); }
-.org-name-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.org-name-text { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; line-height: 1.25; }
 .mock-tag { flex: none; font-size: 11px; font-weight: 700; color: var(--warning); background: var(--warning-soft); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
 .topbar-user { margin-left: auto; display: flex; align-items: center; gap: var(--s3); flex: none; }
 /* 머리글 '출금 요청 작성'(A1): 조직명이 먼저 줄어들고(…) 버튼과 '모의' 표시는 줄이지 않는다 */
@@ -112,7 +118,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: var(--s4) 0; }
 .btn-sm { min-height: 32px; padding: 0 var(--s3); font-size: 14px; }
 .btn-xs { min-height: 26px; padding: 0 var(--s2); font-size: 12px; }
 .btn-icon { width: 36px; min-height: 36px; padding: 0; }
-input, select, textarea { font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); min-height: 40px; padding: 0 var(--s3); width: 100%; }
+input, select, textarea { font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line-input); border-radius: var(--radius-sm); min-height: 40px; padding: 0 var(--s3); width: 100%; }
 /* 여러 줄 입력: 크기 조절 핸들 없음(resize: none). 공통 Textarea가 내용에 맞춰 늘어나고 상한을 넘으면 내부 스크롤 */
 textarea, .resize-none { resize: none; }
 textarea { padding: var(--s2) var(--s3); min-height: 64px; line-height: 1.55; }
@@ -140,6 +146,8 @@ input[type='checkbox'] { width: 18px; height: 18px; min-height: 0; accent-color:
 .notice-danger { background: var(--danger-soft); border-color: #f3c3bf; } .notice-danger .notice-icon { color: var(--danger); }
 .notice-success { background: var(--success-soft); border-color: #b8e0cb; } .notice-success .notice-icon { color: var(--success); }
 .notice-neutral { background: var(--neutral-soft); border-color: var(--line); }
+/* 흐린 글자(--ink-3)는 연한 상태 바탕 위에서 4.5:1이 안 된다(info-soft 4.28:1). 안내 상자 안에서는 한 단계 진한 글자를 쓴다(A3) */
+.notice .muted { color: var(--ink-2); }
 .state { display: flex; flex-direction: column; align-items: center; gap: var(--s2); text-align: center; padding: var(--s6) var(--s4); color: var(--ink-2); background: var(--surface); border: 1px dashed var(--line-strong); border-radius: var(--radius); }
 .state strong { color: var(--ink); font-size: 16px; }
 .state-error svg { color: var(--danger); } .state-forbidden svg { color: var(--warning); }
@@ -308,7 +316,8 @@ body:has(dialog[open]) { overflow: hidden; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 14px; cursor: pointer; color: var(--ink-2); min-height: 36px; }
 .chip.active { background: var(--ink); border-color: var(--ink); color: #fff; font-weight: 700; }
-.tabs { display: flex; gap: var(--s1); border-bottom: 1px solid var(--line); overflow-x: auto; }
+/* 결재 및 요청 '요청 보기'(A3): 상태 칩과 같은 눌림 버튼 묶음(role="group" + aria-pressed)을 탭 모양으로 보인다. 좁으면 가로 스크롤 대신 줄을 바꾼다(WCAG 1.4.10) */
+.tabs { display: flex; flex-wrap: wrap; gap: var(--s1); border-bottom: 1px solid var(--line); }
 .tab { border: 0; background: none; padding: var(--s3) var(--s4); font: inherit; font-weight: 600; color: var(--ink-2); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; white-space: nowrap; }
 .tab.active { color: var(--ink); border-bottom-color: var(--action); }
 /* 탭 옆 내 차례 건수(A1): 메뉴 배지와 같은 중립 색 */
@@ -354,7 +363,7 @@ body:has(dialog[open]) { overflow: hidden; }
 .field-invalid input, .field-invalid select, .field-invalid textarea { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
 .input-unit { display: flex; align-items: stretch; }
 .input-unit input { border-radius: var(--radius-sm) 0 0 var(--radius-sm);  min-width: 0; }
-.input-unit span { display: grid; place-items: center; padding: 0 var(--s3); border: 1px solid var(--line-strong); border-left: 0; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--paper); font-weight: 700; min-width: 64px; white-space: nowrap; flex: none; }
+.input-unit span { display: grid; place-items: center; padding: 0 var(--s3); border: 1px solid var(--line-input); border-left: 0; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--paper); font-weight: 700; min-width: 64px; white-space: nowrap; flex: none; }
 .checks { display: flex; flex-direction: column; gap: var(--s2); border: 0; padding: 0; margin: 0; }
 .check { display: flex; gap: var(--s2); align-items: flex-start; font-size: 14px; cursor: pointer; }
 /* 확인 카드(승인 전 확인 등)의 체크 줄은 누르는 영역을 44px 이상으로 둔다 */
@@ -363,6 +372,8 @@ body:has(dialog[open]) { overflow: hidden; }
 .form-actions { display: flex; justify-content: flex-end; gap: var(--s2); flex-wrap: wrap; }
 .form-actions-left { justify-content: flex-start; }
 .findings { display: flex; flex-direction: column; gap: var(--s2); }
+/* 알림 영역(A3, WCAG 4.1.3)은 처음부터 빈 채로 그려 두고 내용만 바꾼다. 비어 있는 동안에는 자리를 차지하지 않게(폼의 gap에도 끼지 않게) 접는다 */
+.live-slot:empty { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; overflow: hidden; clip: rect(0 0 0 0); }
 .steps-text { margin: 0; padding-left: 20px; color: var(--ink-2); font-size: 14px; }
 .dl { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: var(--s2) var(--s4); margin: 0; }
 .dl dt { color: var(--ink-2); font-size: 14px; font-weight: 600; }
@@ -434,9 +445,11 @@ body:has(dialog[open]) { overflow: hidden; }
 @media (max-width: 860px) {
   .shell { background: var(--paper); grid-template-columns: minmax(0, 1fr); grid-template-areas: 'ribbon' 'top' 'main'; }
   .topbar .nav-toggle { display: inline-flex; }
-  .sidenav { position: fixed; top: 0; left: 0; bottom: 0; width: 272px; height: 100vh; z-index: 40; transform: translateX(-100%); transition: transform 0.2s ease; box-shadow: 0 0 24px rgba(0,0,0,0.15); padding-top: var(--s5); visibility: hidden; }
+  /* 메뉴 서랍(A3): 머리글 바로 아래(--nav-top, 열 때 Layout이 잰 머리글 아래 끝)에서 시작해 머리글의 토글(「메뉴 닫기」)이 가리지 않고 늘 보인다.
+     열려 있는 동안 본문·환경 띠·머리글의 다른 버튼은 inert이고 포커스는 토글과 메뉴 안에서만 돈다(Layout.tsx) */
+  .sidenav { position: fixed; top: var(--nav-top, 0px); left: 0; bottom: 0; width: 272px; height: auto; align-self: stretch; z-index: 40; transform: translateX(-100%); transition: transform 0.2s ease; box-shadow: 0 0 24px rgba(0,0,0,0.15); padding-top: var(--s4); visibility: hidden; }
   .nav-open .sidenav { transform: none; visibility: visible; }
-  .nav-open .nav-scrim { display: block; position: fixed; inset: 0; background: rgba(16,32,27,0.35); z-index: 35; }
+  .nav-open .nav-scrim { display: block; position: fixed; inset: var(--nav-top, 0px) 0 0 0; background: rgba(16,32,27,0.35); z-index: 35; }
   .user-roles, .topbar-user .user-name { display: none; }
   .topbar { padding: 0 var(--s3); gap: var(--s2); }
   .org-name { padding-left: var(--s2); font-size: 14px; }

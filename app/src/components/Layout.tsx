@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -27,16 +27,29 @@ function badgeSpeech(badges: NavBadge[] | undefined): string | null {
 }
 
 const NARROW = '(max-width: 560px)';
-function useNarrow() {
+/** 메뉴가 서랍(겹쳐 여는 메뉴)이 되는 폭. styles.css의 860px 미디어 쿼리와 같다. */
+const DRAWER = '(max-width: 860px)';
+function useMedia(query: string) {
   return useSyncExternalStore(
     (onChange) => {
-      const m = window.matchMedia(NARROW);
+      const m = window.matchMedia(query);
       m.addEventListener('change', onChange);
       return () => m.removeEventListener('change', onChange);
     },
-    () => window.matchMedia(NARROW).matches,
+    () => window.matchMedia(query).matches,
     () => false,
   );
+}
+const useNarrow = () => useMedia(NARROW);
+
+/**
+ * 메뉴 서랍이 열려 있는 동안 inert로 둘 곳(A3): 건너뛰기 링크, 환경 띠, 머리글에서 토글을 뺀 나머지, 본문.
+ * 서랍과 머리글의 토글(「메뉴 닫기」)만 남아 Tab이 그 안에서만 돌고, 화면 낭독기도 서랍 뒤 본문을 읽지 않는다.
+ * React가 다루지 않는 속성이라 직접 붙이고 뗀다(화면을 옮길 때 제목으로 포커스를 옮기기 전에 바로 뗄 수 있게).
+ */
+const OUTSIDE_DRAWER = '.skip-link, .env-ribbon, .topbar > :not(.nav-toggle), #main';
+function setOutsideDrawerInert(root: HTMLElement | null, on: boolean) {
+  root?.querySelectorAll(OUTSIDE_DRAWER).forEach((el) => el.toggleAttribute('inert', on));
 }
 
 /** 데이터 생성 시각(KST HH:mm). */
@@ -121,6 +134,14 @@ export function Layout() {
   const loc = useLocation();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const drawerMode = useMedia(DRAWER);
+  // 좁은 화면에서 메뉴가 열려 있으면 서랍을 대화상자처럼 다룬다(A3): 포커스를 서랍으로, 나머지는 inert, Escape로 닫기.
+  const drawer = open && drawerMode;
+  const [navTop, setNavTop] = useState(0);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const navRef = useRef<HTMLElement>(null);
   const [demoSwitch, acknowledgeSwitch] = useDemoSwitch();
   const env = me.environment;
   const lastPath = useRef<string | null>(null);
@@ -145,8 +166,59 @@ export function Layout() {
     const same = lastPath.current === loc.pathname;
     lastPath.current = loc.pathname;
     if (first || same) return;
+    // 서랍이 열린 채 화면이 바뀌었으면 inert가 아직 붙어 있어 제목이 포커스를 받지 못한다. 닫는 렌더를 기다리지 않고 바로 뗀다.
+    setOutsideDrawerInert(shellRef.current, false);
     return focusTitleWhenReady();
   }, [loc.pathname]);
+
+  // 메뉴 서랍(A3). 닫을 때 returnFocus면 포커스를 토글로 돌려준다(Escape·막·같은 화면 링크). 다른 화면으로 옮기면 새 화면 제목이 받는다.
+  const closeNav = useCallback((returnFocus: boolean) => {
+    setOpen(false);
+    if (returnFocus) toggleRef.current?.focus();
+  }, []);
+
+  // 넓은 화면이 되면 서랍 상태를 남기지 않는다(다시 좁아졌을 때 저절로 열리지 않게).
+  useEffect(() => { if (!drawerMode) setOpen(false); }, [drawerMode]);
+
+  // 열려 있는 동안: 서랍은 머리글 아래 끝에서 시작하고(토글이 가리지 않음), 서랍 밖은 inert.
+  useLayoutEffect(() => {
+    if (!drawer) return;
+    const shell = shellRef.current;
+    const measure = () => setNavTop(Math.max(0, Math.round(headerRef.current?.getBoundingClientRect().bottom ?? 0)));
+    measure();
+    setOutsideDrawerInert(shell, true);
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, { passive: true });
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure);
+      setOutsideDrawerInert(shell, false);
+    };
+  }, [drawer]);
+
+  // 열면 포커스를 서랍의 첫 메뉴로 옮긴다. Tab·Shift+Tab은 토글과 메뉴 사이에서 돌고, Escape는 닫고 토글로 돌아온다.
+  useEffect(() => {
+    if (!drawer) return;
+    navRef.current?.querySelector<HTMLElement>('a[href]')?.focus({ preventScroll: true });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeNav(true);
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const items = [toggleRef.current, ...(navRef.current?.querySelectorAll<HTMLElement>('a[href]') ?? [])].filter((x): x is HTMLElement => !!x);
+      const firstItem = items[0];
+      const lastItem = items[items.length - 1];
+      if (!firstItem || !lastItem) return;
+      const at = document.activeElement;
+      if (!items.includes(at as HTMLElement)) { e.preventDefault(); (e.shiftKey ? lastItem : firstItem).focus(); }
+      else if (e.shiftKey && at === firstItem) { e.preventDefault(); lastItem.focus(); }
+      else if (!e.shiftKey && at === lastItem) { e.preventDefault(); firstItem.focus(); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [drawer, closeNav]);
 
   // 「처음 화면으로」는 홈에 실제로 도착한 뒤에만 조회 결과를 비운다. 작성 중인 화면에서 이동 확인을 받고
   // 「계속 작성」을 고르면 아무것도 비우지 않아 입력이 그대로 남는다. 로그인 정보(me)는 비우지 않고 다시 확인만 한다.
@@ -210,14 +282,14 @@ export function Layout() {
   };
 
   return (
-    <div className={`shell ${open ? 'nav-open' : ''}`}>
+    <div ref={shellRef} className={`shell ${open ? 'nav-open' : ''}`} style={{ '--nav-top': `${navTop}px` } as CSSProperties}>
       <a href="#main" className="skip-link">본문으로 건너뛰기</a>
       <div className="env-ribbon" role="note">
         <IconFlask size={16} aria-hidden="true" />
         <EnvRibbon env={env} />
       </div>
-      <header className="topbar">
-        <button className="btn btn-icon nav-toggle" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls="sidenav" aria-label={open ? '메뉴 닫기' : '메뉴 열기'}>
+      <header ref={headerRef} className="topbar">
+        <button ref={toggleRef} className="btn btn-icon nav-toggle" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls="sidenav" aria-label={open ? '메뉴 닫기' : '메뉴 열기'}>
           {open ? <IconX size={20} aria-hidden="true" /> : <IconMenu2 size={20} aria-hidden="true" />}
         </button>
         <img src="/koda-logo.svg" alt="KODA" className="logo" width={117} height={26} />
@@ -239,7 +311,7 @@ export function Layout() {
           <button className="btn btn-ghost btn-logout" onClick={logout}><IconLogout size={16} aria-hidden="true" /><span className="btn-logout-text">로그아웃</span></button>
         </div>
       </header>
-      <nav id="sidenav" className="sidenav" aria-label="주 메뉴">
+      <nav ref={navRef} id="sidenav" className="sidenav" aria-label="주 메뉴">
         {groups.map((g, gi) => {
           const items = g.items.filter((i) => can(i.perm));
           if (!items.length) return null;
@@ -252,7 +324,8 @@ export function Layout() {
                   const shown = (i.badges ?? []).filter((b) => b.count > 0);
                   return (
                     <li key={i.to}>
-                      <NavLink to={i.to} end={i.end ?? i.to === '/insights'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                      {/* 서랍에서 고르면 닫는다. 지금 화면과 같은 경로면 제목으로 옮겨 가지 않으므로 포커스를 토글로 돌려준다. */}
+                      <NavLink to={i.to} end={i.end ?? i.to === '/insights'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => { if (drawer) closeNav(i.to === loc.pathname); }}>
                         <i.icon size={18} aria-hidden="true" />
                         <span className="nav-label">{i.label}</span>
                         {speech && (
@@ -270,7 +343,7 @@ export function Layout() {
           );
         })}
       </nav>
-      <div className="nav-scrim" onClick={() => setOpen(false)} aria-hidden="true" />
+      <div className="nav-scrim" onClick={() => closeNav(true)} aria-hidden="true" />
       <main id="main" className="main">
         {/* 공개 데모에서만: 미리 있는 알림 영역에 내용을 넣어야 화면 낭독기가 변경을 읽어 준다. 로컬 화면 구조는 그대로 둔다. */}
         {env.mode === 'public-demo' && (

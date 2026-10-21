@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { IconAlertTriangle, IconCircleCheck, IconHelpCircle } from '@tabler/icons-react';
@@ -20,12 +20,12 @@ export const NETWORK_ASK_HINT = '거래처 안내문의 네트워크 이름이 �
 const OUTCOME_RANK: Record<CheckOutcome, number> = { caution: 0, unknown: 1, pass: 2 };
 
 /** '주의 1건 · 확인 불가 1건 · 기준 이내 3건' (0건인 결과는 쓰지 않는다) */
-export function checkSummary(items: RequestCheck[]): string {
+export function checkSummary(items: RequestCheck[], separator = ' · '): string {
   return (['caution', 'unknown', 'pass'] as CheckOutcome[])
     .map((o) => [o, items.filter((i) => i.outcome === o).length] as const)
     .filter(([, n]) => n > 0)
     .map(([o, n]) => `${CHECK_OUTCOME[o].label} ${n}건`)
-    .join(' · ');
+    .join(separator);
 }
 
 /**
@@ -159,6 +159,8 @@ function readAmount(raw: string, precision: number | undefined, price: { krw: st
 /**
  * 작성 화면의 출금 전 점검 미리 보기. 자산·네트워크·주소를 고르고 수량을 읽을 수 있으면 서버에 물어본다(저장하지 않음).
  * 검토 단계와 승인 요청 때 서버가 같은 규칙으로 다시 계산하므로, 여기서 못 불러와도 작성은 막지 않는다.
+ * 화면 낭독기에는 목록 전체가 아니라 한 줄 요약('출금 전 점검: 주의 1건, 기준 이내 3건')만 알린다(A3, WCAG 4.1.3).
+ * 그 알림 영역(.rc-live)은 미리 보기가 없을 때도 빈 채로 늘 있고 내용만 바뀐다. 보이는 목록은 알림 영역 밖이다.
  */
 function ChecksPreview({ value, requestId, amountReadable }: { value: RequestFormValue; requestId?: string; amountReadable: boolean }) {
   const amount = useSettled(value.amount.trim(), 400);
@@ -173,20 +175,32 @@ function ChecksPreview({ value, requestId, amountReadable }: { value: RequestFor
     refetchOnWindowFocus: false,
     staleTime: 30_000,
   });
-  if (!value.addressId || !amountReadable) return null;
-  if (q.isError) {
+  let shown: ReactNode = null;
+  let announce = '';
+  if (!value.addressId || !amountReadable) {
+    // 미리 보기 없음(알림 영역은 빈 채로 남는다)
+  } else if (q.isError) {
     // 고른 받는 주소를 지금 쓸 수 없으면(그 사이 사용 중지 등) 검토 단계로 갈 수 없으므로 '검토 단계에서 다시 보여 드립니다'라고 하지 않는다.
-    if (q.error instanceof ApiError && q.error.code === 'ADDRESS_NOT_ACTIVE') {
-      return <p className="warn-text small" style={{ margin: 0 }}>고른 받는 주소를 지금 쓸 수 없어 출금 전 점검을 보여 드리지 않습니다. 사용 가능한 다른 받는 주소를 고르세요.</p>;
-    }
-    return <p className="muted small" style={{ margin: 0 }}>출금 전 점검 미리 보기를 불러오지 못했습니다. 검토 단계에서 다시 보여 드립니다.</p>;
+    const inactive = q.error instanceof ApiError && q.error.code === 'ADDRESS_NOT_ACTIVE';
+    announce = inactive
+      ? '고른 받는 주소를 지금 쓸 수 없어 출금 전 점검을 보여 드리지 않습니다. 사용 가능한 다른 받는 주소를 고르세요.'
+      : '출금 전 점검 미리 보기를 불러오지 못했습니다. 검토 단계에서 다시 보여 드립니다.';
+    // 같은 문장이 바로 위 알림 줄에 있으므로 보이는 문장은 화면 낭독기가 두 번 읽지 않게 숨긴다.
+    shown = <p className={inactive ? 'warn-text small' : 'muted small'} style={{ margin: 0 }} aria-hidden="true">{announce}</p>;
+  } else if (q.data) {
+    const needsReason = q.data.items.some((c) => c.requiresReason);
+    announce = `출금 전 점검: ${checkSummary(q.data.items, ', ')}`;
+    shown = (
+      <CheckList compact requesterView title="출금 전 점검 미리 보기" items={q.data.items}
+        intro={needsReason ? '「사유 필요」 표시가 있는 주의 항목은 검토 단계에서 진행 사유를 적어야 승인 요청을 보낼 수 있습니다. 이 대시보드로 처음 보내는 주소라면 소액 시험 전송을 먼저 요청하는 방법도 있습니다.' : undefined}
+        footnote="점검 기준은 설계 가정이며, 검토 단계에서 기준과 함께 다시 보여 드립니다." />
+    );
   }
-  if (!q.data) return null;
-  const needsReason = q.data.items.some((c) => c.requiresReason);
   return (
-    <CheckList compact requesterView title="출금 전 점검 미리 보기" items={q.data.items}
-      intro={needsReason ? '「사유 필요」 표시가 있는 주의 항목은 검토 단계에서 진행 사유를 적어야 승인 요청을 보낼 수 있습니다. 이 대시보드로 처음 보내는 주소라면 소액 시험 전송을 먼저 요청하는 방법도 있습니다.' : undefined}
-      footnote="점검 기준은 설계 가정이며, 검토 단계에서 기준과 함께 다시 보여 드립니다." />
+    <>
+      <p className="sr-only rc-live" role="status">{announce}</p>
+      {shown}
+    </>
   );
 }
 
@@ -297,21 +311,27 @@ export function RequestForm({ value, onChange, error, requestId }: { value: Requ
 /**
  * 수량 바로 아래 한 줄: 읽은 수량, 모의 시세 기준 원화 평가액, 필요 승인 수 기준.
  * 화면 낭독기는 입력을 멈춘 뒤 이 줄을 읽는다(output = status). 입력의 aria-describedby(도움말·오류)는 바꾸지 않는다.
+ * 알림 영역인 <output>은 수량을 비웠을 때도 빈 채로 늘 있고 내용만 바뀐다(A3, WCAG 4.1.3). 비어 있는 동안은 자리를 차지하지 않는다(.live-slot:empty).
  */
 function AmountPreview({ preview, unit, thresholdKrw, highN, serverMessage }: { preview: Preview; unit: string; thresholdKrw: string; highN: number; serverMessage?: string }) {
+  // 같은 내용의 서버 오류가 바로 위에 있으면 다시 쓰지 않는다.
+  const invalid = preview.kind === 'invalid' && serverMessage !== preview.message;
+  return (
+    <output htmlFor="amount" className={`amount-preview live-slot small${invalid ? ' warn-text' : ''}`} style={{ display: 'block', marginTop: -4, ...(invalid ? {} : { color: 'var(--ink-2)' }) }}>
+      {preview.kind === 'ok' ? <AmountPreviewLine preview={preview} unit={unit} thresholdKrw={thresholdKrw} highN={highN} />
+        : invalid && preview.kind === 'invalid' ? <>입력한 수량을 읽을 수 없습니다. {preview.message}</> : null}
+    </output>
+  );
+}
+
+function AmountPreviewLine({ preview, unit, thresholdKrw, highN }: { preview: Extract<Preview, { kind: 'ok' }>; unit: string; thresholdKrw: string; highN: number }) {
   const threshold = krwThreshold(thresholdKrw);
-  if (preview.kind === 'empty') return null;
-  if (preview.kind === 'invalid') {
-    // 같은 내용의 서버 오류가 바로 위에 있으면 다시 쓰지 않는다.
-    if (serverMessage === preview.message) return null;
-    return <output htmlFor="amount" className="amount-preview warn-text small" style={{ display: 'block', marginTop: -4 }}>입력한 수량을 읽을 수 없습니다. {preview.message}</output>;
-  }
   const high = preview.krw !== null && preview.krw >= BigInt(thresholdKrw);
   const priceKnown = preview.krw !== null && preview.priceState === 'mock';
   // 시세를 아직 못 받았거나 받지 못한 경우: 시세가 없다고 말하지 않고, 승인 수는 규칙만 보인다.
   const notLoaded = preview.priceState === 'loading' || preview.priceState === 'load_error';
   return (
-    <output htmlFor="amount" className="amount-preview small" style={{ display: 'block', marginTop: -4, color: 'var(--ink-2)' }}>
+    <>
       읽은 수량 <b className="num" style={{ color: 'var(--ink)' }}>{preview.quantity} {unit}</b>
       {' · '}
       {priceKnown
@@ -329,6 +349,6 @@ function AmountPreview({ preview, unit, thresholdKrw, highN, serverMessage }: { 
         : high
           ? <b style={{ color: 'var(--ink)' }}>{threshold} 이상이라 서로 다른 승인자 {highN}명 필요</b>
           : <>{threshold} 이상이면 서로 다른 승인자 {highN}명 필요</>}
-    </output>
+    </>
   );
 }

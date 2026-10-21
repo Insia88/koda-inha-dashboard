@@ -26,6 +26,9 @@ const menu = (page: Page) => page.locator('#sidenav .nav-group').evaluateAll((gr
   items: [...g.querySelectorAll('.nav-label')].map((e) => e.textContent?.trim() ?? ''),
 })));
 
+/** 결재 및 요청 '요청 보기'(A3): 상태 칩과 같은 눌림 버튼 묶음(탭 역할 없음) */
+const requestViews = (page: Page) => page.getByRole('group', { name: '요청 보기' });
+
 const dashboardTasks = async (page: Page) => ((await (await page.request.get('/api/dashboard')).json()).tasks as { kind: string; count: number }[]);
 
 test.describe('머리글 출금 요청 작성(A1-01)', () => {
@@ -148,7 +151,7 @@ test('메뉴(A1-02): 방향과 쓰임을 말하는 이름, 참고 묶음, 경로
   await expect(page.getByRole('combobox', { name: '상태' })).toHaveValue('COOLING_DOWN');
   await expect(page.getByRole('heading', { name: '보낼 곳 주소록', level: 1 })).toBeVisible();
   await page.goto('/requests?view=to_approve');
-  await expect(page.getByRole('tab', { selected: true })).toHaveText(/^내가 승인할 요청/);
+  await expect(requestViews(page).getByRole('button', { pressed: true })).toHaveText(/^내가 승인할 요청/);
   await logout(page);
 
   // 다른 역할은 권한으로 걸러진다: 승인자(오민재)는 같은 순서에서 자기 권한의 항목만 본다.
@@ -212,13 +215,13 @@ test('내 차례(A1-03): 종류별 배지와 탭 건수는 서버 할 일 건수
     const toApprove = await (await page.request.get('/api/requests?view=to_approve&pageSize=10')).json();
     expect(toApprove.total).toBe(a);
     await page.goto('/requests');
-    const tabs = page.getByRole('tab');
+    const tabs = requestViews(page).getByRole('button');
     await expect(tabs).toHaveText(['조직 전체', `내가 승인할 요청 ${a}`, `내가 작성한 요청 · 제출 전 ${b}`, '승인 불가(주소 중지)']);
-    await expect(page.getByRole('tab', { selected: true })).toHaveText('조직 전체');
-    await page.getByRole('tab', { name: `내가 승인할 요청 ${a}` }).click();
+    await expect(requestViews(page).getByRole('button', { pressed: true })).toHaveText('조직 전체');
+    await requestViews(page).getByRole('button', { name: `내가 승인할 요청 ${a}` }).click();
     await expect(page).toHaveURL(/view=to_approve/);
     await expect(page.getByText(/^전체 \d+건 중/)).toHaveText(new RegExp(`^전체 ${a}건 중`));
-    await page.getByRole('tab', { name: /^내가 작성한 요청/ }).click();
+    await requestViews(page).getByRole('button', { name: /^내가 작성한 요청/ }).click();
     await expect(page).toHaveURL(/view=mine/);
   } finally {
     await apiPost(page, `/api/requests/${draft.id}/cancel`, { version: draft.version });

@@ -27,6 +27,8 @@ async function asUser(request: APIRequestContext, userId: string) {
 
 const activeDialog = (page: Page) => page.locator('dialog[open]');
 const pressedChips = (page: Page) => page.getByRole('group', { name: '상태 필터' }).locator('[aria-pressed="true"]');
+/** '요청 보기'(A3): 상태 칩과 같은 눌림 버튼 묶음(탭 역할 없음) */
+const requestViews = (page: Page) => page.getByRole('group', { name: '요청 보기' });
 
 test('WR-000003: 평가액·출처·기준 시각과 필요 승인 근거, 승인 카드의 되돌릴 수 없음·확인 안내', async ({ page }) => {
   await loginAs(page, '오민재');
@@ -154,13 +156,13 @@ test('받는 주소가 사용 중지된 승인 대기 요청: 서버 거부 안�
   await expect(activeDialog(page)).toHaveCount(0);
 
   // 승인 불가 탭에 보이고, 승인할 요청 탭에는 없다.
-  await page.getByRole('tab', { name: '승인 불가(주소 중지)' }).click();
+  await requestViews(page).getByRole('button', { name: '승인 불가(주소 중지)' }).click();
   await expect(page).toHaveURL(/view=blocked/);
-  await expect(page.getByRole('tab', { name: '승인 불가(주소 중지)' })).toHaveAttribute('aria-selected', 'true');
+  await expect(requestViews(page).getByRole('button', { name: '승인 불가(주소 중지)' })).toHaveAttribute('aria-pressed', 'true');
   const row = page.getByRole('link', { name: new RegExp(sub.refNo) });
   await expect(row).toBeVisible();
   await expect(row).toContainText('승인 불가 · 주소 사용 중지');
-  await page.getByRole('tab', { name: '내가 승인할 요청' }).click();
+  await requestViews(page).getByRole('button', { name: '내가 승인할 요청' }).click();
   await expect(page).toHaveURL(/view=to_approve/);
   await expect(page.getByRole('link', { name: new RegExp(sub.refNo) })).toHaveCount(0);
   await logout(page);
@@ -206,7 +208,7 @@ test('홈의 할 일 링크·전체 보기는 눌린 상태 칩으로 이어지�
       await expect(pressedChips(page), href).toHaveCount(1);
       await expect(pressedChips(page)).toBeVisible();
       const view = new URL(href, 'http://x').searchParams.get('view');
-      if (view) await expect(page.getByRole('tab', { selected: true })).toHaveCount(1);
+      if (view) await expect(requestViews(page).getByRole('button', { pressed: true })).toHaveCount(1);
     }
     await page.goto('/');
     const heading = (await page.getByRole('heading', { name: /진행 중인 요청/ }).textContent()) ?? '';

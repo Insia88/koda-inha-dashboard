@@ -50,6 +50,18 @@ const sameSet = (a: string, b: string) => {
 
 const OPEN_STATUSES = ['DRAFT', 'REVIEW', 'PENDING_APPROVAL'];
 
+/**
+ * 결과 한 줄(A3, WCAG 4.1.3, 화면 낭독기 전용): '전체 요청 12건 중 1–10', '조건에 맞는 요청 3건 중 1–3', '조건에 맞는 요청 0건', '전체 요청 22건 · 99페이지에는 요청 없음'.
+ * 보기·상태·검색·페이지가 바뀔 때 같은 알림 영역의 내용만 바뀐다. 이 화면의 페이지 줄은 알림 영역이 아니다(같은 내용을 두 번 읽지 않게).
+ */
+function resultLine(total: number, filtered: boolean, page: number, pageSize: number, outOfRange: boolean): string {
+  const what = filtered ? '조건에 맞는 요청' : '전체 요청';
+  const n = (x: number) => x.toLocaleString('ko-KR');
+  if (total === 0) return filtered ? '조건에 맞는 요청 0건' : '요청 0건';
+  if (outOfRange) return `${what} ${n(total)}건 · ${n(page)}페이지에는 요청 없음`;
+  return `${what} ${n(total)}건 중 ${n((page - 1) * pageSize + 1)}–${n(Math.min(total, page * pageSize))}`;
+}
+
 export function RequestsPage() {
   const me = useMe();
   const can = (p: string) => me.permissions.includes(p);
@@ -74,6 +86,7 @@ export function RequestsPage() {
   const customStatuses = !matchedGroup && state.status ? statusList(state.status) : [];
   const page = Number(state.page);
   const outOfRange = !!q.data && q.data.items.length === 0 && q.data.total > 0 && page > 1;
+  const result = q.data && !q.error ? resultLine(q.data.total, filtered, page, Number(state.pageSize), outOfRange) : '';
 
   return (
     <div className="page">
@@ -82,9 +95,10 @@ export function RequestsPage() {
         description="출금 요청은 작성 → 검토 → 승인 대기 → 처리 결과 순서로 진행됩니다. 요청자는 자기 요청을 승인할 수 없습니다."
       />
       <Faq items={requestFaq(me.policy.approval)} />
-      <div className="tabs" role="tablist" aria-label="요청 보기">
+      {/* 한 목록을 거르는 보기라 탭(tablist·tab) 대신 상태 칩과 같은 눌림 버튼 묶음이다(A3). 이름·순서·URL(view)은 그대로다. */}
+      <div className="tabs" role="group" aria-label="요청 보기">
         {views.map((v) => (
-          <button key={v.key} role="tab" aria-selected={state.view === v.key} className={`tab ${state.view === v.key ? 'active' : ''}`} onClick={() => set({ view: v.key })}>{v.label}</button>
+          <button type="button" key={v.key} aria-pressed={state.view === v.key} className={`tab ${state.view === v.key ? 'active' : ''}`} onClick={() => set({ view: v.key })}>{v.label}</button>
         ))}
       </div>
       {state.view === 'blocked' && <p className="result-count">받는 주소가 사용 중지되어 승인할 수 없는 승인 대기 요청입니다. 요청자가 취소하거나 승인자가 사유와 함께 반려하면 예약 수량이 풀립니다.</p>}
@@ -115,6 +129,8 @@ export function RequestsPage() {
           </select>
         </label>
       </form>
+      {/* 결과 한 줄(A3): 목록·빈 결과와 관계없이 늘 있는 알림 영역. 0건으로 목록과 페이지 줄이 사라져도 이 줄이 알린다. */}
+      <p className="sr-only req-result" role="status">{result}</p>
       {q.isPending ? <Loading /> : q.error ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : outOfRange ? (
         <Empty title="이 페이지에는 요청이 없습니다" action={<button className="btn" onClick={() => set({ page: '1' }, { resetPage: false })}>첫 페이지로</button>}>
           조건에 맞는 요청은 {q.data.total.toLocaleString('ko-KR')}건이며 {Math.max(1, Math.ceil(q.data.total / Number(state.pageSize)))}페이지까지 있습니다.
@@ -151,7 +167,7 @@ export function RequestsPage() {
               );
             })}
           </ul>
-          <Pagination page={page} pageSize={Number(state.pageSize)} total={q.data.total} onPage={(p) => set({ page: String(p) }, { resetPage: false })} onPageSize={(s) => set({ pageSize: String(s) })} sizes={[10, 25, 50]} />
+          <Pagination live={false} page={page} pageSize={Number(state.pageSize)} total={q.data.total} onPage={(p) => set({ page: String(p) }, { resetPage: false })} onPageSize={(s) => set({ pageSize: String(s) })} sizes={[10, 25, 50]} />
         </>
       )}
     </div>
