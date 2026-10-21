@@ -707,7 +707,7 @@ body:has(dialog[open]) { overflow: hidden; }
 
 
 /* A7: 상세 화면 불러오는 중에도 최소 높이를 잡아 콘텐츠 교체 때 아래 요소가 튀지 않게 한다(CLS). */
-.detail-loading { min-height: calc(100vh - 220px); display: grid; place-items: center; }
+.detail-loading { min-height: 100vh; display: grid; place-items: center; }
 
 
 /* A8: 터치 화면에서 작은 버튼·링크의 실제 누를 수 있는 영역을 44px으로 넓힌다(보이는 크기·배치·줄 간격은 그대로).

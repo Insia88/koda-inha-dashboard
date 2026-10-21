@@ -11,7 +11,7 @@
 .demo-switcher-menu { position: absolute; right: 0; top: calc(100% + var(--s2)); z-index: 30; width: min(320px, 84vw); display: flex; flex-direction: column; gap: 4px; padding: var(--s3); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: 0 12px 28px rgba(16, 32, 27, 0.18); }
 .demo-switcher-menu p { margin: 0 0 4px; }
 .demo-switcher-item { justify-content: flex-start; text-align: left; }
-@media (max-width: 900px) { .demo-switcher { display: none; } }
+@media (max-width: 900px) { .topbar .demo-switcher { display: none; } .nav-user .demo-switcher { display: block; } }
 
 
 /* A7: 서랍(좁은 화면) 맨 위의 현재 사용자와 데모 전환. 넓은 화면에서는 머리글에 이미 있으므로 서랍 쪽은 숨긴다. */

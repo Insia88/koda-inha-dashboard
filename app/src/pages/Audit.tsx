@@ -13,11 +13,16 @@ import { DecisionEvidenceLine } from '../components/DecisionEvidence.tsx';
 
 export function AuditPage() {
   const me = useMe();
-  const { state, set, qs } = useUrlState({ action: '', actor: '', q: '', from: '', to: '', page: '1', pageSize: '50' });
+  const { state, set, qs } = useUrlState({ action: '', actor: '', q: '', from: '', to: '', business: '', page: '1', pageSize: '50' });
+  // 공개 데모에서는 로그인·로그아웃 기록이 첫 화면을 덮지 않도록 '업무 기록만'을 기본으로 한다. 행동을 고르면 그 행동 전체를 본다.
+  const demoDefault = me.environment.mode === 'public-demo' && !state.action;
+  const businessOnly = demoDefault ? state.business !== '0' : state.business === '1';
   const params = new URLSearchParams(Object.entries(state).filter(([, v]) => v));
+  if (businessOnly) params.set('business', '1'); else params.delete('business');
   const q = useQuery({ queryKey: ['audit', qs], queryFn: ({ signal }) => api(`/api/audit?${params}`, { signal }), placeholderData: (p) => p });
   const verify = useQuery({ queryKey: ['audit-verify'], queryFn: () => api('/api/audit/verify') });
   const exportParams = new URLSearchParams(Object.entries({ action: state.action, actor: state.actor, q: state.q, from: state.from, to: state.to }).filter(([, v]) => v));
+  if (businessOnly) exportParams.set('business', '1');
   const filtered = !!(state.action || state.actor || state.q || state.from || state.to);
   const reset = () => set({ action: '', actor: '', q: '', from: '', to: '' });
 
@@ -51,7 +56,11 @@ export function AuditPage() {
           )}
         </div>
       )}
+      {businessOnly && (
+        <p className="muted small">목록은 로그인·로그아웃 기록을 뺀 업무 기록입니다. 무결성 확인은 로그인 기록까지 포함한 전체 기록을 대상으로 합니다.</p>
+      )}
       <form className="toolbar" role="search" noValidate onSubmit={(e) => e.preventDefault()}>
+        <label className="check-inline"><input type="checkbox" checked={businessOnly} onChange={(e) => set({ business: e.target.checked ? '' : '0' })} />업무 기록만 보기</label>
         <SearchField label="내용 검색" placeholder="내용·요청 번호 검색" value={state.q} onCommit={(v) => set({ q: v })} />
         <SearchField label="수행자 이름" placeholder="수행자 이름" value={state.actor} onCommit={(v) => set({ actor: v })} maxLength={50} icon={false} className="search-narrow" clearLabel="수행자 이름 지우기" />
         <label><span className="sr-only">행동</span><select value={state.action} onChange={(e) => set({ action: e.target.value })}><option value="">모든 행동</option>{(q.data?.actions ?? []).map((a: string) => <option key={a} value={a}>{actionLabel(a)}</option>)}</select></label>

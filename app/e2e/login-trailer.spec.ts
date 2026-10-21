@@ -42,7 +42,12 @@ test.describe('로그인 브랜드 트레일러(DEC-006)', () => {
     await expect(page.locator('.login-stage-copy')).toBeInViewport();
 
     // 영상 뒤에서도 본문(세션 만료 안내·로그인 사용자)이 그대로 동작한다.
-    await expect(page.getByText('세션이 만료되어 로그아웃되었습니다. 다시 로그인하면 보던 화면으로 돌아갑니다.')).toBeVisible();
+    // 로그인한 적 없는 첫 방문에 ?reason=expired가 붙어도 만료 안내는 뜨지 않는다. 표시 쿠키가 있으면 보인다.
+    const expiredText = '세션이 만료되어 로그아웃되었습니다. 다시 로그인하면 보던 화면으로 돌아갑니다.';
+    await expect(page.getByText(expiredText)).toHaveCount(0);
+    await page.context().addCookies([{ name: 'koda_logged_in', value: '1', domain: new URL(page.url()).hostname, path: '/' }]);
+    await page.reload();
+    await expect(page.getByText(expiredText)).toBeVisible();
     await expect(page.locator('.login-user').first()).toBeVisible();
     // 화면 고정: 로그인 목록을 스크롤해도 무대 내용(필름 창 + 태그라인)은 화면 위에 붙어 있다.
     await page.mouse.wheel(0, 420);

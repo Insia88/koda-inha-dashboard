@@ -218,6 +218,8 @@ export async function buildApp({ cfg, db, custody, runtime, logStream }: AppDeps
     const s = sessions.issue({ id: u.id, orgId: u.org_id });
     tx(db, () => writeAudit(db, { orgId: u.org_id, actorId: u.id, actorName: u.name, action: 'auth.login', targetType: 'user', targetId: u.id, summary: `${u.name} 로그인 (모의 로그인)` }));
     setSessionCookie(reply, s.token, s.expires, cfg.cookieSecure);
+    // 세션 만료 안내를 '로그인한 적 있는 브라우저'에서만 보이게 하는 비밀이 아닌 표시 쿠키(HttpOnly 아님).
+    reply.setCookie('koda_logged_in', '1', { path: '/', sameSite: 'lax', secure: cfg.cookieSecure, httpOnly: false, maxAge: Math.max(60, cfg.sessionTtlMinutes * 60) });
     return { ok: true };
   });
 
@@ -229,6 +231,7 @@ export async function buildApp({ cfg, db, custody, runtime, logStream }: AppDeps
       tx(db, () => writeAudit(db, { orgId: a.org.id, actorId: a.user.id, actorName: a.user.name, action: 'auth.logout', targetType: 'user', targetId: a.user.id, summary: `${a.user.name} 로그아웃` }));
     }
     clearSessionCookie(reply, cfg.cookieSecure);
+    reply.clearCookie('koda_logged_in', { path: '/' });
     return { ok: true };
   });
 
@@ -411,7 +414,7 @@ export async function buildApp({ cfg, db, custody, runtime, logStream }: AppDeps
   });
 
   // ---------- 감사 ----------
-  const auditQuery = z.object({ action: str, actor: str, q: str, from: str, to: str });
+  const auditQuery = z.object({ action: str, actor: str, q: str, from: str, to: str, business: z.enum(['1']).optional() });
   app.get('/api/audit', async (req) => {
     const a = requirePerm(req, 'audit.read', '감사 기록 조회');
     return rm.auditList(db, a, parse(pageQuery.merge(auditQuery), req.query));

@@ -53,6 +53,10 @@ function useTrailerMotion(): boolean {
  * 재생이 차단되면 포스터가 그대로 보인다. 영상이 준비되면 포스터 위로 부드럽게 나타난다(글자가 아니라 영상에만 투명도 전환).
  */
 const SOUND_PREF = 'koda:film-sound';
+/** 로그인한 적 있는 브라우저인지(세션 만료 안내 표시용, 서버가 심는 비밀 아닌 쿠키). */
+function hasLoginMarker(): boolean {
+  try { return document.cookie.split('; ').includes('koda_logged_in=1'); } catch { return false; }
+}
 function LoginTrailer() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [ready, setReady] = useState(false);
@@ -189,8 +193,9 @@ export function LoginPage() {
             비밀번호 없이 모의 사용자를 골라 들어갑니다. 실제 KODA 계정·SSO 인증이 아니며, 모든 사람·법인·자산·주소는 모의 데이터입니다.
           </Notice>
         )}
-        {/* 공개 데모에서도 다른 서버로 연결되는 것만으로는 로그아웃되지 않으므로, 여기서는 세션 만료만 알린다. */}
-        {sp.get('reason') === 'expired' && <Notice tone="info" role="status">세션이 만료되어 로그아웃되었습니다. 다시 로그인하면 보던 화면으로 돌아갑니다.</Notice>}
+        {/* 공개 데모에서도 다른 서버로 연결되는 것만으로는 로그아웃되지 않으므로, 여기서는 세션 만료만 알린다.
+            로그인한 적 없는 첫 방문에 ?reason=expired가 붙어도 만료 안내가 뜨지 않도록 표시 쿠키를 확인한다. */}
+        {sp.get('reason') === 'expired' && hasLoginMarker() && <Notice tone="info" role="status">세션이 만료되어 로그아웃되었습니다. 다시 로그인하면 보던 화면으로 돌아갑니다.</Notice>}
         <ApiErrorNotice error={err} />
         {/* A7(신뢰·직관): 들어오기 전에 이 대시보드가 지키는 안전 장치를 세 줄로 알린다. 구현된 동작만 쓴다. */}
         <section className="login-trust" aria-labelledby="login-trust-h">

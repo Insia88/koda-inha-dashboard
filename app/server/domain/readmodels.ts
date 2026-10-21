@@ -216,7 +216,7 @@ export function updateRoles(db: DB, auth: AuthContext, userId: string, roles: Ro
   });
 }
 
-export function auditList(db: DB, auth: AuthContext, q: { action?: string; actor?: string; q?: string; from?: string; to?: string; page: number; pageSize: number }) {
+export function auditList(db: DB, auth: AuthContext, q: { action?: string; actor?: string; q?: string; from?: string; to?: string; business?: string; page: number; pageSize: number }) {
   const { w, args } = auditWhere(auth, q);
   const total = (db.prepare(`SELECT COUNT(*) c FROM audit_log WHERE ${w}`).get(...args) as { c: number }).c;
   // seq는 DB 전체(모든 조직) 공용 순번이라 조직별로 보면 빈 번호가 생기고, 그 간격으로 다른 조직의 기록량을 짐작할 수 있다.
@@ -261,7 +261,7 @@ export function evidenceLookup(db: DB, auth: AuthContext): (requestId: string, a
  * CSV 내보내기용 행(오래된 순, 최대 limit행). 순번(orgSeq)은 목록·화면의 '번호'·검증 결과의 brokenAtNo와 같은 조직 안 순번이며
  * 필터를 걸기 전에 매긴다. 전체 공용 seq는 내보내지 않는다. actor_id는 결정 근거를 찾을 때만 쓰고 CSV 열에는 넣지 않는다.
  */
-export function auditOrgRows(db: DB, auth: AuthContext, q: { action?: string; actor?: string; q?: string; from?: string; to?: string }, limit: number) {
+export function auditOrgRows(db: DB, auth: AuthContext, q: { action?: string; actor?: string; q?: string; from?: string; to?: string; business?: string }, limit: number) {
   const { w, args } = auditWhere(auth, q);
   return db.prepare(
     `SELECT org_seq orgSeq, created_at, actor_id, actor_name, action, target_type, target_id, summary, hash
@@ -349,10 +349,12 @@ export function auditCsvEvidence(db: DB, auth: AuthContext) {
   };
 }
 
-export function auditWhere(auth: AuthContext, q: { action?: string; actor?: string; q?: string; from?: string; to?: string }) {
+export function auditWhere(auth: AuthContext, q: { action?: string; actor?: string; q?: string; from?: string; to?: string; business?: string }) {
   const where = ['org_id = ?'];
   const args: any[] = [auth.org.id];
   if (q.action) { where.push('action = ?'); args.push(q.action); }
+  // 공개 데모 기본 화면: 방문자 로그인/로그아웃이 업무 기록을 덮지 않도록 로그인 기록을 뺀다(끄면 전체).
+  if (q.business === '1') { where.push("action NOT LIKE 'auth.%'"); }
   if (q.actor) { where.push('actor_name LIKE ? ESCAPE \'\\\''); args.push(likePattern(q.actor)); }
   if (q.q) { where.push("summary LIKE ? ESCAPE '\\'"); args.push(likePattern(q.q)); }
   if (q.from && /^\d{4}-\d{2}-\d{2}$/.test(q.from)) { where.push('created_at >= ?'); args.push(new Date(`${q.from}T00:00:00+09:00`).toISOString()); }

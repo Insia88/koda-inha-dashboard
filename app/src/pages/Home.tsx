@@ -130,7 +130,7 @@ export function HomePage() {
     <div className="page home">
       <PageHeader
         title={`${me.org.name} 자산 현황`}
-        description={<>현재 보유 자산, 처리할 업무, 진행 중인 요청을 한 화면에서 확인합니다.</>}
+        description={<>{me.roles.includes('auditor') ? '요청·승인·주소 변경 기록과 감사 무결성을 확인합니다.' : me.roles.includes('admin') ? '구성원 역할과 조직의 승인 정책을 관리하고, 처리할 업무를 확인합니다.' : '현재 보유 자산, 처리할 업무, 진행 중인 요청을 한 화면에서 확인합니다.'}</>}
       />
 
       {/* A7(신뢰·직관): 첫 화면에서 주소 확인·사용 대기·내 승인 차례·진행 중 요청을 한눈에. 모두 0이면 지금 확인할 항목이 없습니다. */}
@@ -141,8 +141,8 @@ export function HomePage() {
         </div>
         <ul className="safety-list">
           {([
-            ['review_addresses', '주소 확인 대기', reviewN, reviewN > 0 ? '확인이 필요합니다' : '없음', '/addresses'],
-            ['cooling_addresses', '사용 대기 주소', coolingN, coolingN > 0 ? '대기 중 · 모르는 등록이면 정지' : '없음', '/addresses'],
+            ['review_addresses', '주소 확인 대기', reviewN, reviewN > 0 ? '확인이 필요합니다' : '없음', '/addresses?status=PENDING_REVIEW'],
+            ['cooling_addresses', '사용 대기 주소', coolingN, coolingN > 0 ? '대기 중 · 모르는 등록이면 정지' : '없음', '/addresses?status=COOLING_DOWN'],
             ['approve_requests', '내 승인 차례', approveN, approveN > 0 ? '내가 승인할 수 있습니다' : '없음', '/requests?status=PENDING_APPROVAL'],
           ] as const).map(([kind, label, count, hint, fallback]) => {
             const href = (q.data?.tasks ?? []).find((t: any) => t.kind === kind)?.href ?? fallback;

@@ -314,6 +314,21 @@ export function RequestDetailPage() {
   const noteDirty = noteDraft !== null && noteDraft !== (q.data?.paymentEvidence?.note?.text ?? '');
   const guard = useUnsavedGuard(editDirty || reasonDirty || checkReasonDirty || noteDirty || evidenceBusy);
 
+  // #decision-card로 바로 들어온 경우(북마크·앵커 공유)에도 로딩 뒤 카드로 포커스·스크롤한다(A8 접근성).
+  const hashFocusDone = useRef(false);
+  useEffect(() => {
+    if (hashFocusDone.current || typeof location === 'undefined' || location.hash !== '#decision-card') return;
+    hashFocusDone.current = true;
+    const t = setTimeout(() => {
+      const el = document.getElementById('decision-card');
+      if (!el) return;
+      el.scrollIntoView();
+      el.focus({ preventScroll: true });
+    }, 80);
+    return () => clearTimeout(t);
+  }, [q.data?.id]);
+
+
   // 로딩 중에도 화면 높이를 잡아 둔다: 콘텐츠가 들어올 때 아래 요소가 튀는 CLS를 줄인다(A7 데모 품질).
   if (q.isPending) return <div className="detail-loading"><Loading /></div>;
   if (q.error) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
