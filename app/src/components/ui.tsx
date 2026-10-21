@@ -7,7 +7,9 @@ import type { Tone } from '../../shared/terms.ts';
 import { chunkAddress, middleSegment } from '../../shared/address-rules.ts';
 import { dateTime, relative, waited } from '../format.ts';
 
-export const APP_TITLE = 'KODA 법인 대시보드 (개발 환경)';
+// 호스팅(공개 데모)에서는 개발 환경 문구를 쓰지 않는다. 로컬 실행의 문서 제목은 그대로 둔다(A5 검사와 같은 문구).
+const HOSTED_DEMO = typeof location !== 'undefined' && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+export const APP_TITLE = HOSTED_DEMO ? 'KODA 법인 대시보드' : 'KODA 법인 대시보드 (개발 환경)';
 /** 경로별 문서 제목(owner). 화면 제목 · 앱 이름 */
 export function useDocumentTitle(title: string) {
   useEffect(() => { document.title = title ? `${title} · ${APP_TITLE}` : APP_TITLE; }, [title]);

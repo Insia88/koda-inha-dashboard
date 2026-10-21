@@ -16,16 +16,23 @@ test.describe('로그인 브랜드 트레일러(DEC-006)', () => {
       const v = node as HTMLVideoElement;
       return { muted: v.muted, loop: v.loop, autoplay: v.autoplay, playsInline: v.playsInline, paused: v.paused, readyState: v.readyState, src: v.currentSrc };
     });
-    expect(state.muted).toBe(true);
+    // 소리 있는 자동재생은 브라우저가 막을 수 있다. 막히면 음소거로 재생되고 '배경음 켜기' 버튼으로 켠다.
     expect(state.loop).toBe(true);
     expect(state.autoplay).toBe(true);
     expect(state.playsInline).toBe(true);
     expect(state.src).toContain('/brand/koda-brand-film-16x9.mp4');
+    const soundBtn = page.getByRole('button', { name: /배경음 (켜기|끄기)/ });
+    await expect(soundBtn).toBeVisible();
 
     // 재생이 시작될 때까지(포스터만 떠 있다가 영상이 준비되면 재생). 전체 필름(42.45초)인지도 확인한다.
     await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).readyState >= 2), { timeout: 20_000 }).toBe(true);
     expect(await video.evaluate((node) => (node as HTMLVideoElement).duration)).toBeGreaterThan(40);
     await expect.poll(() => video.evaluate((node) => !(node as HTMLVideoElement).paused), { timeout: 20_000 }).toBe(true);
+
+    // '배경음 켜기'를 누르면(사용자 클릭) 소리가 켜지고 재생이 이어진다.
+    if (await soundBtn.getAttribute('aria-pressed') !== 'true') await soundBtn.click();
+    await expect.poll(() => video.evaluate((node) => !(node as HTMLVideoElement).muted && !(node as HTMLVideoElement).paused), { timeout: 15_000 }).toBe(true);
+    await expect(page.getByRole('button', { name: '배경음 끄기' })).toBeVisible();
 
     // 장식: 포커스를 받지 않고 보조기기에서 숨는다.
     await expect(video).toHaveAttribute('aria-hidden', 'true');
@@ -48,6 +55,7 @@ test.describe('로그인 브랜드 트레일러(DEC-006)', () => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/login');
     await expect(page.locator('.login-stage video')).toBeHidden();
+    await expect(page.locator('.login-stage-sound')).toBeHidden();
     await expect(page.locator('.login-stage-poster')).toBeVisible();
     await expect(page.getByRole('heading', { name: '법인 대시보드 로그인' })).toBeVisible();
   });

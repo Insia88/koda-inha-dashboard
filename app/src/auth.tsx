@@ -109,7 +109,7 @@ export function AuthGate({ children, fallback }: { children: ReactNode; fallback
         }}
       >
         <p>작성 중인 내용은 이 화면에 그대로 남아 있습니다. 같은 계정으로 다시 로그인한 뒤 저장이나 제출을 다시 누르세요.</p>
-        <p className="muted small">개발용 로그인입니다. 운영에서는 KODA 인증(SSO) 재확인으로 바뀝니다.</p>
+        <p className="muted small">모의 로그인입니다. 운영에서는 KODA 인증(SSO) 재확인으로 바뀝니다.</p>
       </ConfirmDialog>
     </Ctx.Provider>
   );

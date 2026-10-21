@@ -314,7 +314,8 @@ export function RequestDetailPage() {
   const noteDirty = noteDraft !== null && noteDraft !== (q.data?.paymentEvidence?.note?.text ?? '');
   const guard = useUnsavedGuard(editDirty || reasonDirty || checkReasonDirty || noteDirty || evidenceBusy);
 
-  if (q.isPending) return <Loading />;
+  // 로딩 중에도 화면 높이를 잡아 둔다: 콘텐츠가 들어올 때 아래 요소가 튀는 CLS를 줄인다(A7 데모 품질).
+  if (q.isPending) return <div className="detail-loading"><Loading /></div>;
   if (q.error) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   const r = q.data;
   const st = REQUEST_STATUS[r.status as RequestStatus];
@@ -403,6 +404,10 @@ export function RequestDetailPage() {
         <p className="muted small rail-caption">마지막 칸 '처리 결과'는 필요한 승인이 모두 모인 뒤 수탁사가 처리한 결과(처리 완료·처리 실패)입니다.</p>
       )}
 
+      {/* A7: 승인자가 결정 카드(아래)까지 스크롤하는 수고를 줄인다. 카드가 있는 승인 대기 화면에서만 보인다. */}
+      {decideCard && (
+        <p className="decision-jump"><a href="#decision-card">결정 카드로 바로 가기 ↓</a></p>
+      )}
       <section ref={nextRef} tabIndex={-1} className="next-action" aria-labelledby="next-h">
         <h2 id="next-h">다음 할 일</h2>
         <p>{nextAction(r, roleKey, n, can('reject'), reasonPrefilled, !!decided)}</p>
@@ -596,7 +601,7 @@ export function RequestDetailPage() {
       )}
 
       {decideCard && (
-        <section className="card card-action" aria-labelledby="approve-h">
+        <section id="decision-card" className="card card-action" aria-labelledby="approve-h">
           <h2 id="approve-h">{can('approve') ? '승인 또는 반려' : '반려'}</h2>
           {/* 무엇을 결정하는지 한 줄 요약(A1): 누가·어디로·얼마·왜·몇 명 중 몇 명. 평가액은 제출 때 저장한 값이다.
               받는 곳 이름이 이미 괄호로 끝나면(예: '정산 파트너 B (Kaia USDC)') 괄호를 겹치지 않고 가운뎃점으로 상대를 잇는다. */}

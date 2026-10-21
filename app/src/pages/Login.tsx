@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { IconCircleCheck } from '@tabler/icons-react';
+import { IconCircleCheck, IconVolume, IconVolumeOff } from '@tabler/icons-react';
 import { acknowledgeDemoSwitch, api, type HealthInfo } from '../api.ts';
 import { ApiErrorNotice, Loading, Notice, ErrorState, useDocumentTitle } from '../components/ui.tsx';
 import { DemoFooter } from '../components/DemoFooter.tsx';
@@ -52,19 +52,57 @@ function useTrailerMotion(): boolean {
  * 로그인 무대의 KODA 브랜드 필름 전체(42.45초, 무음). 장식이므로 aria-hidden이고 포커스를 받지 않는다.
  * 재생이 차단되면 포스터가 그대로 보인다. 영상이 준비되면 포스터 위로 부드럽게 나타난다(글자가 아니라 영상에만 투명도 전환).
  */
+const SOUND_PREF = 'koda:film-sound';
 function LoginTrailer() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [ready, setReady] = useState(false);
+  const [soundOn, setSoundOn] = useState(false);
   const motion = useTrailerMotion();
   const asset = useTrailerAsset();
   const { src, poster } = TRAILER_ASSETS[asset];
+
+  // 배경음: 브라우저는 소리 있는 자동재생을 막는 경우가 많다. 먼저 소리를 켠 채 재생을 시도하고,
+  // 막히면 음소거로 재생한 뒤 '배경음 켜기' 버튼(사용자 클릭)으로 켠다. 이전에 끈 사람은 존중한다.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     if (!motion) { video.pause(); return; }
-    // 자동재생이 막히면(브라우저 설정 등) 포스터가 남는다. 오류는 화면에 알리지 않는다(장식).
-    void video.play().catch(() => {});
+    let pref: string | null = null;
+    try { pref = localStorage.getItem(SOUND_PREF); } catch { pref = null; }
+    if (pref === 'off') {
+      video.muted = true;
+      void video.play().catch(() => {});
+      return;
+    }
+    video.muted = false;
+    const p = video.play();
+    if (p) p.then(() => { setSoundOn(true); try { localStorage.setItem(SOUND_PREF, 'on'); } catch { /* noop */ } })
+      .catch(() => {
+        video.muted = true;
+        setSoundOn(false);
+        void video.play().catch(() => {});
+      });
   }, [motion, asset]);
+
+  const toggleSound = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (soundOn) {
+      video.muted = true;
+      setSoundOn(false);
+      try { localStorage.setItem(SOUND_PREF, 'off'); } catch { /* noop */ }
+      return;
+    }
+    video.muted = false;
+    try {
+      await video.play();
+      setSoundOn(true);
+      localStorage.setItem(SOUND_PREF, 'on');
+    } catch {
+      video.muted = true;
+      setSoundOn(false);
+    }
+  };
   return (
     <aside className="login-stage" aria-label="KODA 브랜드 필름">
       <div className="login-stage-inner">
@@ -87,7 +125,17 @@ function LoginTrailer() {
         onCanPlay={() => setReady(true)}
       />
       <div className="login-stage-scrim" />
-        </div>
+        <button
+          type="button"
+          className="login-stage-sound"
+          onClick={() => void toggleSound()}
+          aria-pressed={soundOn}
+          aria-label={soundOn ? '배경음 끄기' : '배경음 켜기'}
+        >
+          {soundOn ? <IconVolumeOff size={16} aria-hidden="true" /> : <IconVolume size={16} aria-hidden="true" />}
+          <span>{soundOn ? '배경음 끄기' : '배경음 켜기'}</span>
+        </button>
+      </div>
         <p className="login-stage-copy">확인이 쌓여, 신뢰가 됩니다.<span>KODA 브랜드 필름 · 42초 · 무음</span></p>
       </div>
     </aside>
@@ -120,6 +168,12 @@ export function LoginPage() {
 
   const orgs = new Map<string, DevUser[]>();
   for (const u of users.data ?? []) orgs.set(u.org_name, [...(orgs.get(u.org_name) ?? []), u]);
+  // 데모 추천 순서(한지수 → 오민재 → 문태호)를 목록 맨 앞에 고정한다(가나다순이면 처음 찾기 어렵다).
+  const RECOMMENDED = ['한지수', '오민재', '문태호'];
+  for (const [org, list] of orgs) {
+    const rank = (n: string) => { const i = RECOMMENDED.indexOf(n); return i === -1 ? RECOMMENDED.length : i; };
+    orgs.set(org, [...list].sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name, 'ko')));
+  }
 
   return (
     <div className="login">

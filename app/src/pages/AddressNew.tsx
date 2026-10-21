@@ -121,7 +121,7 @@ export function AddressNewPage() {
 
         <fieldset className="form-step" disabled={!f.networkCode}>
           <legend><span className="step-no">2</span>받는 주소</legend>
-          <Field label="주소" htmlFor="address" required error={fe('address')} hint="직접 타이핑하지 말고 받는 곳이 보낸 원본에서 복사해 붙여 넣으세요. 개발 환경은 MOCK- 로 시작하는 모의 주소만 받습니다.">
+          <Field label="주소" htmlFor="address" required error={fe('address')} hint="직접 타이핑하지 말고 받는 곳이 보낸 원본에서 복사해 붙여 넣으세요. 이 데모는 MOCK- 로 시작하는 모의 주소만 받습니다.">
             <TextareaAuto id="address" className="mono" rows={2} maxRows={4} value={f.address} onChange={(e) => set({ address: e.target.value })} spellCheck={false} autoComplete="off" maxLength={200} />
           </Field>
           {network?.memoRequired ? (

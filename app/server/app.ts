@@ -201,7 +201,7 @@ export async function buildApp({ cfg, db, custody, runtime, logStream }: AppDeps
     if (!u) throw new AppError(401, 'LOGIN_FAILED', '선택한 개발용 계정으로 로그인할 수 없습니다.', '목록에서 다른 계정을 고르세요.');
     if (req.auth) sessions.end(req.auth);
     const s = sessions.issue({ id: u.id, orgId: u.org_id });
-    tx(db, () => writeAudit(db, { orgId: u.org_id, actorId: u.id, actorName: u.name, action: 'auth.login', targetType: 'user', targetId: u.id, summary: `${u.name} 로그인 (개발용 로그인)` }));
+    tx(db, () => writeAudit(db, { orgId: u.org_id, actorId: u.id, actorName: u.name, action: 'auth.login', targetType: 'user', targetId: u.id, summary: `${u.name} 로그인 (모의 로그인)` }));
     setSessionCookie(reply, s.token, s.expires, cfg.cookieSecure);
     return { ok: true };
   });

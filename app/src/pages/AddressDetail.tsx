@@ -145,7 +145,8 @@ export function AddressDetailPage() {
     return () => cancelAnimationFrame(raf);
   }, [review.error]); // eslint-disable-line
 
-  if (q.isPending) return <Loading />;
+  // 로딩 중에도 화면 높이를 잡아 둔다(A7 데모 품질: 콘텐츠 교체 때 CLS 감소).
+  if (q.isPending) return <div className="detail-loading"><Loading /></div>;
   if (q.error) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   const a = q.data;
   const st = ADDRESS_STATUS[a.status as AddressStatus];

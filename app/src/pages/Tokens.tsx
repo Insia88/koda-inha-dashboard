@@ -31,7 +31,7 @@ export function TokensPage() {
           </tbody>
         </table>
       </div>
-      <p className="muted small">목록은 개발용 설정입니다. 실제 KODA 지원 자산·네트워크 목록이 아닙니다.</p>
+      <p className="muted small">목록은 모의 설정입니다. 실제 KODA 지원 자산·네트워크 목록이 아닙니다.</p>
     </div>
   );
 }

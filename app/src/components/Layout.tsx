@@ -69,6 +69,19 @@ export function useDemoSwitch(): [boolean, () => void] {
   return [pending, acknowledge];
 }
 
+/**
+ * 공개 데모에서만 보이는 '데모 사용자 전환' 메뉴(A7). 진행자가 로그아웃 없이 역할을 바꿔 시연할 수 있게 한다.
+ * 로컬 실행에는 보이지 않고, 공개 데모의 세션은 그대로 둔 채 dev-login만 다시 호출한 뒤 홈으로 새로 고친다.
+ */
+function useDemoUsers(enabled: boolean) {
+  return useQuery({
+    queryKey: ['demo-users'],
+    queryFn: () => api<{ id: string; name: string; title: string }[]>('/api/auth/dev-users'),
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
 /** 안내를 닫아 버튼이 사라진 뒤 포커스가 문서 맨 앞으로 떨어지지 않도록 화면 제목으로 옮긴다. */
 const focusPageTitle = () => requestAnimationFrame(() => document.getElementById('page-title')?.focus({ preventScroll: true }));
 
@@ -135,6 +148,19 @@ export function Layout() {
   const [demoSwitch, acknowledgeSwitch] = useDemoSwitch();
   const env = me.environment;
   const demo = env.mode === 'public-demo';
+  const demoUsers = useDemoUsers(demo);
+  const [switching, setSwitching] = useState<string | null>(null);
+  // 데모 진행자용: 로그아웃 없이 다른 역할로 바꾼다(공개 데모에서만 렌더). 공개 데모 세션은 서명 쿠키라 사용자만 바꾸면 된다.
+  const switchUser = async (id: string) => {
+    if (!demo || switching) return;
+    setSwitching(id);
+    try {
+      await api('/api/auth/dev-login', { method: 'POST', body: { userId: id } });
+      window.location.assign('/');
+    } catch {
+      setSwitching(null);
+    }
+  };
   const lastPath = useRef<string | null>(null);
   const startOver = useRef(false);
   const can = (p: string) => me.permissions.includes(p);
@@ -300,12 +326,45 @@ export function Layout() {
           </Link>
         )}
         <div className="topbar-user">
+          {demo && (
+            <details className="demo-switcher">
+              <summary className="btn btn-ghost btn-sm demo-switcher-toggle">데모 사용자 전환</summary>
+              <div className="demo-switcher-menu" role="group" aria-label="데모 사용자 선택">
+                <p className="small muted">로그아웃 없이 역할만 바꿉니다. 화면 데이터는 홈에서 새로 불러옵니다.</p>
+                {demoUsers.data?.map((u) => (
+                  <button key={u.id} className="btn btn-ghost demo-switcher-item" onClick={() => void switchUser(u.id)} disabled={switching !== null} aria-busy={switching === u.id}>
+                    {u.name} <span className="muted">· {u.title}</span>
+                  </button>
+                ))}
+                {demoUsers.isPending && <span className="small muted">사용자 목록을 불러오는 중…</span>}
+                {demoUsers.error && <span className="small muted">사용자 목록을 불러오지 못했습니다. 로그아웃 후 다시 들어와 주세요.</span>}
+              </div>
+            </details>
+          )}
           <span className="user-name">{me.user.name}</span>
           <span className="user-roles">{me.roleLabels.join(' · ')}</span>
           <button className="btn btn-ghost btn-logout" onClick={logout}><IconLogout size={16} aria-hidden="true" /><span className="btn-logout-text">로그아웃</span></button>
         </div>
       </header>
       <nav ref={navRef} id="sidenav" className="sidenav" aria-label="주 메뉴">
+        {/* 좁은 화면에서도 지금 누구로 보고 있는지 알 수 있게 서랍 맨 위에 사용자와 데모 전환을 둔다(A7). */}
+        <div className="nav-user">
+          <span className="nav-user-name">{me.user.name}</span>
+          <span className="nav-user-roles">{me.roleLabels.join(' · ')}</span>
+          {demo && (
+            <details className="demo-switcher nav-demo-switcher">
+              <summary className="btn btn-ghost btn-sm demo-switcher-toggle">데모 사용자 전환</summary>
+              <div className="demo-switcher-menu nav-demo-switcher-menu" role="group" aria-label="데모 사용자 선택">
+                {demoUsers.data?.map((u) => (
+                  <button key={u.id} className="btn btn-ghost demo-switcher-item" onClick={() => void switchUser(u.id)} disabled={switching !== null} aria-busy={switching === u.id}>
+                    {u.name} <span className="muted">· {u.title}</span>
+                  </button>
+                ))}
+                {demoUsers.isPending && <span className="small muted">사용자 목록을 불러오는 중…</span>}
+              </div>
+            </details>
+          )}
+        </div>
         {groups.map((g, gi) => {
           const items = g.items.filter((i) => can(i.perm));
           if (!items.length) return null;

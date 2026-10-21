@@ -13,6 +13,9 @@
 .login-stage-video { opacity: 0; transition: opacity 600ms var(--ease-standard); }
 .login-stage-video.is-ready { opacity: 1; }
 .login-stage-scrim { position: absolute; inset: 0; background: linear-gradient(0deg, rgba(8, 17, 14, 0.65) 0%, rgba(8, 17, 14, 0) 26%, rgba(8, 17, 14, 0) 74%, rgba(8, 17, 14, 0.65) 100%); }
+.login-stage-sound { position: absolute; right: var(--s4); bottom: var(--s4); z-index: 2; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(244, 246, 245, 0.34); background: rgba(8, 17, 14, 0.74); color: #f4f6f5; font: inherit; font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: 600; cursor: pointer; }
+.login-stage-sound:hover { border-color: rgba(244, 246, 245, 0.7); background: rgba(8, 17, 14, 0.88); }
+.login-stage-sound[aria-pressed='true'] { border-color: #00d998; }
 .login-stage-copy { margin: 0; display: flex; flex-direction: column; gap: var(--s1); color: #f4f6f5; font-size: var(--fs-xl); line-height: var(--lh-xl); font-weight: var(--fw-semibold); letter-spacing: var(--ls-heading); }
 .login-stage-copy span { font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--fw-regular); letter-spacing: 0; color: #c9d2ce; }
 @media (max-width: 959px) {
@@ -29,4 +32,5 @@
 @media (prefers-reduced-motion: reduce) {
   /* 움직임을 줄인 환경에서는 영상을 재생하지 않는다(포스터만). 전환도 두지 않는다(DESIGN.md '모션') */
   .login-stage-video { display: none; transition: none; }
+  .login-stage-sound { display: none; }
 }

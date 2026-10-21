@@ -698,3 +698,13 @@ body:has(dialog[open]) { overflow: hidden; }
 .safety-hint { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-3); }
 .safety-hint.is-warn { color: var(--warning); font-weight: 600; }
 @media (max-width: 860px) { .safety-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+
+/* A7: 승인자가 아래 결정 카드로 바로 이동하는 링크. sticky 머리글에 가리지 않게 scroll-margin을 둔다. */
+.decision-jump { margin: 0; }
+.decision-jump a { font-size: var(--fs-sm); line-height: var(--lh-sm); }
+#decision-card { scroll-margin-top: 88px; }
+
+
+/* A7: 상세 화면 불러오는 중에도 최소 높이를 잡아 콘텐츠 교체 때 아래 요소가 튀지 않게 한다(CLS). */
+.detail-loading { min-height: calc(100vh - 220px); display: grid; place-items: center; }

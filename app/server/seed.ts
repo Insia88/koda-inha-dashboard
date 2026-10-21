@@ -122,7 +122,7 @@ export function seed(db: DB) {
     const u = (amount: string, asset: string) => parseUnits(amount, precision[asset]!).toString();
     const t0 = new Date().toISOString();
     for (const [a, p] of Object.entries(MOCK_KRW_PRICE)) {
-      ins("INSERT INTO prices VALUES (?, ?, ?, '모의 시세(개발용)')", a, p, t0);
+      ins("INSERT INTO prices VALUES (?, ?, ?, '모의 시세')", a, p, t0);
     }
 
     // 지갑·잔고
@@ -277,8 +277,8 @@ export function seed(db: DB) {
       if (status === 'COMPLETED' && decider) {
         ins("INSERT INTO approvals VALUES (?, ?, 'approved', NULL, ?)", id, decider, ago(days, -2));
         events.push({ at: ago(days, -2), orgId: 'org-a', actorId: decider, actorName: name(decider), action: 'request.approved', targetType: 'request', targetId: id, summary: `${ref} 승인 (1/1)` });
-        events.push({ at: ago(days, -2), orgId: 'org-a', actorId: null, actorName: '모의 커스터디(개발용)', action: 'request.processing', targetType: 'request', targetId: id, summary: `${ref} 커스터디 처리 시작 (MOCK-CUSTODY-SEED0001)` });
-        events.push({ at: done!, orgId: 'org-a', actorId: null, actorName: '모의 커스터디(개발용)', action: 'request.completed', targetType: 'request', targetId: id, summary: `${ref} 처리 완료 (모의)` });
+        events.push({ at: ago(days, -2), orgId: 'org-a', actorId: null, actorName: '모의 커스터디', action: 'request.processing', targetType: 'request', targetId: id, summary: `${ref} 커스터디 처리 시작 (MOCK-CUSTODY-SEED0001)` });
+        events.push({ at: done!, orgId: 'org-a', actorId: null, actorName: '모의 커스터디', action: 'request.completed', targetType: 'request', targetId: id, summary: `${ref} 처리 완료 (모의)` });
       }
       if (status === 'REJECTED' && decider) {
         ins("INSERT INTO approvals VALUES (?, ?, 'rejected', ?, ?)", id, decider, reason, done);

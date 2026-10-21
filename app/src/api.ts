@@ -26,6 +26,9 @@ export interface HealthInfo extends DeploymentInfo { ok: boolean; env: string; a
 export const DEMO_INSTANCE_CHANGED = 'koda:demo-instance-changed';
 let demoInstance: string | null = null;
 const seenDemoInstances = new Set<string>();
+// 공개 데모: 이 탭에서 쓰기(비 GET)를 하기 전에는 인스턴스 전환 안내를 띄우지 않는다.
+// 둘러보기만 할 때는 데이터가 달라도 화면이 같아서 안내가 오히려 시연을 방해한다(데이터 일관성 위험은 쓰기 뒤에만 알린다).
+let hasWrittenInTab = false;
 let demoSwitchPending = false;
 function trackDemoInstance(res: Response) {
   const id = res.headers.get('X-Demo-Instance');
@@ -34,7 +37,7 @@ function trackDemoInstance(res: Response) {
   const isNew = !seenDemoInstances.has(id);
   demoInstance = id;
   seenDemoInstances.add(id);
-  if (previous && previous !== id && isNew) {
+  if (previous && previous !== id && isNew && hasWrittenInTab) {
     demoSwitchPending = true;
     window.dispatchEvent(new CustomEvent(DEMO_INSTANCE_CHANGED, { detail: { previous, current: id } }));
   }
@@ -80,7 +83,7 @@ export async function api<T = any>(url: string, opts: Opts = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json', ...opts.headers };
   if (opts.raw !== undefined) headers['Content-Type'] = 'application/octet-stream';
   else if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
-  if (opts.method && opts.method !== 'GET') headers['X-CSRF-Token'] = csrfToken;
+  if (opts.method && opts.method !== 'GET') { headers['X-CSRF-Token'] = csrfToken; hasWrittenInTab = true; }
   if (opts.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey;
   const res = await send(url, { method: opts.method ?? 'GET', headers, body: opts.raw ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined), signal: opts.signal });
   trackDemoInstance(res);

@@ -111,7 +111,7 @@ export function OrgPage() {
       {policy.data && (
         <section className="card">
           <h2>승인 정책</h2>
-          <Notice tone="info">아래 값은 개발용 설계 가정입니다. 실제 KODA 승인 정책·한도는 확인되지 않았습니다.</Notice>
+          <Notice tone="info">아래 값은 모의 설계 가정입니다. 실제 KODA 승인 정책·한도는 확인되지 않았습니다.</Notice>
           <ul>
             <li>출금 요청: 기본 {policy.data.approval.defaultRequiredApprovals}명 승인, 원화 평가액 {krwShort(policy.data.approval.highValueThresholdKrw)} 이상은 서로 다른 {policy.data.approval.highValueRequiredApprovals}명 승인</li>
             <li>주소 등록: {policy.data.addressBook.requireSecondPersonReview ? '등록자가 아닌 승인자의 확인 필요' : '확인 없이 사용'} · 등록할 때와 확인할 때 원본을 보고 주소 끝 {policy.data.addressBook.confirmTailLength}자리와 가운데 {CONFIRM_MIDDLE_LENGTH}자리를 다시 입력</li>
