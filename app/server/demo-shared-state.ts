@@ -20,7 +20,7 @@ function decodeValue(v: unknown): unknown {
 }
 
 /** 모든 테이블을 JSON으로 내보낸다(스키마 마이그레이션 표 포함). 모의 데이터라 크기가 작다. */
-function exportSnapshot(db: DB): Record<string, unknown[]> {
+export function exportSnapshot(db: DB): Record<string, unknown[]> {
   const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[]).map((r) => r.name);
   const out: Record<string, unknown[]> = {};
   for (const t of tables) {
@@ -30,19 +30,30 @@ function exportSnapshot(db: DB): Record<string, unknown[]> {
   return out;
 }
 
-/** 스냅샷을 현재 DB에 원자적으로 반영한다(외래키 잠시 끔, 한 트랜잭션). */
-function importSnapshot(db: DB, tables: Record<string, unknown[]>): void {
-  tx(db, () => {
-    db.exec('PRAGMA foreign_keys = OFF');
-    for (const [t, rows] of Object.entries(tables)) {
-      db.exec(`DELETE FROM "${t}"`);
-      if (!rows.length) continue;
-      const cols = Object.keys(rows[0] as Record<string, unknown>);
-      const stmt = db.prepare(`INSERT INTO "${t}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`);
-      for (const row of rows) stmt.run(...(cols.map((c) => decodeValue((row as Record<string, unknown>)[c])) as any[]));
-    }
+/**
+ * 스냅샷을 현재 DB에 원자적으로 반영한다(외래키 잠시 끔, 한 트랜잭션).
+ * 감사 기록·승인·의도·첨부 표는 추가 전용 트리거가 DELETE/UPDATE를 막는다. 이 동기화는 서버가 신뢰하는 스냅샷을
+ * 그대로 복제하는 것이므로, 잠시 트리거를 떼고 복제한 뒤 같은 트랜잭션에서 원래 SQL로 되돌린다(롤백되면 자동 복원).
+ */
+export function importSnapshot(db: DB, tables: Record<string, unknown[]>): void {
+  // PRAGMA foreign_keys는 트랜잭션 안에서는 바뀌지 않으므로 트랜잭션 밖에서 끄고 켠다.
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    tx(db, () => {
+      const triggers = db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'").all() as { name: string; sql: string | null }[];
+      for (const t of triggers) db.exec(`DROP TRIGGER IF EXISTS "${t.name}"`);
+      for (const [t, rows] of Object.entries(tables)) {
+        db.exec(`DELETE FROM "${t}"`);
+        if (!rows.length) continue;
+        const cols = Object.keys(rows[0] as Record<string, unknown>);
+        const stmt = db.prepare(`INSERT INTO "${t}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`);
+        for (const row of rows) stmt.run(...(cols.map((c) => decodeValue((row as Record<string, unknown>)[c])) as any[]));
+      }
+      for (const t of triggers) if (t.sql) db.exec(t.sql);
+    });
+  } finally {
     db.exec('PRAGMA foreign_keys = ON');
-  });
+  }
 }
 
 export interface DemoSharedState {
