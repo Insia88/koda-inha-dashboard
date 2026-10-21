@@ -266,6 +266,9 @@ test('폼 오류: aria-invalid·aria-describedby·첫 오류 포커스, 네트�
   await expect(page.getByRole('textbox', { name: /^요청 목적/ })).toHaveValue('E2E 입력 유지 확인');
 
   // 세션 만료 → 같은 계정 재로그인 대화상자, 화면·입력 유지 후 저장 성공
+  // 메뉴 배지는 /api/dashboard를 15초마다 다시 읽는다(Layout). 쿠키를 지운 뒤 그 갱신이 먼저 401을 받으면
+  // 저장을 누르기 전에 같은 대화상자가 떠 버튼을 가린다. 갱신 응답 직후에 쿠키를 지워, 저장 클릭이 먼저 401을 받게 한다.
+  await page.waitForResponse((r) => new URL(r.url()).pathname === '/api/dashboard' && r.status() === 200, { timeout: 20_000 });
   await context.clearCookies();
   await page.getByRole('button', { name: '초안 저장 후 검토하기' }).click();
   const re = page.getByRole('alertdialog', { name: '로그인 세션이 만료되었습니다' });
