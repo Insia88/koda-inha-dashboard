@@ -171,7 +171,7 @@ export function Layout() {
     return focusTitleWhenReady();
   }, [loc.pathname]);
 
-  // 메뉴 서랍(A3). 닫을 때 returnFocus면 포커스를 토글로 돌려준다(Escape·막·같은 화면 링크). 다른 화면으로 옮기면 새 화면 제목이 받는다.
+  // 메뉴 서랍(A3). 닫을 때 returnFocus면 포커스를 토글로 돌려준다(Escape·막·메뉴 링크). 메뉴 링크로 다른 화면에 가면 그 뒤 새 화면 제목이 받는다.
   const closeNav = useCallback((returnFocus: boolean) => {
     setOpen(false);
     if (returnFocus) toggleRef.current?.focus();
@@ -324,8 +324,10 @@ export function Layout() {
                   const shown = (i.badges ?? []).filter((b) => b.count > 0);
                   return (
                     <li key={i.to}>
-                      {/* 서랍에서 고르면 닫는다. 지금 화면과 같은 경로면 제목으로 옮겨 가지 않으므로 포커스를 토글로 돌려준다. */}
-                      <NavLink to={i.to} end={i.end ?? i.to === '/insights'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => { if (drawer) closeNav(i.to === loc.pathname); }}>
+                      {/* 서랍에서 고르면 닫고, 화면을 옮기기 전에 포커스를 먼저 토글로 돌려준다(A3 검토). 화면이 바뀌면 위 경로 효과가 새 화면 제목으로 옮기고,
+                          같은 경로이거나 작성 중인 화면의 이탈 확인에서 「계속 작성」을 고르면 토글에 남는다(확인 대화상자는 토글을 돌아갈 곳으로 기억한다).
+                          닫힌 서랍(visibility: hidden) 안의 링크에 포커스가 남아 있다가 문서 맨 앞으로 떨어지지 않게 한다. */}
+                      <NavLink to={i.to} end={i.end ?? i.to === '/insights'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={() => { if (drawer) closeNav(true); }}>
                         <i.icon size={18} aria-hidden="true" />
                         <span className="nav-label">{i.label}</span>
                         {speech && (

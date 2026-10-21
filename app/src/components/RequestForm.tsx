@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { IconAlertTriangle, IconCircleCheck, IconHelpCircle } from '@tabler/icons-react';
@@ -175,10 +175,15 @@ function ChecksPreview({ value, requestId, amountReadable }: { value: RequestFor
     refetchOnWindowFocus: false,
     staleTime: 30_000,
   });
+  // 마지막으로 알린 요약(A3 검토). 수량이 바뀌어 새 미리 보기를 불러오는 동안 알림 줄을 비우지 않고 앞 요약을 그대로 둔다.
+  // 비웠다가 같은 문장을 다시 쓰면 화면 낭독기가 수량을 멈출 때마다 같은 요약을 되풀이한다. 같은 글자면 React가 DOM을 건드리지 않고,
+  // 요약이 달라졌을 때만 한 번 알린다. 받는 주소를 지우거나 수량을 읽을 수 없게 되면 비운다.
+  const lastAnnounce = useRef('');
   let shown: ReactNode = null;
   let announce = '';
   if (!value.addressId || !amountReadable) {
     // 미리 보기 없음(알림 영역은 빈 채로 남는다)
+    lastAnnounce.current = '';
   } else if (q.isError) {
     // 고른 받는 주소를 지금 쓸 수 없으면(그 사이 사용 중지 등) 검토 단계로 갈 수 없으므로 '검토 단계에서 다시 보여 드립니다'라고 하지 않는다.
     const inactive = q.error instanceof ApiError && q.error.code === 'ADDRESS_NOT_ACTIVE';
@@ -187,14 +192,19 @@ function ChecksPreview({ value, requestId, amountReadable }: { value: RequestFor
       : '출금 전 점검 미리 보기를 불러오지 못했습니다. 검토 단계에서 다시 보여 드립니다.';
     // 같은 문장이 바로 위 알림 줄에 있으므로 보이는 문장은 화면 낭독기가 두 번 읽지 않게 숨긴다.
     shown = <p className={inactive ? 'warn-text small' : 'muted small'} style={{ margin: 0 }} aria-hidden="true">{announce}</p>;
+    lastAnnounce.current = announce;
   } else if (q.data) {
     const needsReason = q.data.items.some((c) => c.requiresReason);
     announce = `출금 전 점검: ${checkSummary(q.data.items, ', ')}`;
+    lastAnnounce.current = announce;
     shown = (
       <CheckList compact requesterView title="출금 전 점검 미리 보기" items={q.data.items}
         intro={needsReason ? '「사유 필요」 표시가 있는 주의 항목은 검토 단계에서 진행 사유를 적어야 승인 요청을 보낼 수 있습니다. 이 대시보드로 처음 보내는 주소라면 소액 시험 전송을 먼저 요청하는 방법도 있습니다.' : undefined}
         footnote="점검 기준은 설계 가정이며, 검토 단계에서 기준과 함께 다시 보여 드립니다." />
     );
+  } else {
+    // 새 미리 보기를 불러오는 중(또는 수량 입력이 멈추기를 기다리는 중): 앞 요약을 그대로 둔다.
+    announce = lastAnnounce.current;
   }
   return (
     <>

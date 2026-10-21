@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { IconX } from '@tabler/icons-react';
@@ -86,7 +86,12 @@ export function RequestsPage() {
   const customStatuses = !matchedGroup && state.status ? statusList(state.status) : [];
   const page = Number(state.page);
   const outOfRange = !!q.data && q.data.items.length === 0 && q.data.total > 0 && page > 1;
-  const result = q.data && !q.error ? resultLine(q.data.total, filtered, page, Number(state.pageSize), outOfRange) : '';
+  // 결과 줄은 새로 받은 결과로만 바꾼다(A3 검토). 보기·상태·검색을 바꾸면 새 결과가 올 때까지 앞 결과(placeholderData)가 남는데,
+  // 그 사이 새 URL의 조건(filtered·page)과 앞 결과의 건수를 섞으면 틀린 건수를 먼저 알리고 고쳐 알린다. 그동안은 앞 문장을 그대로 둔다
+  // (같은 글자면 React가 DOM을 건드리지 않아 다시 읽히지 않는다). 범위 밖 판정(outOfRange)도 새 결과일 때만 이 문장에 쓰인다.
+  const lastResult = useRef('');
+  if (q.error) lastResult.current = '';
+  else if (q.data && !q.isPlaceholderData) lastResult.current = resultLine(q.data.total, filtered, page, Number(state.pageSize), outOfRange);
 
   return (
     <div className="page">
@@ -130,7 +135,7 @@ export function RequestsPage() {
         </label>
       </form>
       {/* 결과 한 줄(A3): 목록·빈 결과와 관계없이 늘 있는 알림 영역. 0건으로 목록과 페이지 줄이 사라져도 이 줄이 알린다. */}
-      <p className="sr-only req-result" role="status">{result}</p>
+      <p className="sr-only req-result" role="status">{lastResult.current}</p>
       {q.isPending ? <Loading /> : q.error ? <ErrorState error={q.error} onRetry={() => q.refetch()} /> : outOfRange ? (
         <Empty title="이 페이지에는 요청이 없습니다" action={<button className="btn" onClick={() => set({ page: '1' }, { resetPage: false })}>첫 페이지로</button>}>
           조건에 맞는 요청은 {q.data.total.toLocaleString('ko-KR')}건이며 {Math.max(1, Math.ceil(q.data.total / Number(state.pageSize)))}페이지까지 있습니다.

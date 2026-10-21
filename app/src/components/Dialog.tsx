@@ -7,7 +7,7 @@ import { ApiErrorNotice } from './ui.tsx';
  * - 네이티브 <dialog>.showModal(): 배경은 실제로 inert, Escape는 cancel 이벤트로 처리
  * - 열릴 때 안전한 선택(기본: 취소)에 초기 포커스. Escape는 안전한 선택이 취소일 때만 닫음, Tab/Shift+Tab은 대화상자 안에서 순환
  * - 처리 중(busy)에는 확정 버튼 비활성·Escape 무시·중복 확정 차단, 실패하면 열린 채 오류 표시
- * - 닫히면 열기 전 포커스(트리거)로 복귀, 트리거가 사라졌으면 화면 제목으로
+ * - 닫히면 열기 전 포커스(트리거)로 복귀, 트리거가 사라졌거나 포커스를 받지 못하면(숨겨짐 등) 화면 제목으로
  */
 export interface ConfirmDialogProps {
   open: boolean;
@@ -49,8 +49,11 @@ export function ConfirmDialog({ open, title, children, confirmLabel, cancelLabel
       d.close();
       const back = returnTo.current;
       returnTo.current = null;
-      if (back && back.isConnected && !back.closest('[inert]')) back.focus();
-      else document.getElementById('page-title')?.focus();
+      if (back && back.isConnected && !back.closest('[inert]')) {
+        back.focus();
+        // 돌아갈 곳이 그 사이 숨겨졌거나(닫힌 메뉴 서랍 안의 링크 등) 비활성이 되어 포커스를 받지 못하면 화면 제목으로 보낸다(문서 맨 앞으로 떨어지지 않게).
+        if (document.activeElement !== back) document.getElementById('page-title')?.focus();
+      } else document.getElementById('page-title')?.focus();
     }
   }, [open]);
 

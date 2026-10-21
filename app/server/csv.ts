@@ -5,12 +5,23 @@
 export const FORMULA_START = /^[=+\-@\t\r\n\uFF1D\uFF0B\uFF0D\uFF20]/u;
 
 /**
- * CSV 셀 보호: 수식으로 실행될 수 있는 값(FORMULA_START로 시작)에 작은따옴표를 붙이고, 따옴표·쉼표·줄바꿈이 있거나 작은따옴표로 시작하면 큰따옴표로 감싼다.
+ * 값 가운데에서 새 칸이 시작될 수 있는 자리(';' 또는 줄바꿈) 바로 뒤에 오는 수식 문자(A3 검토). 사이에 큰따옴표만 있어도 같다. 문자 묶음은 FORMULA_START와 같다.
+ * 목록 구분 기호가 ';'인 지역 설정의 Excel(독일·프랑스 등. 한국어 Excel은 ',')은 이 파일의 ','가 아니라 ';'에서 칸을 나누고,
+ * 칸 맨 앞의 '"'만 따옴표로 본다. 그래서 'x;=1+1' 같은 값은 ';' 뒤 조각 '=1+1'이 새 칸의 첫 글자가 되어 수식으로 읽힌다.
+ * 같은 이유로 그 Excel에서는 칸 가운데의 줄바꿈도 따옴표 안으로 보지 않아 다음 줄이 새 행의 첫 칸이 된다.
+ * 그 자리에도 작은따옴표를 넣는다('x;=1+1' → "x;'=1+1"). 이런 값이 아니면 내보낸 글자는 저장된 값과 같다.
+ */
+const FORMULA_AFTER_BREAK = new RegExp(`(;|\\r\\n|\\r|\\n)(?="*${FORMULA_START.source.slice(1)})`, 'gu');
+
+/**
+ * CSV 셀 보호: 수식으로 실행될 수 있는 값(FORMULA_START로 시작)에 작은따옴표를 붙이고, 가운데의 ';'·줄바꿈 바로 뒤에 오는 수식 문자 앞에도
+ * 작은따옴표를 넣고, 따옴표·쉼표·줄바꿈이 있거나 작은따옴표로 시작하면 큰따옴표로 감싼다.
  * 내보낼 때의 글자 표현만 바꾼다. 저장된 값(감사 기록 행·해시)은 그대로다.
  */
 export function csvCell(value: unknown): string {
   let s = value === null || value === undefined ? '' : String(value);
   if (FORMULA_START.test(s)) s = `'${s}`;
+  s = s.replace(FORMULA_AFTER_BREAK, "$1'");
   if (/[",\r\n]/.test(s) || s.startsWith("'")) s = `"${s.replace(/"/g, '""')}"`;
   return s;
 }

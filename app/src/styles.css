@@ -32,7 +32,8 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-/* sticky 머리글(56px) 밑에 포커스·앵커로 옮긴 요소가 들어가지 않게, 브라우저가 스크롤할 때 위쪽 72px(머리글 + 여유 16px)를 비워 둔다(WCAG 2.4.11) */
+/* sticky 머리글(56px) 밑에 포커스·앵커로 옮긴 요소가 들어가지 않게, 브라우저가 스크롤할 때 위쪽 72px(머리글 + 여유 16px)를 비워 둔다(WCAG 2.4.11).
+   scrollIntoView에도 그대로 적용되므로 요소마다 scroll-margin-top을 두지 않는다(더하면 두 값이 합쳐져 144px 아래로 내려간다, A3 검토) */
 html { scroll-padding-top: 72px; }
 body { font-family: var(--font); color: var(--ink); background: var(--paper); font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased; word-break: keep-all; overflow-wrap: break-word; }
 /* anywhere는 min-content를 한 글자로 줄여 표 열이 무너진다. 긴 토큰(주소·고정폭·긴 셀)에만 쓴다. */
@@ -68,7 +69,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: var(--s4) 0; }
 .org-name-text { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; line-height: 1.25; }
 .mock-tag { flex: none; font-size: 11px; font-weight: 700; color: var(--warning); background: var(--warning-soft); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
 .topbar-user { margin-left: auto; display: flex; align-items: center; gap: var(--s3); flex: none; }
-/* 머리글 '출금 요청 작성'(A1): 조직명이 먼저 줄어들고(…) 버튼과 '모의' 표시는 줄이지 않는다 */
+/* 머리글 '출금 요청 작성'(A1): 조직명이 먼저 줄을 바꾸고(두 줄 넘으면 둘째 줄 끝을 …, A3) 버튼과 '모의' 표시는 줄이지 않는다 */
 .topbar-send { flex: none; margin-left: auto; }
 .topbar-send + .topbar-user { margin-left: 0; }
 .user-name { font-weight: 600; }
@@ -227,7 +228,7 @@ input[type='checkbox'] { width: 18px; height: 18px; min-height: 0; accent-color:
 .rail-compact .rail-label { font-size: 11px; }
 .rail-compact .rail-dot { width: 10px; height: 10px; }
 .rail-compact .rail-step::before { top: 4px; }
-.next-action { background: var(--ink); color: #fff; border-radius: var(--radius); padding: var(--s4) var(--s5); border-left: 6px solid var(--brand); scroll-margin-top: 72px; }
+.next-action { background: var(--ink); color: #fff; border-radius: var(--radius); padding: var(--s4) var(--s5); border-left: 6px solid var(--brand); }
 .next-action h2 { font-size: 14px; color: #b9f3dd; margin-bottom: 2px; }
 .next-action p { margin: 0; font-size: 16px; font-weight: 600; }
 .next-action .muted { color: #c9d4d0; font-weight: 400; font-size: 13px; margin-top: 4px; }
@@ -541,8 +542,13 @@ body:has(dialog[open]) { overflow: hidden; }
   .topbar-send { padding: 0 6px; }
   .topbar-send svg { display: none; }
 }
-/* 아주 좁은 화면: 출금 요청 버튼은 아이콘만(이름·툴팁은 '출금 요청 작성') */
+/* 아주 좁은 화면: 출금 요청 버튼은 아이콘만(이름·툴팁은 '출금 요청 작성').
+   조직명 칸을 넓히려고 상단 막대 간격(4px)·좌우 여백(8px)·로고 높이(14px, 비율 그대로)·조직명 앞 여백(2px)을 한 번 더 줄인다.
+   320px에서 글자 간격을 늘려도(WCAG 1.4.12) '모의법인 A'가 두 줄 안에 들어가 'A'·'B'가 잘리지 않는다(A3 검토). 누르는 영역(토글·출금 요청·로그아웃)은 그대로 */
 @media (max-width: 379px) {
+  .topbar { gap: 4px; padding: 0 8px; }
+  .logo { height: 14px; }
+  .org-name { padding-left: 2px; }
   .topbar-send { width: 40px; padding: 0; }
   .topbar-send svg { display: inline-block; }
   .topbar-send-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

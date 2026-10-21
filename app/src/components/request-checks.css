@@ -87,8 +87,8 @@
 .rc-intent-mismatch { margin: 0; font-size: 14px; font-weight: 700; color: var(--danger); }
 .rc-intent-mismatch svg { vertical-align: -3px; }
 
-/* 409 안내·승인 요청 완료 안내로 포커스를 옮길 때 쓰는 감싸개. 상단 고정 막대 아래로 숨지 않게 여백을 둔다. */
-.rc-focus-target { border-radius: var(--radius-sm); scroll-margin-top: 72px; }
+/* 409 안내·승인 요청 완료 안내로 포커스를 옮길 때 쓰는 감싸개. 상단 고정 막대 아래로 숨지 않게 하는 여백은 전역 html { scroll-padding-top }(styles.css, A3)이 맡는다(요소마다 scroll-margin을 더하면 두 값이 더해져 머리글 아래로 두 배 내려간다). */
+.rc-focus-target { border-radius: var(--radius-sm); }
 
 /* 작성 화면: 사용 대기 중이라 고를 수 없는 주소와 사용 가능 시각 */
 .rc-waiting { list-style: none; margin: 4px 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
