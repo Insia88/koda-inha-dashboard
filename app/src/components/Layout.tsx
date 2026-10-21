@@ -345,9 +345,9 @@ export function Layout() {
           <span className="user-roles">{me.roleLabels.join(' · ')}</span>
           <button className="btn btn-ghost btn-logout" onClick={logout}><IconLogout size={16} aria-hidden="true" /><span className="btn-logout-text">로그아웃</span></button>
         </div>
+        {/* 공개 데모에서만: 좁은 화면에서도 지금 누구로 보고 있는지 탑바 안 둘째 줄로 보인다(A8). */}
+        {demo && <div className="mobile-account" aria-label="현재 사용자"><span>{me.user.name}</span><span className="mobile-account-role">{me.roleLabels.join(' · ')}</span></div>}
       </header>
-      {/* 공개 데모에서만: 좁은 화면에서도 지금 누구로 보고 있는지 탑바 바로 아래 한 줄로 보인다(A8). */}
-      {demo && <div className="mobile-account" aria-label="현재 사용자"><span>{me.user.name}</span><span className="mobile-account-role">{me.roleLabels.join(' · ')}</span></div>}
       <nav ref={navRef} id="sidenav" className="sidenav" aria-label="주 메뉴">
         {/* 좁은 화면에서도 지금 누구로 보고 있는지 알 수 있게 서랍 맨 위에 사용자와 데모 전환을 둔다(A7). */}
         <div className="nav-user">
