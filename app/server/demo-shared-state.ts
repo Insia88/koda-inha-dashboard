@@ -1,4 +1,4 @@
-import { get, head, put } from '@vercel/blob';
+import { get, put } from '@vercel/blob';
 import { tx, type DB } from './db.ts';
 
 const B64 = '__b64';
@@ -39,7 +39,7 @@ function importSnapshot(db: DB, tables: Record<string, unknown[]>): void {
       if (!rows.length) continue;
       const cols = Object.keys(rows[0] as Record<string, unknown>);
       const stmt = db.prepare(`INSERT INTO "${t}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`);
-      for (const row of rows) stmt.run(...cols.map((c) => decodeValue((row as Record<string, unknown>)[c])) as any[]);
+      for (const row of rows) stmt.run(...(cols.map((c) => decodeValue((row as Record<string, unknown>)[c])) as any[]));
     }
     db.exec('PRAGMA foreign_keys = ON');
   });
@@ -56,15 +56,15 @@ export interface DemoSharedState {
 /**
  * 공개 데모 전용 공유 상태(A8).
  * Vercel 함수는 인스턴스마다 메모리 DB가 따로라서, 새 인스턴스로 요청이 가면 방금 만든 요청·승인이 사라져 보였다.
- * Vercel Blob(비공개 저장소, OIDC)에 DB 스냅샷을 두고, 요청 전에 최신본을 당겨오고 변경 뒤에 올려 모든 인스턴스가 같은 데이터를 보게 한다.
- * BLOB_STORE_ID/VERCEL_OIDC_TOKEN이 없으면(로컬 실행) 아무 것도 하지 않는다.
+ * Vercel Blob(비공개 저장소)에 DB 스냅샷을 두고, 요청 전에 조건부 GET으로 최신본을 확인해 당겨 오고(변경 없으면 304),
+ * 변경 뒤에는 올려 모든 인스턴스가 같은 데이터를 보게 한다. BLOB_STORE_ID와 토큰이 없으면(로컬 실행) 아무 것도 하지 않는다.
  */
 export function createDemoSharedState(db: DB): DemoSharedState {
   const deployment = process.env.VERCEL_URL ?? 'local';
   const key = `demo-state/${deployment}.json`;
   const enabled = process.env.DEMO_SHARED_STATE !== 'off' && !!process.env.BLOB_STORE_ID && (!!process.env.VERCEL_OIDC_TOKEN || !!process.env.BLOB_READ_WRITE_TOKEN);
   let rev = 0;
-  let lastRemoteAt: string | null = null;
+  let etag: string | null = null;
   let lastPullAt = 0;
   let inflightPull: Promise<void> | null = null;
 
@@ -74,7 +74,7 @@ export function createDemoSharedState(db: DB): DemoSharedState {
       rev += 1;
       const body = JSON.stringify({ rev, at: new Date().toISOString(), tables: exportSnapshot(db) });
       await put(key, body, { access: 'private', allowOverwrite: true, addRandomSuffix: false, contentType: 'application/json' });
-      lastRemoteAt = new Date().toISOString();
+      etag = null; // 다음 pull은 자기 스냅샷을 한 번 더 내려받아 etag를 새로 잡는다.
     } catch {
       rev = Math.max(0, rev - 1);
     }
@@ -83,29 +83,26 @@ export function createDemoSharedState(db: DB): DemoSharedState {
   const pull = async () => {
     if (!enabled) return;
     const now = Date.now();
-    // 쓰기 직후 다른 인스턴스가 바로 읽어도 같은 데이터를 보도록 매 요청 확인한다(동시 요청은 inflight로 합친다).
-    if (now - lastPullAt < 120) return;
+    if (now - lastPullAt < 100) return;
     if (inflightPull) return inflightPull;
     lastPullAt = now;
     inflightPull = (async () => {
       try {
-        let info: Awaited<ReturnType<typeof head>> | null = null;
-        try { info = await head(key); } catch { info = null; }
-        if (!info) {
+        const got = await get(key, { access: 'private', useCache: false, ...(etag ? { ifNoneMatch: etag } : {}) });
+        if (!got) {
           await push(); // 첫 인스턴스가 기준 스냅샷을 만든다.
           return;
         }
-        const remoteAt = new Date(info.uploadedAt).toISOString();
-        if (lastRemoteAt === remoteAt && rev > 0) return;
-        const got = await get(key, { access: 'private', useCache: false });
-        if (!got) return;
+        if (got.statusCode === 304) return;
         const text = await new Response(got.stream).text();
         const data = JSON.parse(text) as { rev?: number; tables?: Record<string, unknown[]> };
-        if (!data.tables) return;
-        if (typeof data.rev === 'number' && data.rev <= rev) { lastRemoteAt = remoteAt; return; }
-        importSnapshot(db, data.tables);
-        rev = typeof data.rev === 'number' ? data.rev : rev;
-        lastRemoteAt = remoteAt;
+        const nextEtag = got.blob.etag;
+        const nextRev = typeof data.rev === 'number' ? data.rev : rev;
+        if (nextRev > rev && data.tables) {
+          importSnapshot(db, data.tables);
+          rev = nextRev;
+        }
+        etag = nextEtag;
       } catch {
         /* 공유 저장소가 잠시 안 되면 이 인스턴스 DB로 계속 동작한다. */
       } finally {
