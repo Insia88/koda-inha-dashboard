@@ -9,8 +9,25 @@ import './login-stage.css';
 
 interface DevUser { id: string; name: string; title: string; org_name: string; org_id: string; roles: Role[] }
 
-const TRAILER_SRC = '/brand/koda-trailer-15s.mp4';
-const TRAILER_POSTER = '/brand/koda-trailer-poster.jpg';
+// 넓은 화면은 16:9 컷, 좁은 화면(무대가 위쪽 띠일 때)은 4:5 컷을 쓴다. 16:9를 세로 띠에 cover로 넣으면 문장 왼쪽이 잘린다.
+const TRAILER_ASSETS = {
+  wide: { src: '/brand/koda-trailer-15s.mp4', poster: '/brand/koda-trailer-poster.jpg' },
+  narrow: { src: '/brand/koda-trailer-15s-4x5.mp4', poster: '/brand/koda-trailer-poster-4x5.jpg' },
+} as const;
+type TrailerAsset = keyof typeof TRAILER_ASSETS;
+
+/** 무대 폭에 맞는 15초 컷을 고른다(넓은 화면 16:9 · 좁은 화면 4:5). */
+function useTrailerAsset(): TrailerAsset {
+  const [asset, setAsset] = useState<TrailerAsset>(() => (typeof window !== 'undefined' && window.matchMedia('(min-width: 960px)').matches ? 'wide' : 'narrow'));
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 960px)');
+    const update = () => setAsset(mq.matches ? 'wide' : 'narrow');
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  return asset;
+}
 
 /**
  * 무음 자동재생을 허용할지 정한다. 줄인 움직임(prefers-reduced-motion: reduce)이나 데이터 절약 모드(saveData)에서는 재생하지 않는다.
@@ -37,21 +54,25 @@ function LoginTrailer() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [ready, setReady] = useState(false);
   const motion = useTrailerMotion();
+  const asset = useTrailerAsset();
+  const { src, poster } = TRAILER_ASSETS[asset];
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     if (!motion) { video.pause(); return; }
     // 자동재생이 막히면(브라우저 설정 등) 포스터가 남는다. 오류는 화면에 알리지 않는다(장식).
     void video.play().catch(() => {});
-  }, [motion]);
+  }, [motion, asset]);
   return (
     <aside className="login-stage" aria-label="KODA 브랜드 필름">
-      <img className="login-stage-poster" src={TRAILER_POSTER} alt="" width={1280} height={720} />
+      <div className="login-stage-frame">
+        <img className="login-stage-poster" src={poster} alt="" width={1280} height={720} />
       <video
+        key={asset}
         ref={videoRef}
         className={`login-stage-video${ready ? ' is-ready' : ''}`}
-        src={TRAILER_SRC}
-        poster={TRAILER_POSTER}
+        src={src}
+        poster={poster}
         autoPlay={motion}
         muted
         loop
@@ -60,10 +81,16 @@ function LoginTrailer() {
         aria-hidden="true"
         tabIndex={-1}
         disablePictureInPicture
+        onLoadedMetadata={(e) => {
+          // 첫 재생은 완전한 검정(0–1.2초)에서 시작하지 않고 문장이 나타나기 시작하는 지점부터 보여 준다. 이후 반복은 처음부터.
+          const v = e.currentTarget;
+          if (v.currentTime < 0.05) v.currentTime = 1.35;
+        }}
         onCanPlay={() => setReady(true)}
       />
       <div className="login-stage-scrim" />
       <p className="login-stage-copy">확인이 쌓여, 신뢰가 됩니다.<span>KODA 브랜드 필름 · 15초 · 무음</span></p>
+      </div>
     </aside>
   );
 }

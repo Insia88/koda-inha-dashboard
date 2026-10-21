@@ -1,18 +1,23 @@
 /* 로그인 — KODA 브랜드 필름 15초(무음) 무대. 배치(.login/.login-card)는 styles.css '로그인' 절에서 바꾼다.
+   - 넓은 화면: 어두운 패널 가운데에 16:9 필름 창을 두고(레터박스처럼 위아래 여백), 창 안에서 16:9 컷이 잘리지 않고 재생된다.
+     로그인 목록이 길어도 창은 패널 가운데에 있으므로 문구가 화면 안에 남는다.
+   - 좁은 화면: 무대는 위쪽 띠(최대 320px)가 되고 4:5 컷이 띠를 채운다(16:9를 세로 띠에 넣으면 문장 왼쪽이 잘린다).
    - 영상은 장식이다(aria-hidden). 재생이 막히면 아래 포스터가 그대로 남으므로 화면이 비지 않는다.
-   - 줄인 움직임(prefers-reduced-motion: reduce)과 데이터 절약 모드에서는 영상을 재생하지 않는다(포스터만, motion 없음).
+   - 줄인 움직임(prefers-reduced-motion: reduce)·데이터 절약 모드에서는 영상을 재생하지 않는다(포스터만).
    - 영상 위 글자는 아래쪽 어두운 그라디언트 위에 둔다. 영상 위 대비는 자동 검사로 확정할 수 없으므로 스크림을 넉넉히 둔다. */
-.login-stage { position: relative; overflow: hidden; min-height: 100vh; background: #08110e; }
+.login-stage { position: relative; overflow: hidden; background: radial-gradient(120% 90% at 50% 45%, #10201b 0%, #08110e 62%, #040a08 100%); }
+.login-stage-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; margin: auto; overflow: hidden; background: #08110e; }
 .login-stage-poster, .login-stage-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .login-stage-poster { display: block; }
 .login-stage-video { opacity: 0; transition: opacity 600ms var(--ease-standard); }
 .login-stage-video.is-ready { opacity: 1; }
 .login-stage-scrim { position: absolute; inset: 0; background: linear-gradient(0deg, rgba(8, 17, 14, 0.88) 0%, rgba(8, 17, 14, 0.28) 42%, rgba(8, 17, 14, 0) 68%), linear-gradient(90deg, rgba(8, 17, 14, 0) 60%, rgba(8, 17, 14, 0.6) 100%); }
-.login-stage-copy { position: absolute; left: clamp(var(--s5), 4vw, var(--s7)); bottom: clamp(var(--s5), 5vh, var(--s7)); margin: 0; display: flex; flex-direction: column; gap: var(--s1); color: #f4f6f5; font-size: var(--fs-xl); line-height: var(--lh-xl); font-weight: var(--fw-semibold); letter-spacing: var(--ls-heading); text-shadow: 0 1px 16px rgba(8, 17, 14, 0.65); }
+.login-stage-copy { position: absolute; left: clamp(var(--s5), 4vw, var(--s7)); bottom: clamp(var(--s4), 4vh, var(--s6)); margin: 0; display: flex; flex-direction: column; gap: var(--s1); color: #f4f6f5; font-size: var(--fs-xl); line-height: var(--lh-xl); font-weight: var(--fw-semibold); letter-spacing: var(--ls-heading); text-shadow: 0 1px 16px rgba(8, 17, 14, 0.65); }
 .login-stage-copy span { font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--fw-regular); letter-spacing: 0; color: #c9d2ce; }
 @media (max-width: 959px) {
-  /* 좁은 화면: 무대는 위쪽 띠(최대 320px)가 되고 로그인 카드는 그 아래에서 시작한다 */
-  .login-stage { min-height: 0; height: min(38vh, 320px); }
+  /* 좁은 화면: 무대는 위쪽 띠(최대 320px)가 되고 로그인 카드는 그 아래에서 시작한다. 4:5 창이 띠를 채운다 */
+  .login-stage { height: min(38vh, 320px); }
+  .login-stage-frame { width: auto; height: 100%; aspect-ratio: 4 / 5; margin: 0 auto; }
   .login-stage-copy { left: var(--s4); bottom: var(--s4); font-size: var(--fs-lg); line-height: var(--lh-lg); }
 }
 @media (prefers-reduced-motion: reduce) {

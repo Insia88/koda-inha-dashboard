@@ -84,8 +84,8 @@
 
 - **재생:** `autoPlay`·`muted`·`loop`·`playsInline`, 컨트롤·소리 없음. `prefers-reduced-motion: reduce`이거나 `navigator.connection.saveData`이면 재생하지 않고 포스터만 보여 준다(JS `matchMedia` + `video.pause()`, CSS `display:none`). 자동재생이 차단되어도 포스터가 남아 화면이 비지 않는다.
 - **접근성:** 영상은 `aria-hidden="true"`·`tabIndex={-1}`인 장식이고 자막·설명을 붙이지 않는다(말·소리 없음). 포커스를 받지 않고, 로그인 카드(본문 `main`)와 세션 만료 안내를 가리지 않는다. 영상 위 문구는 어두운 스크림 위에 두고, 영상 자체의 투명도 전환은 준비 상태에만 쓴다(글자 요소가 아니다).
-- **배치:** 데스크톱 2열(무대 1.08fr · 로그인 카드 최소 420px), 959px 이하에서는 무대가 위쪽 띠(최대 320px)가 된다. 영상은 `object-fit: cover`.
-- **파일:** 같은 출처의 `public/brand/koda-trailer-15s.mp4`(1280×720, H.264, 무음, 15초, 0.6초 페이드 인·아웃, faststart)와 `koda-trailer-poster.jpg`(1280×720). 외부 CDN·스트리밍 없음. 15초 컷의 원본과 제작 방법은 `koda-motion-20261021`의 `deliverables-v6/RENDER-MANIFEST.md`를 따른다.
+- **배치:** 데스크톱 2열(무대 1.08fr · 로그인 카드 최소 420px). 넓은 화면의 무대는 화면 높이(100vh)에 `position: sticky`로 고정되어, 로그인 목록을 스크롤해도 무대와 문구가 화면 안에 남는다. 959px 이하에서는 무대가 위쪽 띠(최대 320px)가 되고 4:5 컷을 쓴다(16:9를 세로 띠에 넣으면 문장 왼쪽이 잘린다). 영상은 `object-fit: cover`.
+- **파일:** 같은 출처의 15초 컷 두 가지 — 16:9 `public/brand/koda-trailer-15s.mp4`(1280×720 · 446KB)와 4:5 `koda-trailer-15s-4x5.mp4`(720×900 · 274KB). 둘 다 H.264 무음, 0.6초 페이드 인·아웃, faststart이고 포스터는 `koda-trailer-poster.jpg`·`koda-trailer-poster-4x5.jpg`(각 15KB)다. 첫 재생은 검정 구간을 건너뛰고 문장이 나타나는 1.35초부터 시작한다. 외부 CDN·스트리밍 없음. 15초 컷의 원본과 제작 방법은 `koda-motion-20261021`의 `deliverables-v6/RENDER-MANIFEST.md`를 따른다.
 - **검증:** `e2e/login-trailer.spec.ts`가 무음·루프·자동재생·playsInline, 포커스 제외, 줄인 움직임에서 미재생, 390px에서 무대 높이·카드 시작 위치를 확인한다. 영상 위 글자의 대비는 자동 검사로 확정하지 않고 스크림으로 확보한다(axe는 배경 영상 위 대비를 판정 보류로 둘 수 있다).
 
 ## 간격·모양

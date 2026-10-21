@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test';
 
 // 로그인 무대의 KODA 브랜드 필름(15초, 무음) — DEC-006. 영상은 장식이고, 로그인 카드는 지금처럼 본문이다.
+// 넓은 화면은 16:9 컷, 좁은 화면(무대가 위쪽 띠)은 4:5 컷을 쓴다. 무대 문구는 화면 안에 보여야 한다.
 test.describe('로그인 브랜드 트레일러(DEC-006)', () => {
-  test('데스크톱: 무음·루프·자동재생, 로그인 카드와 세션 만료 안내를 가리지 않는다', async ({ page }) => {
+  test('데스크톱: 무음·루프·자동재생, 무대 문구가 화면 안에 있고 로그인 카드를 가리지 않는다', async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
     page.on('pageerror', (e) => consoleErrors.push(e.message));
@@ -29,6 +30,9 @@ test.describe('로그인 브랜드 트레일러(DEC-006)', () => {
     await expect(video).toHaveAttribute('aria-hidden', 'true');
     await expect(video).toHaveAttribute('tabindex', '-1');
 
+    // 무대 문구가 화면 안에 보인다(로그인 목록이 길어도 중앙의 16:9 창과 함께 화면 안에 남는다).
+    await expect(page.locator('.login-stage-copy')).toBeInViewport();
+
     // 영상 뒤에서도 본문(세션 만료 안내·로그인 사용자)이 그대로 동작한다.
     await expect(page.getByText('세션이 만료되어 로그아웃되었습니다. 다시 로그인하면 보던 화면으로 돌아갑니다.')).toBeVisible();
     await expect(page.locator('.login-user').first()).toBeVisible();
@@ -47,7 +51,7 @@ test.describe('로그인 브랜드 트레일러(DEC-006)', () => {
 test.describe('로그인 브랜드 트레일러 390px', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test('좁은 화면: 무대는 위쪽 띠, 로그인 카드는 그 아래에서 시작한다', async ({ page }) => {
+  test('좁은 화면: 무대는 위쪽 띠(4:5 컷), 로그인 카드는 그 아래에서 시작한다', async ({ page }) => {
     await page.goto('/login');
     const stage = page.locator('.login-stage');
     const card = page.locator('.login-card');
@@ -57,6 +61,9 @@ test.describe('로그인 브랜드 트레일러 390px', () => {
     const cardBox = await card.boundingBox();
     expect(stageBox!.height).toBeLessThanOrEqual(320);
     expect(cardBox!.y).toBeGreaterThanOrEqual(stageBox!.height - 1);
+    const src = await page.locator('.login-stage video').evaluate((node) => (node as HTMLVideoElement).currentSrc);
+    expect(src).toContain('/brand/koda-trailer-15s-4x5.mp4');
+    await expect(page.locator('.login-stage-copy')).toBeInViewport();
     await expect(page.getByRole('heading', { name: '법인 대시보드 로그인' })).toBeVisible();
   });
 });

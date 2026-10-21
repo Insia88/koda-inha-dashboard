@@ -8,3 +8,5 @@ artifacts/
 test-results/
 .vercel-server/
 .vercel/
+.env.local
+.env.preview.local
