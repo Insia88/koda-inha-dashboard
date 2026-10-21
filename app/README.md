@@ -43,13 +43,13 @@ node scripts/screens-states.mjs  # 대화상자·이탈 확인·폼 오류·검�
 공개 데모의 한계:
 
 - 로컬과 같은 **개발용 로그인(비밀번호 없음)·모의 데이터·모의 커스터디**로만 동작한다. 모의가 아닌 커스터디 어댑터나 조직이 있으면 기동하지 않는다. KODA 공식 서비스가 아니며 실제 계정·자산과 연결되지 않는다.
-- 데이터·세션·요청 한도는 **인스턴스마다 메모리**에 있어 재시작·재배포·인스턴스 추가 때 처음 상태로 돌아간다. 화면 상단 띠와 로그인 화면이 이를 알리고, 인스턴스가 바뀌면 안내를 띄운다. 재시작 뒤에도 요청·세션이 남는 동작(`tests/api.test.ts`)은 로컬 모드에만 해당한다.
+- 데이터·세션·요청 한도는 **인스턴스마다 메모리**에 있어 재시작·재배포·인스턴스 추가 때 처음 상태로 돌아간다. 화면은 상단 띠나 로그인 안내 상자 없이 모든 화면(로그인 포함) 맨 아래에 작은 한 줄 "모의 데이터 · KODA 공식 서비스 아님"만 보이고(A5, 저장소 소유자 요청, DEC-004), 재시작 초기화는 화면에 따로 알리지 않는다. 인스턴스가 바뀌면 본문 위에 안내를 띄운다. 재시작 뒤에도 요청·세션이 남는 동작(`tests/api.test.ts`)은 로컬 모드에만 해당한다.
 - 인스턴스당 새로 만들 수 있는 주소 등록·출금 요청·인사이트 게시는 종류별 200건(422 `DEMO_LIMIT`)이고, 세션은 기본 120분, 함수 실행 시간은 15초까지다. 감사 기록 해시 검증은 한 인스턴스 안에서만 의미가 있다.
 - 실제 Vercel 배포에서의 동작(경로 다시 쓰기, 함수 번들 내용, 런타임 Node 버전)은 아직 확인하지 않았다([docs/deploy-vercel.md](docs/deploy-vercel.md) 4절).
 
 ```bash
 npm run build:vercel                          # dist/ + .vercel-server/handler.mjs
-node scripts/smoke-deploy.mjs --local 4418    # 빌드된 함수를 공개 데모 모드로 띄워 API 안전 장치 확인 후 종료
+node scripts/smoke-deploy.mjs --local 4418    # 빌드된 함수와 화면을 공개 데모 모드로 띄워 API 안전 장치·화면 고지(Chromium) 확인 후 종료
 # 배포 후(보호된 미리보기 주소, 우회 값은 셸에만. 공개 운영 주소는 smoke-deploy에 --public):
 E2E_BASE_URL=https://<preview> VERCEL_AUTOMATION_BYPASS_SECRET=<값> npx playwright test   # a11y·responsive만
 VERCEL_AUTOMATION_BYPASS_SECRET=<값> node scripts/smoke-deploy.mjs https://<preview>

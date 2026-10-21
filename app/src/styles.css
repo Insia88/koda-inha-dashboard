@@ -59,8 +59,9 @@ h1:focus { outline: none; }
 .warn-text { color: var(--warning); }
 hr { border: 0; border-top: 1px solid var(--line); margin: var(--s4) 0; }
 
-/* 셸 */
-.shell { background: linear-gradient(to right, var(--surface) 231px, var(--line) 231px, var(--line) 232px, var(--paper) 232px); display: grid; grid-template-columns: 232px 1fr; grid-template-rows: auto 56px 1fr; grid-template-areas: 'ribbon ribbon' 'top top' 'nav main'; min-height: 100vh; }
+/* 셸. 맨 위 'ribbon'은 로컬 실행의 환경 띠, 맨 아래 'foot'은 공개 데모의 작은 한 줄(A5, DemoFooter)이다. 없는 쪽 줄은 높이가 0이다 */
+.shell { background: linear-gradient(to right, var(--surface) 231px, var(--line) 231px, var(--line) 232px, var(--paper) 232px); display: grid; grid-template-columns: 232px 1fr; grid-template-rows: auto 56px 1fr auto; grid-template-areas: 'ribbon ribbon' 'top top' 'nav main' 'nav foot'; min-height: 100vh; }
+.shell > .demo-footer { grid-area: foot; }
 .env-ribbon { grid-area: ribbon; display: flex; gap: var(--s2); align-items: center; padding: 6px var(--s4); background: #fff3dc; color: #5c3600; font-size: 13px; border-bottom: 1px solid #f0d9a8; }
 .topbar { grid-area: top; display: flex; align-items: center; gap: var(--s4); padding: 0 var(--s5); background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; }
 .logo { height: 22px; width: auto; flex: none; }
@@ -444,10 +445,10 @@ body:has(dialog[open]) { overflow: hidden; }
   .main { padding: var(--s5) var(--s4) var(--s7); }
 }
 @media (max-width: 860px) {
-  .shell { background: var(--paper); grid-template-columns: minmax(0, 1fr); grid-template-areas: 'ribbon' 'top' 'main'; }
+  .shell { background: var(--paper); grid-template-columns: minmax(0, 1fr); grid-template-areas: 'ribbon' 'top' 'main' 'foot'; }
   .topbar .nav-toggle { display: inline-flex; }
   /* 메뉴 서랍(A3): 머리글 바로 아래(--nav-top, 열 때 Layout이 잰 머리글 아래 끝)에서 시작해 머리글의 토글(「메뉴 닫기」)이 가리지 않고 늘 보인다.
-     열려 있는 동안 본문·환경 띠·머리글의 다른 버튼은 inert이고 포커스는 토글과 메뉴 안에서만 돈다(Layout.tsx) */
+     열려 있는 동안 본문·환경 띠(로컬)·맨 아래 한 줄(공개 데모, A5)·머리글의 다른 버튼은 inert이고 포커스는 토글과 메뉴 안에서만 돈다(Layout.tsx) */
   .sidenav { position: fixed; top: var(--nav-top, 0px); left: 0; bottom: 0; width: 272px; height: auto; align-self: stretch; z-index: 40; transform: translateX(-100%); transition: transform 0.2s ease; box-shadow: 0 0 24px rgba(0,0,0,0.15); padding-top: var(--s4); visibility: hidden; }
   .nav-open .sidenav { transform: none; visibility: visible; }
   .nav-open .nav-scrim { display: block; position: fixed; inset: var(--nav-top, 0px) 0 0 0; background: rgba(16,32,27,0.35); z-index: 35; }

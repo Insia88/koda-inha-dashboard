@@ -49,7 +49,7 @@
 - 공개 데모는 커스터디 어댑터가 모의(`isMock`)가 아니거나 저장소에 `organizations.is_mock = 0`인 조직이 있으면 기동하지 않는다.
 - 로컬 실행에서 `HOST`가 127.0.0.1·localhost·::1이 아니면 기동을 거부한다(`DEV_ALLOW_LAN=1`로만 해제).
 - 인사이트 원문 링크는 **모든 모드에서** 제공 기관 홈페이지와 같은 호스트여야 한다(다르면 422 `PROVIDER_DOMAIN_MISMATCH`, 필드 `url`). 숨긴 자료를 다시 게시할 때도 화이트리스트와 도메인을 다시 확인한다(422 `PROVIDER_NOT_WHITELISTED`).
-- 화면 상단 띠와 로그인 화면은 공개 데모에서 "공개 데모 · 모든 사람·법인·자산·주소는 모의 데이터 · KODA 공식 서비스가 아니며 실제 계정·자산과 연결되지 않습니다 · 서버가 다시 시작되면 데이터가 초기화됩니다 (데이터 생성 HH:mm)"를 보인다. 560px 이하에서는 같은 네 가지를 줄인 문구로 보인다.
+- 공개 데모 화면에는 상단 띠와 로그인 화면의 안내 상자가 없다. 모든 화면(로그인 포함) 맨 아래에 작은 한 줄 "모의 데이터 · KODA 공식 서비스 아님"만 보인다(A5, 저장소 소유자 요청 2026-10-21, [DEC-004](../../docs/decisions.md#제안-기록)). 이 줄은 고정하지 않은 문서의 마지막 요소(`<footer>`, 12px)라 내용·포커스를 가리지 않는다. 재시작하면 데이터가 초기화된다는 사실과 데이터 생성 시각은 화면에 따로 보이지 않는다(A-23 동작은 그대로). 다른 데모 서버(인스턴스)가 응답하면 본문 위 안내는 전처럼 뜬다. 로컬 실행은 상단 개발 환경 띠와 로그인 화면 '개발용 로그인입니다' 안내를 그대로 쓴다(DESIGN.md '고지·환경 표시').
 - `vercel.json`은 Fastify(helmet)가 API 응답에 붙이는 CSP와 같은 정책(+ `upgrade-insecure-requests`)과 nosniff, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, COOP, Permissions-Policy, HSTS, `X-Robots-Tag: noindex, nofollow`를 CDN 응답에 붙인다. `/assets/*`는 1년 immutable 캐시, `/api`는 앱이 붙이는 `Cache-Control: no-store`를 그대로 쓴다. 두 CSP가 같은지는 `tests/deploy-mode.test.ts`가 확인한다.
 
 ## 3. Vercel 프로젝트 설정 [설정]
@@ -108,19 +108,19 @@ DEC-004(2026-10-21, 저장소 최상위 `docs/decisions.md`, DEC-001 대체)에 
 
 1. 패키지 브랜치마다 `npm run check`, `npm run e2e`, 새 테스트 통과.
 2. 통합 브랜치에서 전체 `npm run check` + `npm run e2e` 통과(로컬).
-3. 함수 빌드 확인: `npm run build:vercel` 후 `node scripts/smoke-deploy.mjs --local 4418`. 빌드된 함수를 `VERCEL=1 DEMO_PUBLIC=1`로 127.0.0.1:4418에 띄워 API 검사를 돌리고 닫는다(CDN·보호 검사는 건너뜀). `DEMO_SESSION_SECRET`이 없으면 스크립트가 이번 실행에만 쓰는 무작위 값을 만든다. `npm run check:vercel`의 핸들러 점검(`scripts/probe-handler.mjs`)도 공개 데모로 기동하므로 서명 값이 있어야 한다. 셸에 이번 실행에만 쓰는 임시 값(32바이트 이상, 배포에 쓰는 값이 아닌 새 값)을 넣고 실행한다. 예: `DEMO_SESSION_SECRET="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))")" npm run check:vercel`.
+3. 함수 빌드 확인: `npm run build:vercel` 후 `node scripts/smoke-deploy.mjs --local 4418`. 빌드된 함수를 `VERCEL=1 DEMO_PUBLIC=1`로 127.0.0.1:4418에 띄워 API 검사를 돌리고 닫는다(CDN·보호 검사는 건너뜀). 화면(`dist/`)은 CDN 대신 같은 서버가 `vercel.json` rewrites와 같은 규칙으로 주고, 화면 고지 검사(아래 7번)도 이 화면으로 돈다. Chromium이 필요하다(`npx playwright install chromium`). `--shots <폴더>`를 주면 그 검사의 로그인·홈 화면(1440×900·390×844)을 PNG로 남긴다. `DEMO_SESSION_SECRET`이 없으면 스크립트가 이번 실행에만 쓰는 무작위 값을 만든다. `npm run check:vercel`의 핸들러 점검(`scripts/probe-handler.mjs`)도 공개 데모로 기동하므로 서명 값이 있어야 한다. 셸에 이번 실행에만 쓰는 임시 값(32바이트 이상, 배포에 쓰는 값이 아닌 새 값)을 넣고 실행한다. 예: `DEMO_SESSION_SECRET="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))")" npm run check:vercel`.
 4. `npx vercel@62.2.0 build`로 `.vercel/output/functions/api/index.func`에 `config/`, `server/migrations/`, `node_modules/fastify`가 있고 `data/*.sqlite`·`.research`가 없는지 확인.
 5. 앱 폴더에서 CLI로 보호된 Preview 배포(git 푸시 불필요).
 6. 원격 화면 검사(읽기 전용 a11y·responsive만):
    ```bash
    E2E_BASE_URL=https://<preview> VERCEL_AUTOMATION_BYPASS_SECRET=<값> npx playwright test
    ```
-   axe 위반 0건이어야 한다. 데이터를 바꾸는 흐름 검사는 원격에서 돌리지 않는다(데이터가 공유·인스턴스별).
+   axe 위반 0건이어야 한다. 데이터를 바꾸는 흐름 검사는 원격에서 돌리지 않는다(데이터가 공유·인스턴스별). 이름이 `a11y.spec.ts`로 끝나는 `a3-a11y`·`a5-a11y`도 함께 돈다. `a5-a11y`는 공개 데모 서버의 응답을 바꾸지 않고 그대로 써서, 상단 띠·예전 안내 문구가 없고 맨 아래 한 줄이 로그인 화면과 앱 화면(1440·390·320px, 200% 확대 폭)에서 정확한 문구로 보이는지 확인한다.
 7. 스모크 검사:
    ```bash
    VERCEL_AUTOMATION_BYPASS_SECRET=<값> node scripts/smoke-deploy.mjs https://<preview>
    ```
-   먼저 우회 헤더 없이 401 또는 로그인 이동이 오는지(보호 켜짐) 확인하고, 200이면 즉시 중단한다. 미리보기는 `--public` 없이 돌려 통과해야 한다. `--public`을 주면 보호 없음을 통과가 아닌 `WARN  배포 보호 없음(--public)`으로 남기고 나머지 검사를 계속하며, 요약에 `경고 N`으로 따로 센다. 보호 없이 공개하는 운영 별칭(DEC-004)은 `--public`으로 돌리고, 실패 0에 경고가 이 1건뿐이면 통과로 본다. 다른 경고가 있으면 통과가 아니다. 이어서 healthz 공개 데모 모드, `/`와 깊은 경로의 보안 헤더, `/missing.js` 404, `/api/me` 401 + no-store, Secure·HttpOnly·SameSite=Strict·Path=/ 쿠키, **같은 쿠키로 `/api/me` 20회 반복이 모두 200**(응답한 `X-Demo-Instance` 값의 수를 기록하며, 1곳이든 여러 곳이든 모두 200이면 통과), 변조한 세션 쿠키(내용·서명) 401, CSRF 403, 본인 승인 403, 80,000 USDC 2인 승인, MOCK- 외 주소 거부(점검과 등록 모두 주소 규칙 오류 `ADDRESS_NETWORK_MISMATCH`로 거부되는지. 등록은 형식 검사를 통과하는 완전한 본문으로 보내고, 같은 본문에 올바른 MOCK 주소를 넣으면 주소 규칙은 통과해 일부러 틀린 끝자리(`CONFIRM_TAIL_MISMATCH`)에서 거부되는지도 본다. 아무 주소도 만들지 않는다), 화이트리스트 외 기관 422, 기관 도메인 불일치 422, 로그아웃이 같은 속성으로 쿠키를 지우는지, 같은 IP 31번째 로그인 429를 확인한다. 로그인 한도는 인스턴스마다 따로 세므로, 여러 인스턴스가 번갈아 응답하면 마지막 검사가 실패할 수 있다(4절). 같은 이유로 작성 → 검토 → 승인 요청처럼 여러 번 나눠 쓰는 검사(본인 승인 403, 80,000 USDC 2인 승인)는 다음 단계가 다른 인스턴스로 가면 404로 실패할 수 있다. 이때 실패 문구에 두 인스턴스 값이 함께 찍히며, 20회 반복 검사가 기록한 인스턴스 수와 함께 보고 다시 실행해 판단한다. 로컬에서 인스턴스 두 개를 번갈아 응답하게 한 시험에서는 20회 반복·변조 쿠키·CSRF·로그아웃 검사가 통과하고 이 세 검사가 위 이유로 실패하는 것을 확인했다. 마지막 검사가 로그인 한도를 다 쓰므로 6번을 먼저 돌리거나 1분 기다린다. 검사로 만든 출금 요청은 스크립트가 취소한다.
+   먼저 우회 헤더 없이 401 또는 로그인 이동이 오는지(보호 켜짐) 확인하고, 200이면 즉시 중단한다. 미리보기는 `--public` 없이 돌려 통과해야 한다. `--public`을 주면 보호 없음을 통과가 아닌 `WARN  배포 보호 없음(--public)`으로 남기고 나머지 검사를 계속하며, 요약에 `경고 N`으로 따로 센다. 보호 없이 공개하는 운영 별칭(DEC-004)은 `--public`으로 돌리고, 실패 0에 경고가 이 1건뿐이면 통과로 본다. 다른 경고가 있으면 통과가 아니다. 이어서 healthz 공개 데모 모드, **화면 고지**(실제 브라우저로 로그인 화면과 홈을 1440×900·390×844에서 열어 상단 띠 `.env-ribbon`과 예전 공개 데모 안내 문구가 없고, 맨 아래 한 줄이 "모의 데이터 · KODA 공식 서비스 아님" 하나뿐이며 고정되지 않은 문서 끝에서 가려지지 않고 보이는지, 12px 이상·알림 영역 아님. 로그인 2회를 쓴다), `/`와 깊은 경로의 보안 헤더, `/missing.js` 404, `/api/me` 401 + no-store, Secure·HttpOnly·SameSite=Strict·Path=/ 쿠키, **같은 쿠키로 `/api/me` 20회 반복이 모두 200**(응답한 `X-Demo-Instance` 값의 수를 기록하며, 1곳이든 여러 곳이든 모두 200이면 통과), 변조한 세션 쿠키(내용·서명) 401, CSRF 403, 본인 승인 403, 80,000 USDC 2인 승인, MOCK- 외 주소 거부(점검과 등록 모두 주소 규칙 오류 `ADDRESS_NETWORK_MISMATCH`로 거부되는지. 등록은 형식 검사를 통과하는 완전한 본문으로 보내고, 같은 본문에 올바른 MOCK 주소를 넣으면 주소 규칙은 통과해 일부러 틀린 끝자리(`CONFIRM_TAIL_MISMATCH`)에서 거부되는지도 본다. 아무 주소도 만들지 않는다), 화이트리스트 외 기관 422, 기관 도메인 불일치 422, 로그아웃이 같은 속성으로 쿠키를 지우는지, 같은 IP 31번째 로그인 429를 확인한다. 로그인 한도는 인스턴스마다 따로 세므로, 여러 인스턴스가 번갈아 응답하면 마지막 검사가 실패할 수 있다(4절). 같은 이유로 작성 → 검토 → 승인 요청처럼 여러 번 나눠 쓰는 검사(본인 승인 403, 80,000 USDC 2인 승인)는 다음 단계가 다른 인스턴스로 가면 404로 실패할 수 있다. 이때 실패 문구에 두 인스턴스 값이 함께 찍히며, 20회 반복 검사가 기록한 인스턴스 수와 함께 보고 다시 실행해 판단한다. 로컬에서 인스턴스 두 개를 번갈아 응답하게 한 시험에서는 20회 반복·변조 쿠키·CSRF·로그아웃 검사가 통과하고 이 세 검사가 위 이유로 실패하는 것을 확인했다. 마지막 검사가 로그인 한도를 다 쓰므로 6번을 먼저 돌리거나 1분 기다린다. 검사로 만든 출금 요청은 스크립트가 취소한다.
 8. 운영 배포는 1~7을 모두 통과한 커밋만 수동으로 한다. 배포한 뒤 운영 별칭에 7번을 `--public`으로 다시 돌린다(DEC-004).
 
 ## 6. 되돌리기

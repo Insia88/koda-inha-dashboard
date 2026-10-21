@@ -66,9 +66,11 @@ test.describe('휴대폰 메뉴 서랍(390px)', () => {
     });
     expect(Math.abs(geo.top - geo.headBottom)).toBeLessThanOrEqual(1);
     expect(Math.abs(geo.bottom - geo.vh)).toBeLessThanOrEqual(1);
-    // 열려 있는 동안 본문·환경 띠·머리글의 다른 버튼은 inert다.
+    // 열려 있는 동안 본문·환경 고지·머리글의 다른 버튼은 inert다. 환경 고지는 로컬이면 상단 환경 띠, 공개 데모(배포 확인)면 맨 아래 한 줄이다(A5).
+    // 둘 다 없으면 첫 값이 false라 실패한다.
     expect(await mainInert(page)).toBe(true);
-    expect(await page.evaluate(() => ['.env-ribbon', '.skip-link', '.topbar-send', '.topbar-user'].map((s) => !!document.querySelector(s)?.closest('[inert]')))).toEqual([true, true, true, true]);
+    expect(await page.evaluate(() => [document.querySelector('.env-ribbon') ?? document.querySelector('.demo-footer'), ...['.skip-link', '.topbar-send', '.topbar-user'].map((s) => document.querySelector(s))]
+      .map((el) => !!el?.closest('[inert]')))).toEqual([true, true, true, true]);
     expect(await toggle.evaluate((t) => !!t.closest('[inert]'))).toBe(false);
 
     // Tab을 메뉴 수보다 넉넉히 눌러도 서랍과 토글 밖으로 나가지 않는다(끝에서 토글로 돌아온다).

@@ -1,0 +1,8 @@
+/* 공개 데모 화면 맨 아래 한 줄(A5, DemoFooter). 토큰은 styles.css :root와 DESIGN.md를 따른다.
+   문서 흐름의 마지막 요소다(fixed·sticky 아님). 내용과 포커스를 가리지 않으므로 scroll-padding-bottom을 두지 않는다.
+   글자 12px, --ink-2 글자에 --paper 바탕(7.4:1). 바탕을 직접 칠해 셸의 메뉴 쪽 그라디언트와 관계없이 대비가 정해진다.
+   좁은 화면·확대에서는 낱말 단위로 줄을 바꾼다(body의 keep-all, 가로 넘침 없음). 셸 안의 자리(grid-area: foot)는 styles.css .shell이 정한다. */
+.demo-footer { min-width: 0; padding: var(--s3) var(--s4) var(--s4); background: var(--paper); color: var(--ink-2); font-size: 12px; line-height: 1.5; text-align: center; }
+/* 로그인 화면: 카드 아래 남는 높이를 채우고 맨 아래에 붙는다(짧은 화면에서도 화면 아래 끝). 로컬 로그인 화면(한 줄 없음)은 그대로다. */
+.login:has(> .demo-footer) { grid-template-rows: 1fr auto; padding-bottom: 0; }
+.login > .demo-footer { align-self: end; justify-self: stretch; margin-top: var(--s6); }

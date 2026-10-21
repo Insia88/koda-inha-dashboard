@@ -7,18 +7,43 @@
 //   node scripts/smoke-deploy.mjs --local [포트]   # 먼저 `npm run build:vercel`. 빌드된 함수(api/index.mjs)를
 //                                                  # VERCEL=1 DEMO_PUBLIC=1로 127.0.0.1:<포트>(기본 4418)에 띄워 검사한 뒤 닫는다.
 //                                                  # DEMO_SESSION_SECRET이 없으면 이번 실행에만 쓰는 무작위 값을 만든다.
+//                                                  # 화면(dist/)은 CDN 대신 같은 서버가 vercel.json rewrites와 같은 규칙으로 준다.
+//   … --shots <폴더>   # 화면 고지 검사 때 로그인·홈 화면(1440×900·390×844, 전체 길이)을 그 폴더에 PNG로 남긴다.
 //
 // 원격 검사는 먼저 보호(Vercel Authentication)가 켜져 있는지 확인하고, 꺼져 있으면(200) 바로 중단한다(--public이면 WARN을 남기고 계속).
+// 화면 고지 검사는 실제 브라우저(@playwright/test의 Chromium, 먼저 `npx playwright install chromium`)로 화면을 연다.
 // 마지막 검사는 개발용 로그인 한도(1분 30회)를 소진하므로 끝난 뒤 1분 동안 같은 IP에서 로그인이 막힌다.
 // 검사 중 만든 출금 요청은 끝에서 취소한다. 우회 값과 세션 서명 값은 출력하거나 저장하지 않는다.
 import http from 'node:http';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { extname, join, normalize, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const args = process.argv.slice(2);
 const LOCAL = args.includes('--local');
 const BYPASS = process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '';
+const shotsAt = args.indexOf('--shots');
+const SHOTS = shotsAt >= 0 && args[shotsAt + 1] ? resolve(args[shotsAt + 1]) : null;
 let BASE = '';
 let server = null;
+
+/** 로컬 함수 검사에서 CDN 대신 화면(dist/)을 준다. vercel.json rewrites와 같은 규칙: 점 없는 경로 → index.html, 그 밖 → 파일(없으면 404). */
+const DIST = fileURLToPath(new URL('../dist/', import.meta.url));
+const SCREEN_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8' };
+async function serveScreen(req, res) {
+  let path;
+  try { path = decodeURIComponent(new URL(req.url, 'http://local').pathname); } catch { res.writeHead(400).end(); return; }
+  const full = join(DIST, normalize(/\.[^/]*$/.test(path) ? path : '/index.html'));
+  if (!full.startsWith(DIST)) { res.writeHead(404).end(); return; }
+  try {
+    const body = await readFile(full);
+    res.writeHead(200, { 'content-type': SCREEN_TYPES[extname(full)] ?? 'application/octet-stream' }).end(body);
+  } catch {
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('not found');
+  }
+}
 
 if (LOCAL) {
   const port = Number(args.find((a) => /^\d+$/.test(a)) ?? 4418);
@@ -35,7 +60,7 @@ if (LOCAL) {
     console.error(`빌드된 함수를 불러오지 못했습니다: ${e.message}\n먼저 npm run build:vercel 을 실행하세요.`);
     process.exit(2);
   }
-  server = http.createServer(handler);
+  server = http.createServer((req, res) => (/^\/api(\/|\?|$)/.test(req.url ?? '') ? handler(req, res) : serveScreen(req, res)));
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
   BASE = `http://127.0.0.1:${port}`;
 } else {
@@ -174,6 +199,80 @@ await check('/api/healthz 공개 데모 모드', async () => {
   expect(r.json?.instanceId && r.headers.get('x-demo-instance') === r.json.instanceId, 'X-Demo-Instance 헤더가 instanceId와 다릅니다');
   expect(/no-store/.test(r.headers.get('cache-control') ?? ''), 'Cache-Control no-store 없음');
   return `instance ${String(r.json.instanceId).slice(0, 8)}…, 생성 ${r.json.seededAt}`;
+});
+
+// 화면 고지(A5, DEC-004): 공개 데모는 상단 띠와 로그인 화면 안내 상자 없이 모든 화면 맨 아래에 작은 한 줄만 보인다.
+// 실제 브라우저로 로그인 화면과 홈(한지수로 로그인)을 1440×900·390×844에서 연다. 한 줄은 하나뿐이고 문구가 정확하며, 고정되지 않은 문서의 끝이고,
+// 끝까지 스크롤하면 그 자리의 맨 위 요소로 보이며, 12px 이상·알림 영역 아님. 상단 띠(.env-ribbon)와 예전 공개 데모 안내 문구는 없어야 한다.
+const DEMO_LINE = '모의 데이터 · KODA 공식 서비스 아님';
+const OLD_DEMO_NOTICE = /공개 데모입니다|공개 데모 ·|KODA 공식 서비스가 아니며|데이터가 초기화됩니다|데이터 생성 \d/;
+async function expectDemoLine(page, label) {
+  const footer = page.getByRole('contentinfo');
+  await footer.first().waitFor({ timeout: 15_000 }).catch(() => {});
+  if (await footer.count() === 1) await footer.scrollIntoViewIfNeeded();
+  const r = await page.evaluate((old) => {
+    const all = [...document.querySelectorAll('footer')];
+    const el = all[0];
+    const box = el?.getBoundingClientRect();
+    const top = box ? document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) : null;
+    return {
+      footers: all.map((f) => f.textContent),
+      ribbon: document.querySelectorAll('.env-ribbon').length,
+      oldNotice: new RegExp(old).test(document.body.innerText),
+      position: el ? getComputedStyle(el).position : null,
+      fontSize: el ? parseFloat(getComputedStyle(el).fontSize) : 0,
+      live: !!el && (!!el.closest('[aria-live], [role="status"], [role="alert"], [role="log"]') || el.hasAttribute('role')),
+      docGap: box ? document.documentElement.scrollHeight - (box.bottom + window.scrollY) : null,
+      inView: !!box && box.top >= 0 && box.bottom <= window.innerHeight + 0.5 && box.left >= 0 && box.right <= window.innerWidth + 0.5,
+      onTop: !!top && !!el && el.contains(top),
+    };
+  }, OLD_DEMO_NOTICE.source);
+  expect(r.footers.length === 1 && r.footers[0] === DEMO_LINE, `${label}: 맨 아래 한 줄이 '${DEMO_LINE}' 하나가 아님 ${JSON.stringify(r.footers)}`);
+  expect(r.ribbon === 0, `${label}: 상단 띠(.env-ribbon)가 있음`);
+  expect(!r.oldNotice, `${label}: 예전 공개 데모 안내 문구가 있음`);
+  expect(r.position === 'static', `${label}: 맨 아래 한 줄이 고정 요소(${r.position})`);
+  expect(Math.abs(r.docGap) <= 1, `${label}: 맨 아래 한 줄이 문서 끝이 아님(${r.docGap}px)`);
+  expect(r.inView && r.onTop, `${label}: 끝까지 스크롤해도 보이지 않거나 가려짐`);
+  expect(r.fontSize >= 12, `${label}: 글자 ${r.fontSize}px`);
+  expect(!r.live, `${label}: 알림 영역 안에 있음`);
+}
+await check(`화면 고지: 상단 띠 없이 맨 아래 한 줄 '${DEMO_LINE}'(로그인·홈, 1440·390)`, async () => {
+  let chromium;
+  try {
+    ({ chromium } = await import('@playwright/test'));
+  } catch (e) {
+    throw new Fail(`@playwright/test를 불러오지 못했습니다(${e.message})`);
+  }
+  const browser = await chromium.launch().catch((e) => { throw new Fail(`Chromium을 띄우지 못했습니다. npx playwright install chromium 뒤 다시 실행하세요(${String(e.message).split('\n')[0]})`); });
+  if (SHOTS) mkdirSync(SHOTS, { recursive: true });
+  try {
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+      const ctx = await browser.newContext({ viewport, locale: 'ko-KR', timezoneId: 'Asia/Seoul', ...(BYPASS ? { extraHTTPHeaders: { 'x-vercel-protection-bypass': BYPASS } } : {}) });
+      try {
+        const page = await ctx.newPage();
+        await page.goto(`${BASE}/login`);
+        await page.getByRole('heading', { name: '법인 대시보드 로그인' }).waitFor({ timeout: 15_000 });
+        await page.getByRole('button', { name: /^한지수/ }).waitFor({ timeout: 15_000 });
+        await expectDemoLine(page, `로그인 ${viewport.width}`);
+        if (SHOTS) await page.screenshot({ path: join(SHOTS, `login-${viewport.width}.png`), fullPage: true });
+        loginAttempts++;
+        await page.getByRole('button', { name: /^한지수/ }).click();
+        await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 15_000 });
+        await page.locator('#page-title').waitFor({ timeout: 15_000 });
+        await page.waitForLoadState('networkidle');
+        await expectDemoLine(page, `홈 ${viewport.width}`);
+        if (SHOTS) {
+          await page.evaluate(() => window.scrollTo(0, 0));
+          await page.screenshot({ path: join(SHOTS, `home-${viewport.width}.png`), fullPage: true });
+        }
+      } finally {
+        await ctx.close();
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+  return SHOTS ? `화면 4장 저장: ${SHOTS}` : '';
 });
 
 const SECURITY_HEADERS = [

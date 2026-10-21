@@ -6,9 +6,9 @@ import {
   IconUsers, IconShieldCheck, IconNews, IconLogout, IconMenu2, IconX, IconFlask, IconPlus,
 } from '@tabler/icons-react';
 import { acknowledgeDemoSwitch, api, DEMO_INSTANCE_CHANGED, isDemoSwitchPending } from '../api.ts';
-import { useMe, type Me } from '../auth.tsx';
-import { dateTime } from '../format.ts';
+import { useMe } from '../auth.tsx';
 import { Notice } from './ui.tsx';
+import { DemoFooter } from './DemoFooter.tsx';
 import './layout-demo.css';
 
 /** 메뉴 배지 하나: 눈에 보이는 짧은 글자(예: '승인 2')와 화면 낭독기가 읽는 조각(예: '승인할 요청 2건'). */
@@ -43,22 +43,14 @@ function useMedia(query: string) {
 const useNarrow = () => useMedia(NARROW);
 
 /**
- * 메뉴 서랍이 열려 있는 동안 inert로 둘 곳(A3): 건너뛰기 링크, 환경 띠, 머리글에서 토글을 뺀 나머지, 본문.
- * 서랍과 머리글의 토글(「메뉴 닫기」)만 남아 Tab이 그 안에서만 돌고, 화면 낭독기도 서랍 뒤 본문을 읽지 않는다.
+ * 메뉴 서랍이 열려 있는 동안 inert로 둘 곳(A3): 건너뛰기 링크, 환경 띠(로컬 실행), 머리글에서 토글을 뺀 나머지, 본문,
+ * 공개 데모의 화면 맨 아래 한 줄(A5, 서랍 밖에 있다).
+ * 서랍과 머리글의 토글(「메뉴 닫기」)만 남아 Tab이 그 안에서만 돌고, 화면 낭독기도 서랍 뒤 본문과 아래 한 줄을 읽지 않는다.
  * React가 다루지 않는 속성이라 직접 붙이고 뗀다(화면을 옮길 때 제목으로 포커스를 옮기기 전에 바로 뗄 수 있게).
  */
-const OUTSIDE_DRAWER = '.skip-link, .env-ribbon, .topbar > :not(.nav-toggle), #main';
+const OUTSIDE_DRAWER = '.skip-link, .env-ribbon, .topbar > :not(.nav-toggle), #main, .demo-footer';
 function setOutsideDrawerInert(root: HTMLElement | null, on: boolean) {
   root?.querySelectorAll(OUTSIDE_DRAWER).forEach((el) => el.toggleAttribute('inert', on));
-}
-
-/** 데이터 생성 시각(KST HH:mm). */
-const seededTime = (seededAt?: string | null) => (seededAt ? dateTime(seededAt).slice(11) : null);
-
-/** 공개 데모 고지 본문. 상단 띠와 로그인 화면이 같은 내용을 쓴다. */
-export function DemoNoticeText({ seededAt }: { seededAt?: string | null }) {
-  const t = seededTime(seededAt);
-  return <>모든 사람·법인·자산·주소는 모의 데이터입니다. KODA 공식 서비스가 아니며 실제 계정·자산과 연결되지 않습니다. 서버가 다시 시작되면 데이터가 초기화됩니다{t ? ` (데이터 생성 ${t})` : ''}.</>;
 }
 
 /**
@@ -115,17 +107,15 @@ function focusTitleWhenReady(): () => void {
   return stop;
 }
 
-function EnvRibbon({ env }: { env: Me['environment'] }) {
+/**
+ * 로컬 실행(개발 환경)의 상단 띠. DESIGN.md '고지·환경 표시'에 따라 운영 연동 전에는 없애지 않는다.
+ * 공개 데모는 이 띠 대신 화면 맨 아래 작은 한 줄(DemoFooter)만 쓴다(A5, DEC-004).
+ */
+function EnvRibbon({ custody }: { custody: string }) {
   const narrow = useNarrow();
-  if (env.mode !== 'public-demo') {
-    // 좁은 화면에서는 네 가지 고지(개발 환경·개발용 로그인·모의 데이터·모의 커스터디)를 남기고 뒤 문장만 줄인다.
-    if (narrow) return <span><b>개발 환경</b> · 개발용 로그인 · 모의 데이터 · {env.custody}</span>;
-    return <span><b>개발 환경</b> · 개발용 로그인 · 모의 데이터 · {env.custody} — 실제 자산 전송이나 운영 인증이 일어나지 않습니다.</span>;
-  }
-  const t = seededTime(env.seededAt);
-  // 좁은 화면에서도 네 가지(공개 데모·모의 데이터·KODA 공식 서비스 아님·초기화)는 빠뜨리지 않는다.
-  if (narrow) return <span><b>공개 데모</b> · 모의 데이터 · KODA 공식 서비스가 아닙니다 · 재시작하면 데이터가 초기화됩니다{t ? ` (${t} 생성)` : ''}</span>;
-  return <span><b>공개 데모</b> · 모든 사람·법인·자산·주소는 모의 데이터 · KODA 공식 서비스가 아니며 실제 계정·자산과 연결되지 않습니다 · 서버가 다시 시작되면 데이터가 초기화됩니다{t ? ` (데이터 생성 ${t})` : ''}</span>;
+  // 좁은 화면에서는 네 가지 고지(개발 환경·개발용 로그인·모의 데이터·모의 커스터디)를 남기고 뒤 문장만 줄인다.
+  if (narrow) return <span><b>개발 환경</b> · 개발용 로그인 · 모의 데이터 · {custody}</span>;
+  return <span><b>개발 환경</b> · 개발용 로그인 · 모의 데이터 · {custody} — 실제 자산 전송이나 운영 인증이 일어나지 않습니다.</span>;
 }
 
 export function Layout() {
@@ -144,6 +134,7 @@ export function Layout() {
   const navRef = useRef<HTMLElement>(null);
   const [demoSwitch, acknowledgeSwitch] = useDemoSwitch();
   const env = me.environment;
+  const demo = env.mode === 'public-demo';
   const lastPath = useRef<string | null>(null);
   const startOver = useRef(false);
   const can = (p: string) => me.permissions.includes(p);
@@ -284,10 +275,13 @@ export function Layout() {
   return (
     <div ref={shellRef} className={`shell ${open ? 'nav-open' : ''}`} style={{ '--nav-top': `${navTop}px` } as CSSProperties}>
       <a href="#main" className="skip-link">본문으로 건너뛰기</a>
-      <div className="env-ribbon" role="note">
-        <IconFlask size={16} aria-hidden="true" />
-        <EnvRibbon env={env} />
-      </div>
+      {/* 상단 환경 띠는 로컬 실행에만 둔다. 공개 데모는 띠 없이 맨 아래 한 줄(DemoFooter)만 둔다(A5, DEC-004). */}
+      {!demo && (
+        <div className="env-ribbon" role="note">
+          <IconFlask size={16} aria-hidden="true" />
+          <EnvRibbon custody={env.custody} />
+        </div>
+      )}
       <header ref={headerRef} className="topbar">
         <button ref={toggleRef} className="btn btn-icon nav-toggle" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls="sidenav" aria-label={open ? '메뉴 닫기' : '메뉴 열기'}>
           {open ? <IconX size={20} aria-hidden="true" /> : <IconMenu2 size={20} aria-hidden="true" />}
@@ -348,7 +342,7 @@ export function Layout() {
       <div className="nav-scrim" onClick={() => closeNav(true)} aria-hidden="true" />
       <main id="main" className="main">
         {/* 공개 데모에서만: 미리 있는 알림 영역에 내용을 넣어야 화면 낭독기가 변경을 읽어 준다. 로컬 화면 구조는 그대로 둔다. */}
-        {env.mode === 'public-demo' && (
+        {demo && (
           <div role="status" aria-live="polite">
             {demoSwitch && (
               <div className="demo-switch">
@@ -365,6 +359,8 @@ export function Layout() {
         )}
         <Outlet />
       </main>
+      {/* 공개 데모: 모든 화면 맨 아래 작은 한 줄(A5). 알림 영역 밖이고, 서랍이 열려 있는 동안에는 inert다(OUTSIDE_DRAWER). */}
+      {demo && <DemoFooter />}
     </div>
   );
 }

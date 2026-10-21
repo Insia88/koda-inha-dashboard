@@ -11,7 +11,10 @@ export class ApiError extends Error {
 let csrfToken = '';
 export function setCsrf(t: string) { csrfToken = t; }
 
-/** 서버가 알려 주는 실행 형태(/api/healthz, /api/me environment). 공개 데모에서만 seededAt·instanceId가 화면에 쓰인다. */
+/**
+ * 서버가 알려 주는 실행 형태(/api/healthz, /api/me environment). 화면은 mode로 공개 데모의 맨 아래 한 줄·인스턴스 안내를 정한다.
+ * instanceId·seededAt는 화면에 보이지 않는다(A5부터. 그 전에는 공개 데모 상단 띠가 데이터 생성 시각을 보였다). 인스턴스 비교는 X-Demo-Instance 헤더로 한다.
+ */
 export interface DeploymentInfo { mode?: 'local' | 'public-demo'; instanceId?: string; seededAt?: string | null }
 export interface HealthInfo extends DeploymentInfo { ok: boolean; env: string; authMode: string; custody: string }
 
