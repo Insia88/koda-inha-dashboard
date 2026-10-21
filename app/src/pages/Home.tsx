@@ -129,7 +129,7 @@ export function HomePage() {
   return (
     <div className="page home">
       <PageHeader
-        title={`${me.org.name} 자산 현황`}
+        title={me.roles.includes('auditor') ? `${me.org.name} 감사·무결성 현황` : me.roles.includes('admin') ? `${me.org.name} 조직·정책 현황` : `${me.org.name} 자산 현황`}
         description={<>{me.roles.includes('auditor') ? '요청·승인·주소 변경 기록과 감사 무결성을 확인합니다.' : me.roles.includes('admin') ? '구성원 역할과 조직의 승인 정책을 관리하고, 처리할 업무를 확인합니다.' : '현재 보유 자산, 처리할 업무, 진행 중인 요청을 한 화면에서 확인합니다.'}</>}
       />
 

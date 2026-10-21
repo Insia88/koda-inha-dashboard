@@ -718,3 +718,10 @@ body:has(dialog[open]) { overflow: hidden; }
     content: ''; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%);
   }
 }
+
+/* A8: 공개 데모 전용 모바일 계정 한 줄(탑바 아래). 넓은 화면에서는 숨긴다. */
+.mobile-account { display: none; }
+@media (max-width: 860px) {
+  .mobile-account { display: flex; align-items: baseline; gap: var(--s2); padding: 6px var(--s4); background: var(--paper); border-bottom: 1px solid var(--line); font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink); }
+  .mobile-account-role { color: var(--ink-2); }
+}

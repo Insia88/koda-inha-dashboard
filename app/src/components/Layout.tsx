@@ -308,6 +308,8 @@ export function Layout() {
           <EnvRibbon custody={env.custody} />
         </div>
       )}
+      {/* 공개 데모에서만: 좁은 화면에서도 지금 누구로 보고 있는지 한 줄로 보인다(A8). */}
+      {demo && <div className="mobile-account" aria-label="현재 사용자"><span>{me.user.name}</span><span className="mobile-account-role">{me.roleLabels.join(' · ')}</span></div>}
       <header ref={headerRef} className="topbar">
         <button ref={toggleRef} className="btn btn-icon nav-toggle" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls="sidenav" aria-label={open ? '메뉴 닫기' : '메뉴 열기'}>
           {open ? <IconX size={20} aria-hidden="true" /> : <IconMenu2 size={20} aria-hidden="true" />}

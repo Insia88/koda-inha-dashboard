@@ -88,6 +88,25 @@ function LoginTrailer() {
       });
   }, [motion, asset]);
 
+  // 브라우저가 소리 자동재생을 막은 경우: 이 화면에서 첫 상호작용(클릭·키입력) 때 소리를 켠다.
+  // 사용자가 직접 '배경음 끄기'를 고른 경우(pref=off)에는 건드리지 않는다.
+  useEffect(() => {
+    if (!motion) return;
+    const onFirst = () => {
+      const video = videoRef.current;
+      if (!video) return;
+      let pref: string | null = null;
+      try { pref = localStorage.getItem(SOUND_PREF); } catch { pref = null; }
+      if (pref === 'off') return;
+      if (!video.muted) return;
+      video.muted = false;
+      void video.play().then(() => { setSoundOn(true); try { localStorage.setItem(SOUND_PREF, 'on'); } catch { /* noop */ } }).catch(() => { video.muted = true; });
+    };
+    window.addEventListener('pointerdown', onFirst, { once: true });
+    window.addEventListener('keydown', onFirst, { once: true });
+    return () => { window.removeEventListener('pointerdown', onFirst); window.removeEventListener('keydown', onFirst); };
+  }, [motion]);
+
   const toggleSound = async () => {
     const video = videoRef.current;
     if (!video) return;
