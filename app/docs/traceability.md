@@ -306,4 +306,6 @@ R5가 공개 데모에서 확인한 **위반 7건**을 화면(`src`)만 바꿔 �
 
 **하지 않은 것:** 소리 있는 재생·음소거 해제 버튼(로그인 화면에 소리 자동재생은 두지 않음), 영상 자체의 자막·설명(말·소리 없음), 로그인 배경 전체 영상, 재생 위치 기억(localStorage — 새 저장소를 만들지 않음). 실제 iOS Safari·Android Chrome에서 자동재생 정책과 데이터 절약 동작은 확인하지 않았다(줄인 움직임·saveData는 코드 경로만 확인).
 
-**전체 재실행 (A6, 2026-10-22):** `npm run typecheck` 통과, `npm test` 26개 파일 416건 통과, `npm run build`·`npm run check:vercel` 통과(핸들러 점검 통과), E2E 180건 통과(새 `login-trailer.spec.ts` 3건 + 기존 177건, 포트 4557·별도 E2E DB·`--trace=off`). Playwright 브라우저는 `PLAYWRIGHT_BROWSERS_PATH`로 Claude Code 패키지 캐시의 chromium-1248을 지정했다. 배포 뒤 공개 운영 주소 로그인 화면에서 영상 재생 상태를 직접 확인한다.
+**전체 재실행 (A6, 2026-10-22):** `npm run typecheck` 통과, `npm test` 26개 파일 416건 통과, `npm run build`·`npm run check:vercel` 통과(핸들러 점검 통과), E2E **180건 통과**(새 `login-trailer.spec.ts` 3건 + 기존 177건, 포트 4567·별도 E2E DB·`--trace=off`). Playwright 브라우저는 `PLAYWRIGHT_BROWSERS_PATH`로 Claude Code 패키지 캐시의 chromium-1248을 지정했다.
+
+**배포 확인 (2026-10-22, 공개 운영 주소):** Vercel 프로덕션 배포 `dpl`(별칭 `https://koda-inha-dashboard.vercel.app`) 뒤 확인했다. `/api/healthz`가 `mode: public-demo`를 돌려주고, `/login?next=%2F&reason=expired`에서 무음 영상이 실제로 재생된다(데스크톱 1280×720 16:9 컷 `currentTime` 4.0s·`!paused`·`readyState 4`, 390px은 720×900 4:5 컷 `!paused`, 콘솔·페이지 오류 0, 세션 만료 안내 노출). 데스크톱 필름 창 y190–606·태그라인 y622–674로 첫 화면 안, 좁은 화면은 380×320 띠를 4:5 컷이 채운다. 원격 읽기 전용 검사(`E2E_BASE_URL`, a11y·responsive) **55건 통과·3건 건너뜀·실패 0**, `smoke-deploy.mjs --public` **통과 17·실패 0·경고 1**(예상한 `배포 보호 없음(--public)` 하나)·건너뜀 0, 로그인 화면 고지 한 줄·보안 헤더·세션 쿠키·인스턴스 20회 반복 모두 통과.
