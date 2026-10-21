@@ -32,7 +32,7 @@ export interface CustodyAdapter {
 }
 
 export class MockCustodyAdapter implements CustodyAdapter {
-  readonly name = '모의 커스터디(개발용)';
+  readonly name = '모의 커스터디';
   readonly isMock = true;
   /** 멱등 키 → 접수 참조. 같은 키로 다시 오면 같은 참조를 돌려준다. */
   private readonly accepted = new Map<string, string>();

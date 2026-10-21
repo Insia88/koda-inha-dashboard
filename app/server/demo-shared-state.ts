@@ -62,7 +62,7 @@ export interface DemoSharedState {
 export function createDemoSharedState(db: DB): DemoSharedState {
   const deployment = process.env.VERCEL_URL ?? 'local';
   const key = `demo-state/${deployment}.json`;
-  const enabled = process.env.DEMO_SHARED_STATE !== 'off' && !!process.env.BLOB_STORE_ID && !!process.env.VERCEL_OIDC_TOKEN;
+  const enabled = process.env.DEMO_SHARED_STATE !== 'off' && !!process.env.BLOB_STORE_ID && (!!process.env.VERCEL_OIDC_TOKEN || !!process.env.BLOB_READ_WRITE_TOKEN);
   let rev = 0;
   let lastRemoteAt: string | null = null;
   let lastPullAt = 0;
