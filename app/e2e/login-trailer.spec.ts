@@ -20,10 +20,11 @@ test.describe('로그인 브랜드 트레일러(DEC-006)', () => {
     expect(state.loop).toBe(true);
     expect(state.autoplay).toBe(true);
     expect(state.playsInline).toBe(true);
-    expect(state.src).toContain('/brand/koda-trailer-15s.mp4');
+    expect(state.src).toContain('/brand/koda-brand-film-16x9.mp4');
 
-    // 재생이 시작될 때까지(포스터만 떠 있다가 영상이 준비되면 재생)
+    // 재생이 시작될 때까지(포스터만 떠 있다가 영상이 준비되면 재생). 전체 필름(42.45초)인지도 확인한다.
     await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).readyState >= 2), { timeout: 20_000 }).toBe(true);
+    expect(await video.evaluate((node) => (node as HTMLVideoElement).duration)).toBeGreaterThan(40);
     await expect.poll(() => video.evaluate((node) => !(node as HTMLVideoElement).paused), { timeout: 20_000 }).toBe(true);
 
     // 장식: 포커스를 받지 않고 보조기기에서 숨는다.
@@ -62,7 +63,8 @@ test.describe('로그인 브랜드 트레일러 390px', () => {
     expect(stageBox!.height).toBeLessThanOrEqual(320);
     expect(cardBox!.y).toBeGreaterThanOrEqual(stageBox!.height - 1);
     const src = await page.locator('.login-stage video').evaluate((node) => (node as HTMLVideoElement).currentSrc);
-    expect(src).toContain('/brand/koda-trailer-15s-4x5.mp4');
+    expect(src).toContain('/brand/koda-brand-film-4x5.mp4');
+    expect(await page.locator('.login-stage video').evaluate((node) => (node as HTMLVideoElement).duration)).toBeGreaterThan(40);
     // 좁은 화면 띠에서는 영상 아래 문구를 두지 않는다(영상 하단 띠·로그인 제목과 겹치지 않게).
     await expect(page.locator('.login-stage-copy')).toBeHidden();
     await expect(page.getByRole('heading', { name: '법인 대시보드 로그인' })).toBeVisible();

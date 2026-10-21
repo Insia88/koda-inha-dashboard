@@ -9,14 +9,15 @@ import './login-stage.css';
 
 interface DevUser { id: string; name: string; title: string; org_name: string; org_id: string; roles: Role[] }
 
-// 넓은 화면은 16:9 컷, 좁은 화면(무대가 위쪽 띠일 때)은 4:5 컷을 쓴다. 16:9를 세로 띠에 cover로 넣으면 문장 왼쪽이 잘린다.
+// 넓은 화면은 16:9 전체 필름, 좁은 화면(무대가 위쪽 띠일 때)은 4:5 전체 필름을 쓴다. 16:9를 세로 띠에 cover로 넣으면 문장 왼쪽이 잘린다.
+// 42.45초 원본을 웹용으로만 줄인 파일(1280×720 1.24MB / 720×900 775KB, 무음, 0.5초 페이드 인·1.0초 페이드 아웃으로 반복 이음새 정리).
 const TRAILER_ASSETS = {
-  wide: { src: '/brand/koda-trailer-15s.mp4', poster: '/brand/koda-trailer-poster.jpg' },
-  narrow: { src: '/brand/koda-trailer-15s-4x5.mp4', poster: '/brand/koda-trailer-poster-4x5.jpg' },
+  wide: { src: '/brand/koda-brand-film-16x9.mp4', poster: '/brand/koda-brand-film-poster.jpg' },
+  narrow: { src: '/brand/koda-brand-film-4x5.mp4', poster: '/brand/koda-brand-film-poster-4x5.jpg' },
 } as const;
 type TrailerAsset = keyof typeof TRAILER_ASSETS;
 
-/** 무대 폭에 맞는 15초 컷을 고른다(넓은 화면 16:9 · 좁은 화면 4:5). */
+/** 무대 폭에 맞는 전체 필름을 고른다(넓은 화면 16:9 · 좁은 화면 4:5). */
 function useTrailerAsset(): TrailerAsset {
   const [asset, setAsset] = useState<TrailerAsset>(() => (typeof window !== 'undefined' && window.matchMedia('(min-width: 960px)').matches ? 'wide' : 'narrow'));
   useEffect(() => {
@@ -47,7 +48,7 @@ function useTrailerMotion(): boolean {
 }
 
 /**
- * 로그인 무대의 브랜드 필름(15초, 무음). 장식이므로 aria-hidden이고 포커스를 받지 않는다.
+ * 로그인 무대의 KODA 브랜드 필름 전체(42.45초, 무음). 장식이므로 aria-hidden이고 포커스를 받지 않는다.
  * 재생이 차단되면 포스터가 그대로 보인다. 영상이 준비되면 포스터 위로 부드럽게 나타난다(글자가 아니라 영상에만 투명도 전환).
  */
 function LoginTrailer() {
@@ -82,11 +83,6 @@ function LoginTrailer() {
         aria-hidden="true"
         tabIndex={-1}
         disablePictureInPicture
-        onLoadedMetadata={(e) => {
-          // 첫 재생은 완전한 검정(0–1.2초)에서 시작하지 않고 문장이 나타나기 시작하는 지점부터 보여 준다. 이후 반복은 처음부터.
-          const v = e.currentTarget;
-          if (v.currentTime < 0.05) v.currentTime = 1.35;
-        }}
         onCanPlay={() => setReady(true)}
       />
       <div className="login-stage-scrim" />
