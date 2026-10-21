@@ -1,0 +1,21 @@
+/* 로그인 — KODA 브랜드 필름 15초(무음) 무대. 배치(.login/.login-card)는 styles.css '로그인' 절에서 바꾼다.
+   - 영상은 장식이다(aria-hidden). 재생이 막히면 아래 포스터가 그대로 남으므로 화면이 비지 않는다.
+   - 줄인 움직임(prefers-reduced-motion: reduce)과 데이터 절약 모드에서는 영상을 재생하지 않는다(포스터만, motion 없음).
+   - 영상 위 글자는 아래쪽 어두운 그라디언트 위에 둔다. 영상 위 대비는 자동 검사로 확정할 수 없으므로 스크림을 넉넉히 둔다. */
+.login-stage { position: relative; overflow: hidden; min-height: 100vh; background: #08110e; }
+.login-stage-poster, .login-stage-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.login-stage-poster { display: block; }
+.login-stage-video { opacity: 0; transition: opacity 600ms var(--ease-standard); }
+.login-stage-video.is-ready { opacity: 1; }
+.login-stage-scrim { position: absolute; inset: 0; background: linear-gradient(0deg, rgba(8, 17, 14, 0.88) 0%, rgba(8, 17, 14, 0.28) 42%, rgba(8, 17, 14, 0) 68%), linear-gradient(90deg, rgba(8, 17, 14, 0) 60%, rgba(8, 17, 14, 0.6) 100%); }
+.login-stage-copy { position: absolute; left: clamp(var(--s5), 4vw, var(--s7)); bottom: clamp(var(--s5), 5vh, var(--s7)); margin: 0; display: flex; flex-direction: column; gap: var(--s1); color: #f4f6f5; font-size: var(--fs-xl); line-height: var(--lh-xl); font-weight: var(--fw-semibold); letter-spacing: var(--ls-heading); text-shadow: 0 1px 16px rgba(8, 17, 14, 0.65); }
+.login-stage-copy span { font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--fw-regular); letter-spacing: 0; color: #c9d2ce; }
+@media (max-width: 959px) {
+  /* 좁은 화면: 무대는 위쪽 띠(최대 320px)가 되고 로그인 카드는 그 아래에서 시작한다 */
+  .login-stage { min-height: 0; height: min(38vh, 320px); }
+  .login-stage-copy { left: var(--s4); bottom: var(--s4); font-size: var(--fs-lg); line-height: var(--lh-lg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* 움직임을 줄인 환경에서는 영상을 재생하지 않는다(포스터만). 전환도 두지 않는다(DESIGN.md '모션') */
+  .login-stage-video { display: none; transition: none; }
+}

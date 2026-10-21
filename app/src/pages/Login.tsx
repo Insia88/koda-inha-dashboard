@@ -1,12 +1,72 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { acknowledgeDemoSwitch, api, type HealthInfo } from '../api.ts';
 import { ApiErrorNotice, Loading, Notice, ErrorState, useDocumentTitle } from '../components/ui.tsx';
 import { DemoFooter } from '../components/DemoFooter.tsx';
 import { ROLE_LABEL, type Role } from '../../shared/terms.ts';
+import './login-stage.css';
 
 interface DevUser { id: string; name: string; title: string; org_name: string; org_id: string; roles: Role[] }
+
+const TRAILER_SRC = '/brand/koda-trailer-15s.mp4';
+const TRAILER_POSTER = '/brand/koda-trailer-poster.jpg';
+
+/**
+ * 무음 자동재생을 허용할지 정한다. 줄인 움직임(prefers-reduced-motion: reduce)이나 데이터 절약 모드(saveData)에서는 재생하지 않는다.
+ * 첫 렌더에서는 false로 두어, 미디어 설정을 확인하기 전에 영상이 먼저 재생되기 시작하지 않게 한다.
+ */
+function useTrailerMotion(): boolean {
+  const [allowed, setAllowed] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+    const update = () => setAllowed(!mq.matches && connection?.saveData !== true);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  return allowed;
+}
+
+/**
+ * 로그인 무대의 브랜드 필름(15초, 무음). 장식이므로 aria-hidden이고 포커스를 받지 않는다.
+ * 재생이 차단되면 포스터가 그대로 보인다. 영상이 준비되면 포스터 위로 부드럽게 나타난다(글자가 아니라 영상에만 투명도 전환).
+ */
+function LoginTrailer() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [ready, setReady] = useState(false);
+  const motion = useTrailerMotion();
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (!motion) { video.pause(); return; }
+    // 자동재생이 막히면(브라우저 설정 등) 포스터가 남는다. 오류는 화면에 알리지 않는다(장식).
+    void video.play().catch(() => {});
+  }, [motion]);
+  return (
+    <aside className="login-stage" aria-label="KODA 브랜드 필름">
+      <img className="login-stage-poster" src={TRAILER_POSTER} alt="" width={1280} height={720} />
+      <video
+        ref={videoRef}
+        className={`login-stage-video${ready ? ' is-ready' : ''}`}
+        src={TRAILER_SRC}
+        poster={TRAILER_POSTER}
+        autoPlay={motion}
+        muted
+        loop
+        playsInline
+        preload={motion ? 'auto' : 'none'}
+        aria-hidden="true"
+        tabIndex={-1}
+        disablePictureInPicture
+        onCanPlay={() => setReady(true)}
+      />
+      <div className="login-stage-scrim" />
+      <p className="login-stage-copy">확인이 쌓여, 신뢰가 됩니다.<span>KODA 브랜드 필름 · 15초 · 무음</span></p>
+    </aside>
+  );
+}
 
 export function LoginPage() {
   const [sp] = useSearchParams();
@@ -37,6 +97,7 @@ export function LoginPage() {
 
   return (
     <div className="login">
+      <LoginTrailer />
       {/* 로그인 카드가 이 화면의 본문(main 랜드마크)이다. 공개 데모의 맨 아래 한 줄(contentinfo)은 그 밖의 형제로 둔다(A5 검토). */}
       <main className="login-card">
         <img src="/koda-logo.svg" alt="KODA" width={140} height={31} />

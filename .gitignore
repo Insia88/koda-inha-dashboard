@@ -40,6 +40,9 @@ assets/source/
 *.mov
 *.avi
 *.wav
+# 예외: 로그인 화면이 같은 출처에서 직접 내려받는 웹 자산(15초 브랜드 트레일러, 446KB)만 저장소에 둔다.
+# 원본 42.45초 마스터와 프로젝트 파일은 저장소 밖(koda-motion-20261021)에 있고 Drive가 원본 보관 장소다(DEC-006).
+!app/public/brand/*.mp4
 *.zip
 *.7z
 *.rar
