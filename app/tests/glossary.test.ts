@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ACTION_LABEL, actionLabel, ADDRESS_STATUS, GLOSSARY, GLOSSARY_LABEL, PAYMENT_EVIDENCE_TEXT, REQUEST_STATUS, ROLE_LABEL, type GlossaryKey } from '../shared/terms.ts';
+import { ATTACHMENT_MAX_FILE_BYTES, ATTACHMENT_MAX_FILES, ATTACHMENT_TYPE_LABELS } from '../shared/attachments.ts';
 
 // 용어·상태 설명의 단일 출처(shared/terms.ts)가 DASH-002 기준과 프로젝트 문구 규칙을 지키는지 확인한다.
 // 사람이 이해하는지는 이 테스트로 알 수 없다(사용자 검증 아님).
@@ -134,7 +135,9 @@ describe('문구 규칙', () => {
 
 describe('지급 근거 문구(A2b)', () => {
   const texts = Object.entries(PAYMENT_EVIDENCE_TEXT).flatMap(([k, v]) =>
-    typeof v === 'function' ? [[`${k}(0,false)`, v(0, false)], [`${k}(2,true)`, v(2, true)], [`${k}(1,false)`, v(1, false)], [`${k}(0,true)`, v(0, true)]] : [[k, v]]) as [string, string][];
+    typeof v === 'function' ? [[`${k}(0,false)`, v(0, false)], [`${k}(2,true)`, v(2, true)], [`${k}(1,false)`, v(1, false)], [`${k}(0,true)`, v(0, true)]]
+      : typeof v === 'object' ? Object.entries(v).flatMap(([kk, p]) => [[`${k}.${kk}.message`, p.message], [`${k}.${kk}.action`, p.action]])
+        : [[k, v]]) as [string, string][];
 
   it('names the three evidence audit actions with Korean labels and no implementation words or safety claims', () => {
     expect({
@@ -169,5 +172,21 @@ describe('지급 근거 문구(A2b)', () => {
     expect(PAYMENT_EVIDENCE_TEXT.submitLine(0, false)).toBe("지급 근거 없이 보내면 승인자 화면에 '근거 기록 없음'으로 보입니다.");
     expect(PAYMENT_EVIDENCE_TEXT.submitLine(2, true)).toBe('지급 근거(파일 2개·메모)가 승인자에게 함께 보입니다. 승인 요청을 보내면 바꿀 수 없습니다.');
     expect(PAYMENT_EVIDENCE_TEXT.submitLine(1, false)).toBe('지급 근거(파일 1개)가 승인자에게 함께 보입니다. 승인 요청을 보내면 바꿀 수 없습니다.');
+  });
+
+  it('pairs every upload problem with a next step that tells the user what to do, and keeps the limits in the sentences', () => {
+    for (const [k, p] of Object.entries(PAYMENT_EVIDENCE_TEXT.upload)) {
+      expect(p.message.trim(), k).toMatch(/니다\.$/);
+      expect(p.action.trim(), k).toMatch(/세요\.$/);
+    }
+    expect(PAYMENT_EVIDENCE_TEXT.upload.limit.message).toContain(`${ATTACHMENT_MAX_FILES}개`);
+    expect(PAYMENT_EVIDENCE_TEXT.upload.tooLarge.message).toContain(`${ATTACHMENT_MAX_FILE_BYTES / (1024 * 1024)}MB`);
+    expect(PAYMENT_EVIDENCE_TEXT.upload.type.message).toContain(ATTACHMENT_TYPE_LABELS.join('·'));
+  });
+
+  it("keeps the compare-with-documents instruction for approvers only; the read card states the fact", () => {
+    expect(PAYMENT_EVIDENCE_TEXT.noneBody).toContain('대조하세요');
+    expect(PAYMENT_EVIDENCE_TEXT.noneBodyCard).not.toMatch(/대조|요청자에게/);
+    expect(PAYMENT_EVIDENCE_TEXT.noneRequesterNote).toContain(`'${PAYMENT_EVIDENCE_TEXT.none}'`);
   });
 });

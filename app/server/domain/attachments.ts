@@ -6,7 +6,7 @@ import { now, tx } from '../db.ts';
 import { AppError, Errors } from '../errors.ts';
 import type { AuthContext } from '../auth.ts';
 import type { AppConfig } from '../config.ts';
-import { REQUEST_STATUS, type RequestStatus } from '../../shared/terms.ts';
+import { PAYMENT_EVIDENCE_TEXT, REQUEST_STATUS, type RequestStatus } from '../../shared/terms.ts';
 import { brokenTextMessage } from '../../shared/schemas.ts';
 import {
   ATTACHMENT_MAX_FILE_BYTES, ATTACHMENT_MAX_FILES, ATTACHMENT_TYPE_LABELS, ATTACHMENT_TYPES, fileSizeLabel, isEvidenceEditable, sanitizeAttachmentName, sniffAttachmentType,
@@ -25,7 +25,9 @@ export interface AttachmentDemoCaps {
 export const NO_DEMO_CAPS: AttachmentDemoCaps = { assertCount: () => undefined, assertBytes: () => undefined };
 
 const UPLOAD_FORMAT_ACTION = '화면의 「파일 추가」로 다시 올리세요.';
-export const tooLarge = () => new AppError(413, 'ATTACHMENT_TOO_LARGE', '파일이 2MB를 넘어 올리지 않았습니다.', '파일 크기를 줄이거나 여러 파일로 나눠 올리세요.');
+/** 화면의 보내기 전 검사와 같은 문장 짝(shared/terms.ts PAYMENT_EVIDENCE_TEXT.upload) */
+const UP = PAYMENT_EVIDENCE_TEXT.upload;
+export const tooLarge = () => new AppError(413, 'ATTACHMENT_TOO_LARGE', UP.tooLarge.message, UP.tooLarge.action);
 export const uploadFormat = () => new AppError(415, 'ATTACHMENT_UPLOAD_FORMAT', '파일을 올리는 형식이 올바르지 않습니다.', UPLOAD_FORMAT_ACTION);
 
 /** 요청 조회 권한이 없으면(운영 조직 등) 요청이 있는지도 보기 전에 거부한다(다른 요청 경로와 같은 순서). */
@@ -42,14 +44,15 @@ function assertEditable(r: any) {
 
 function assertCountRoom(db: DB, requestId: string) {
   if (attachmentCount(db, requestId) >= ATTACHMENT_MAX_FILES) {
-    throw new AppError(422, 'ATTACHMENT_LIMIT', `지급 근거 파일은 요청당 ${ATTACHMENT_MAX_FILES}개까지 붙일 수 있습니다.`, '필요 없는 파일을 지운 뒤 다시 올리세요.', undefined, { maxFiles: ATTACHMENT_MAX_FILES });
+    throw new AppError(422, 'ATTACHMENT_LIMIT', UP.limit.message, UP.limit.action, undefined, { maxFiles: ATTACHMENT_MAX_FILES });
   }
 }
 
 const mediaType = (raw: unknown) => (typeof raw === 'string' ? raw.split(';')[0]!.trim().toLowerCase() : '');
 
 /**
- * 올리기 사전 검사(본문을 읽기 전, 업로드 경로의 onRequest). 순서: 기능 켜짐 → 요청 조회 권한 → 요청(다른 조직 404) → 작성자 → 상태
+ * 올리기 사전 검사(본문을 읽기 전, 업로드 경로의 preParsing: 경로 요청 한도 훅 뒤라 여기서 거부된 시도도 한도에 센다).
+ * 순서: (로그인, app.ts) → 기능 켜짐 → 요청 조회 권한 → 요청(다른 조직 404) → 작성자 → 상태
  * → 본문 형식(application/octet-stream만) → 선언한 크기 → 파일 수 → 공개 데모 한도. 같은 검사를 저장 트랜잭션 안에서 다시 한다.
  */
 export function preflightAttachmentUpload(db: DB, cfg: AppConfig, auth: AuthContext, id: string, h: { contentType: unknown; contentLength: unknown }, demo: AttachmentDemoCaps) {
@@ -86,11 +89,11 @@ const metaDetail = (m: Pick<AttachmentMeta, 'id' | 'fileName' | 'contentType' | 
  * 요청 버전을 올리고 감사 기록(request.attachment_added, 메타데이터만)을 하나 남긴다.
  */
 export function addAttachment(db: DB, cfg: AppConfig, auth: AuthContext, id: string, bytes: Buffer, nameHeader: unknown, demo: AttachmentDemoCaps) {
-  if (bytes.length === 0) throw new AppError(422, 'ATTACHMENT_EMPTY', '빈 파일은 올릴 수 없습니다.', '내용이 있는 파일을 고르세요.');
+  if (bytes.length === 0) throw new AppError(422, 'ATTACHMENT_EMPTY', UP.empty.message, UP.empty.action);
   if (bytes.length > ATTACHMENT_MAX_FILE_BYTES) throw tooLarge();
   const type = sniffAttachmentType(bytes);
   if (!type) {
-    throw new AppError(422, 'ATTACHMENT_TYPE_NOT_ALLOWED', '이 파일 형식은 올릴 수 없습니다. PDF·PNG·JPEG 파일만 받습니다.', '문서는 PDF로, 화면이나 사진은 PNG·JPEG로 저장해 올리세요.', undefined, { allowed: [...ATTACHMENT_TYPE_LABELS] });
+    throw new AppError(422, 'ATTACHMENT_TYPE_NOT_ALLOWED', UP.type.message, UP.type.action, undefined, { allowed: [...ATTACHMENT_TYPE_LABELS] });
   }
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   const fileName = sanitizeAttachmentName(decodeNameHeader(nameHeader), type, sha256);

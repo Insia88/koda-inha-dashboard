@@ -43,7 +43,8 @@ const UPLOAD_ROUTE = '/api/requests/:id/attachments';
 
 /** 서버 인스턴스 정보(runtime.ts). 없으면 buildApp이 instanceId만 새로 만든다. */
 export interface RuntimeInfo { instanceId: string; seededAt: string | null; tick?: () => void }
-export interface AppDeps { cfg: AppConfig; db: DB; custody: CustodyAdapter; runtime?: RuntimeInfo }
+/** logStream: 로그를 받을 곳. 테스트가 로그 내용을 확인할 때만 준다(없으면 표준 출력). */
+export interface AppDeps { cfg: AppConfig; db: DB; custody: CustodyAdapter; runtime?: RuntimeInfo; logStream?: { write(msg: string): void } }
 
 /** 원문 링크가 제공 기관 홈페이지와 같은 호스트인지 확인한다(모든 모드). */
 function assertProviderDomain(p: { name: string; homepage: string }, url: string) {
@@ -75,7 +76,7 @@ const DEMO_CAP_SQL = {
 type DemoCapKind = keyof typeof DEMO_CAP_SQL;
 const DEMO_CAP_LABEL: Record<DemoCapKind, string> = { addresses: '주소 등록', requests: '출금 요청', insights: '인사이트 게시', attachments: '지급 근거 파일 올리기' };
 
-export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<FastifyInstance> {
+export async function buildApp({ cfg, db, custody, runtime, logStream }: AppDeps): Promise<FastifyInstance> {
   const demo = cfg.deployment === 'public-demo';
   // 공개 데모는 요청마다 다른 함수 인스턴스가 받을 수 있어, 인스턴스 메모리 DB에 의존하지 않는 서명된 쿠키 세션을 쓴다.
   // 로컬은 기존 저장소 세션(서버에서 폐기 가능) 그대로다. 서명 값이 없으면 공개 데모 앱을 만들지 않는다.
@@ -87,9 +88,11 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
   const app = Fastify({
     logger: cfg.logLevel === 'silent' ? false : {
       level: cfg.logLevel,
-      // 세션 쿠키·CSRF 값·요청 본문은 로그에 남기지 않는다.
-      // 지급 근거 파일 이름(X-Attachment-Name)도 가린다. 파일 내용(본문)은 로그에 남기지 않는다.
+      // 요청 기록은 Fastify 기본 직렬화(방법·주소·IP·상태 코드)라 머리글과 본문을 남기지 않는다. 그래서 세션 쿠키·CSRF 값·요청 본문,
+      // 지급 근거 파일 내용과 이름(X-Attachment-Name)은 로그에 들어가지 않는다(tests/attachments.test.ts가 실제 로그로 확인한다).
+      // 아래 가림 목록은 나중에 머리글을 기록하게 바꿀 때를 대비한 예방이다.
       redact: { paths: ['req.headers.cookie', 'req.headers["x-csrf-token"]', 'req.headers.authorization', 'res.headers["set-cookie"]', 'req.headers["x-attachment-name"]'], censor: '[가림]' },
+      ...(logStream ? { stream: logStream } : {}),
     },
     genReqId: () => randomUUID(),
     bodyLimit: 64 * 1024,
@@ -349,15 +352,19 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
     return reply.send(Buffer.from(f.content.buffer, f.content.byteOffset, f.content.byteLength));
   });
   // 올리기: 파일 하나를 원본 바이트(application/octet-stream) 본문으로, 이름은 X-Attachment-Name(encodeURIComponent) 머리글로 받는다.
-  // 이 경로만 바이트 해석기와 2MiB 본문 한도를 가진다(다른 경로는 전역 64KB와 JSON만). 본문을 읽기 전에 권한·상태·크기·개수·데모 한도를 먼저 본다.
+  // 이 경로만 바이트 해석기와 2MiB 본문 한도를 가진다(다른 경로는 전역 64KB와 JSON만). 경로 요청 한도(IP당 1분, 아래 사전 검사에서 거부된 시도도 센다)를
+  // 지난 뒤, 본문을 읽기 전에 로그인·권한·상태·크기·개수·데모 한도를 먼저 본다.
   // 멱등 키는 쓰지 않는다(2MiB 본문을 멱등 기록에 해시해 두지 않는다). 같은 내용을 다시 보내면 409 ATTACHMENT_DUPLICATE라 재시도해도 두 번 저장되지 않는다.
   await app.register(async (scope) => {
     scope.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: ATTACHMENT_MAX_FILE_BYTES }, (_req, body, done) => done(null, body));
     scope.post(UPLOAD_ROUTE, {
       bodyLimit: ATTACHMENT_MAX_FILE_BYTES,
       config: { rateLimit: { max: cfg.attachmentUploadRateLimitMax, timeWindow: '1 minute' } },
-      onRequest: async (req) => {
+      // 사전 검사는 preParsing에 둔다. 본문을 읽거나 본문 해석기를 고르기 전이고, 경로 요청 한도(@fastify/rate-limit이 경로 onRequest 끝에 붙이는 훅) 뒤다.
+      // onRequest에 두면 그 한도 훅보다 먼저 돌아, 사전 검사에서 거부된 시도(401·403·404·409·413·415·422)는 한도에 세지지 않는다.
+      preParsing: async (req, _reply, payload) => {
         preflightAttachmentUpload(db, cfg, requireAuth(req), parse(idParam, req.params).id, { contentType: req.headers['content-type'], contentLength: req.headers['content-length'] }, attachmentCaps);
+        return payload;
       },
     }, async (req, reply) => {
       const a = requireAuth(req);

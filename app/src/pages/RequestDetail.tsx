@@ -528,7 +528,7 @@ export function RequestDetailPage() {
         ? (editing
           ? <section className="card"><PaymentEvidenceView pe={pe} level={2} variant="card" stateText={PAYMENT_EVIDENCE_TEXT.editingNote} /></section>
           : <PaymentEvidenceEditor requestId={r.id} pe={pe} noteDraft={noteDraft} onNoteDraft={setNoteDraft} onBusy={setEvidenceBusy} onStale={() => qc.invalidateQueries({ queryKey: ['request', id] })} />)
-        : !decideCard && <section className="card"><PaymentEvidenceView pe={pe} level={2} variant="card" /></section>)}
+        : !decideCard && <section className="card"><PaymentEvidenceView pe={pe} level={2} variant="card" requesterWaiting={mine && r.status === 'PENDING_APPROVAL'} /></section>)}
 
       {/* 작성 중이거나 다른 사람이 보는 검토 중 요청: 지금 기준 점검(읽기 전용). 요청자의 검토 단계는 아래 확인 카드 안에서 사유와 함께 보인다. */}
       {preSubmit && !editing && !can('submit') && checks && (

@@ -75,7 +75,7 @@
 - `DEMO_SESSION_SECRET` 만들기: 셸에서 `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`를 실행해 나온 값을 Vercel 프로젝트 설정 → Environment Variables에 **Production과 Preview 모두** 넣는다(가능하면 저장 뒤 다시 읽을 수 없는 Sensitive 유형으로). [제안] Production과 Preview에 서로 다른 값을 쓰면 한쪽에서 받은 쿠키가 다른 쪽에서 통하지 않는다.
 - 이 값은 저장소·`.env` 파일·문서·채팅·로그에 남기지 않는다. 값을 바꾸고 다시 배포하면 기존 쿠키가 모두 401이 된다(전체 로그아웃).
 - `NODE_ENV`, `AUTH_MODE`, `DB_PATH`는 **설정하지 않는다**. 공개 데모가 스스로 정한다.
-- 선택(A2b, DEC-005): `REQUEST_ATTACHMENTS=off`이면 지급 근거 파일 올리기만 403 `ATTACHMENTS_DISABLED`로 막는다(목록·내려받기·삭제·메모는 그대로). 기본은 켬. `ATTACHMENT_UPLOAD_RATE_LIMIT_MAX`(기본 30)는 올리기 경로의 IP당 1분 한도다. 둘 다 비밀값이 아니다.
+- 선택(A2b, DEC-005): `REQUEST_ATTACHMENTS=off`이면 지급 근거 파일 올리기만 403 `ATTACHMENTS_DISABLED`로 막는다(목록·내려받기·삭제·메모는 그대로). 기본은 켬. `ATTACHMENT_UPLOAD_RATE_LIMIT_MAX`(기본 30)는 올리기 경로의 IP당 1분 한도다(거부된 올리기 시도도 센다). 둘 다 비밀값이 아니다.
 - `VERCEL_AUTOMATION_BYPASS_SECRET`(자동화 우회 값)은 Vercel이 발급한다. 검사를 돌리는 셸이나 CI 비밀값에만 두고 저장소·문서·로그에 남기지 않는다.
 - [제안] 여러 인스턴스에 걸친 보조 한도로 Vercel WAF 사용자 규칙을 둔다: `/api/auth/dev-login` IP당 분당 약 20회, `/api/` IP당 분당 약 600회.
 - 운영 배포는 5절 게이트를 모두 통과한 커밋만 수동으로 한다. 운영 주소를 보호 없이 여는 것은 DEC-004로 결정했다. 공개 범위를 다시 바꾸는(보호를 켜거나, 미리보기 보호를 끄는) 변경은 `docs/decisions.md`에 새 기록을 남긴 뒤에만 한다. 배포 제한이 붙은 원자료(S3)는 공개 여부와 관계없이 화면·저장소에 옮기지 않는다.

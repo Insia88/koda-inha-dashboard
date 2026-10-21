@@ -157,6 +157,8 @@ describe('지급 근거 파일 올리기', () => {
     const del = await a.del(`/api/requests/wr-6/attachments/${last.body.paymentEvidence.attachments[0].id}`);
     expect(del.status).toBe(200);
     expect(del.body.paymentEvidence.attachments).toHaveLength(4);
+    // 지우기도 요청 버전을 올린다(거부된 6번째는 올리지 않았다). 그 전에 연 승인 요청 화면은 409로 다시 불러온다(A-38).
+    expect(del.body.version).toBe(last.body.version + 1);
     expect((await upload(ctx.app, han, 'wr-6', variant(PDF, 9), 'doc-6.pdf')).status).toBe(201);
   });
 
@@ -209,7 +211,17 @@ describe('승인 요청 뒤 고정', () => {
     // 승인 요청 전에 연 화면(낡은 버전)으로 보내면 409 VERSION_CONFLICT다(지급 근거를 바꾸면 버전이 오른다).
     const stale = await a.post(`/api/requests/${d.id}/submit`, { version: rv2.body.version - 1, confirmTail: tail(d.address.address), ackIrreversible: true });
     expect(stale.status).toBe(409);
-    const sub = await a.post(`/api/requests/${d.id}/submit`, { version: rv2.body.version, confirmTail: tail(d.address.address), ackIrreversible: true, checkReasons: { first_use: '거래처와 등록된 번호로 통화해 주소를 대조했습니다' } });
+    // 검토 중에 붙였다가 지운 경우도 같다: 지우기 전 버전으로 보낸 승인 요청은 409 VERSION_CONFLICT
+    const tmp = await upload(ctx.app, han, d.id, JPEG, 'tmp.jpg');
+    expect(tmp.status).toBe(201);
+    const tmpId = tmp.body.paymentEvidence.attachments.find((x: any) => x.contentType === 'image/jpeg').id;
+    const tmpDel = await a.del(`/api/requests/${d.id}/attachments/${tmpId}`);
+    expect(tmpDel.status).toBe(200);
+    expect(tmpDel.body.version).toBe(tmp.body.version + 1);
+    const beforeDel = await a.post(`/api/requests/${d.id}/submit`, { version: tmp.body.version, confirmTail: tail(d.address.address), ackIrreversible: true, checkReasons: { first_use: '거래처와 등록된 번호로 통화해 주소를 대조했습니다' } });
+    expect(beforeDel.status).toBe(409);
+    expect(beforeDel.body.error.code).toBe('VERSION_CONFLICT');
+    const sub = await a.post(`/api/requests/${d.id}/submit`, { version: tmpDel.body.version, confirmTail: tail(d.address.address), ackIrreversible: true, checkReasons: { first_use: '거래처와 등록된 번호로 통화해 주소를 대조했습니다' } });
     expect(sub.status, JSON.stringify(sub.body)).toBe(200);
     expect(sub.body.status).toBe('PENDING_APPROVAL');
     expect(sub.body.paymentEvidence).toMatchObject({ locked: true, canEdit: false, hasAny: true });
@@ -330,6 +342,20 @@ describe('CSRF와 본문 한도', () => {
     expect((await a.get('/api/requests/wr-6')).body.paymentEvidence.note).toBeNull();
   });
 
+  it('checks owner, state and org before reading an oversize body (403, 409 and 404, not 413)', async () => {
+    const big = pdfOf(ATTACHMENT_MAX_FILE_BYTES + 1);
+    const kang = await login(ctx.app, 'u-a-kang');
+    const r1 = await upload(ctx.app, kang, 'wr-6', big, 'big.pdf');
+    expect([r1.status, r1.body.error.code]).toEqual([403, 'NOT_REQUEST_OWNER']);
+    const han = await login(ctx.app, 'u-a-han');
+    const r2 = await upload(ctx.app, han, 'wr-3', big, 'big.pdf');
+    expect([r2.status, r2.body.error.code]).toEqual([409, 'EVIDENCE_LOCKED']);
+    const bae = await login(ctx.app, 'u-b-bae');
+    const r3 = await upload(ctx.app, bae, 'wr-6', big, 'big.pdf');
+    expect([r3.status, r3.body.error.code]).toEqual([404, 'NOT_FOUND']);
+    expect(rowCount('wr-6')).toBe(0);
+  });
+
   it('keeps the global 64KB JSON limit elsewhere and the byte parser only on the upload route', async () => {
     const { a } = await as('u-a-han');
     const huge = 'x'.repeat(70 * 1024);
@@ -359,8 +385,10 @@ describe('내려받기 머리글과 파일 이름', () => {
       expect(dl.headers['cross-origin-resource-policy']).toBe('same-origin');
       expect(Number(dl.headers['content-length'])).toBe(bytes.length);
       expect(Buffer.compare(dl.rawPayload, bytes)).toBe(0);
+      // 로그인하지 않으면 내려받기도 401
+      expect((await ctx.app.inject({ method: 'GET', url: x.contentUrl })).statusCode).toBe(401);
     }
-    // 로그인하지 않으면 401
+    // 로그인하지 않으면 목록도 401
     const anon = await ctx.app.inject({ method: 'GET', url: '/api/requests/wr-6/attachments' });
     expect(anon.statusCode).toBe(401);
   });
@@ -479,6 +507,54 @@ describe('끄기 스위치와 업로드 한도', () => {
       await limited.app.close(); limited.db.close();
     }
   });
+
+  it('counts attempts the pre-check rejects (wrong format, not logged in, another org) toward the route limit', async () => {
+    // 사전 검사는 경로 한도 훅 뒤(preParsing)에 돈다. onRequest였을 때는 거부된 시도가 한도에 세지지 않아 끝없이 보낼 수 있었다.
+    const cases: [string, (app: TestCtx['app']) => Promise<{ status: number; body: any }>, number][] = [
+      ['wrong format', async (app) => upload(app, await login(app, 'u-a-han'), 'wr-6', PDF, 'x.pdf', { 'content-type': 'text/plain' }), 415],
+      ['not logged in', async (app) => upload(app, null, 'wr-6', PDF, 'x.pdf'), 401],
+      ['another org', async (app) => upload(app, await login(app, 'u-b-bae'), 'wr-6', PDF, 'x.pdf'), 404],
+    ];
+    for (const [label, send, rejected] of cases) {
+      const limited = await makeApp({ config: { attachmentUploadRateLimitMax: 3 } });
+      try {
+        const out: { status: number; body: any }[] = [];
+        for (let i = 0; i < 4; i++) out.push(await send(limited.app));
+        expect(out.map((r) => r.status), label).toEqual([rejected, rejected, rejected, 429]);
+        expect(out[3]!.body.error.code, label).toBe('RATE_LIMITED');
+      } finally {
+        await limited.app.close(); limited.db.close();
+      }
+    }
+  });
+});
+
+describe('로그', () => {
+  it('keeps attachment names and bytes out of the request log (upload, download, delete)', async () => {
+    const { Writable } = await import('node:stream');
+    const lines: string[] = [];
+    const logStream = new Writable({ write(chunk, _enc, cb) { lines.push(String(chunk)); cb(); } });
+    const logged = await makeApp({ config: { logLevel: 'info' }, logStream });
+    try {
+      const han = await login(logged.app, 'u-a-han');
+      const up = await upload(logged.app, han, 'wr-6', PNG, '비밀-인보이스.png');
+      expect(up.status).toBe(201);
+      const x = up.body.paymentEvidence.attachments[0];
+      expect(x.fileName).toBe('비밀-인보이스.png');
+      const dl = await logged.app.inject({ method: 'GET', url: x.contentUrl, headers: { cookie: han.cookie } });
+      expect(Buffer.compare(dl.rawPayload, PNG)).toBe(0);
+      expect((await api(logged.app, han).del(`/api/requests/wr-6/attachments/${x.id}`)).status).toBe(200);
+      const text = lines.join('');
+      // 로그는 실제로 남았다(올리기 경로의 요청 기록 포함)
+      expect(text).toContain('/api/requests/wr-6/attachments');
+      expect(text).toContain('request completed');
+      for (const secret of ['비밀', encodeURIComponent('비밀'), encodeURIComponent('비밀').toLowerCase(), PNG.toString('base64'), PNG.toString('hex'), PNG.toString('latin1')]) {
+        expect(text, secret).not.toContain(secret);
+      }
+    } finally {
+      await logged.app.close(); logged.db.close();
+    }
+  });
 });
 
 describe('파일 내용을 읽는 조회', () => {
@@ -488,5 +564,7 @@ describe('파일 내용을 읽는 조회', () => {
     const selects = sources.join('\n').match(/SELECT[^;`']*?\bcontent\b[^;`']*?FROM request_attachments/g) ?? [];
     expect(selects).toHaveLength(1);
     expect(selects[0]).toContain('a.content FROM request_attachments');
+    // 'SELECT *'·'SELECT a.*'도 내용 열을 읽으므로 쓰지 않는다
+    expect(sources.join('\n')).not.toMatch(/SELECT\s+(?:\w+\.)?\*[^;`']*?FROM request_attachments/);
   });
 });

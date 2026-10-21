@@ -92,11 +92,16 @@ test('지급 근거: 요청자가 작성·검토 중에 붙이고 승인 요청 
     await expect(items.nth(1).getByRole('img', { name: '영수증.png 미리 보기' })).toBeVisible();
     expect(posts).toHaveLength(2);
 
-    // SVG는 보내기 전에 화면에서 거부한다(서버로 요청이 가지 않는다)
-    await page.setInputFiles('#pe-file', [{ name: 'scan.svg', mimeType: 'image/svg+xml', buffer: SVG }]);
+    // SVG·빈 파일은 보내기 전에 화면에서 거부한다(서버로 요청이 가지 않는다). 이유 뒤에 다음에 할 일을 함께 보인다.
+    await page.setInputFiles('#pe-file', [
+      { name: 'scan.svg', mimeType: 'image/svg+xml', buffer: SVG },
+      { name: 'empty.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(0) },
+    ]);
     const alert = editor.getByRole('alert').filter({ hasText: '올리지 못한 파일이 있습니다' });
-    await expect(alert).toContainText('scan.svg');
-    await expect(alert).toContainText('이 파일 형식은 올릴 수 없습니다. PDF·PNG·JPEG 파일만 받습니다.');
+    const lines = alert.getByRole('listitem');
+    await expect(lines).toHaveCount(2);
+    await expect(lines.nth(0)).toHaveText(`scan.svg: ${T.upload.type.message} ${T.upload.type.action}`);
+    await expect(lines.nth(1)).toHaveText(`empty.pdf: ${T.upload.empty.message} ${T.upload.empty.action}`);
     expect(posts).toHaveLength(2);
     await expect(items).toHaveCount(2);
 
@@ -243,6 +248,31 @@ test("근거 기록 없음: 지급 근거가 없는 승인 대기 요청(wr-4)�
   expect(color).not.toBe('rgb(228, 244, 236)');
   expect(await overflow(page)).toBeLessThanOrEqual(0);
   await axe(page);
+});
+
+test("근거 기록 없음: 읽기 카드는 사실만 쓰고 대조하라고 하지 않는다(요청자 wr-3 승인 대기, 감사 담당자 wr-1 처리 완료)", async ({ page }) => {
+  // 시드 요청은 읽기만 한다
+  await loginAs(page, '한지수');
+  expect((await (await page.request.get('/api/requests/wr-3')).json()).status).toBe('PENDING_APPROVAL');
+  await page.goto('/requests/wr-3');
+  const mine = page.locator('.pe-card');
+  await expect(mine.getByRole('heading', { name: '지급 근거', level: 2 })).toBeVisible();
+  await expect(mine.locator('.pe-none-title')).toHaveText(T.none);
+  await expect(mine.locator('.pe-none p')).toHaveText(`${T.noneBodyCard} ${T.noneRequesterNote}`);
+  await expect(mine).not.toContainText('대조하세요');
+  await logout(page);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await loginAs(page, '문태호');
+  await page.goto('/requests/wr-1');
+  const audit = page.locator('.pe-card');
+  await expect(audit.locator('.pe-none-title')).toHaveText(T.none);
+  await expect(audit.locator('.pe-none p')).toHaveText(T.noneBodyCard);
+  await expect(audit).not.toContainText('대조하세요');
+  await expect(audit.locator('.pe-state')).toHaveCount(0);
+  expect(await overflow(page)).toBeLessThanOrEqual(0);
+  await axe(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
 });
 
 test('요청자(승인 요청 뒤)와 감사 담당자는 읽기 전용 목록만 본다 (390px, axe)', async ({ page }) => {

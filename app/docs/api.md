@@ -52,7 +52,7 @@
 
 ### 오류 코드 (A2b: 지급 근거)
 
-지급 근거 파일은 형식을 **파일 앞부분(매직 바이트)으로만** 정한다(보낸 쪽의 `Content-Type`·파일 이름은 보지 않는다). 올리기 경로는 본문을 읽기 전에 로그인·CSRF → 기능 켜짐 → 요청 조회 권한 → 요청(다른 조직 404) → 작성자 → 상태 → 본문 형식 → 선언한 크기 → 파일 수 → 공개 데모 한도 순으로 보고, 저장 트랜잭션 안에서 같은 검사를 다시 한다.
+지급 근거 파일은 형식을 **파일 앞부분(매직 바이트)으로만** 정한다(보낸 쪽의 `Content-Type`·파일 이름은 보지 않는다). 올리기 경로는 본문을 읽기 전에 (로그인한 요청이면 CSRF, 모든 변경 경로 공통) → **올리기 경로의 IP당 1분 한도**(`ATTACHMENT_UPLOAD_RATE_LIMIT_MAX`, 기본 30회. 아래 검사에서 거부된 시도도 센다) → 로그인 → 기능 켜짐 → 요청 조회 권한 → 요청(다른 조직 404) → 작성자 → 상태 → 본문 형식 → 선언한 크기 → 파일 수 → 공개 데모 한도 순으로 보고, 저장 트랜잭션 안에서 같은 검사를 다시 한다. 한도 뒤의 검사는 Fastify `preParsing` 단계(본문을 읽고 해석기를 고르기 전, 경로 한도 훅 뒤)에서 돈다.
 
 | 코드 | 상태 | 언제 | `fields[].field` | 추가 필드 |
 | --- | --- | --- | --- | --- |
@@ -67,7 +67,7 @@
 | `ATTACHMENT_DUPLICATE` | 409 | 같은 요청에 같은 내용(SHA-256)의 파일이 이미 있음(다시 보내기가 두 번 저장되지 않는다) | — | `attachmentId` |
 | `VALIDATION` | 422 | `X-Attachment-Name`을 퍼센트 디코딩할 수 없거나 깨진 문자가 있음 / 지급 근거 메모가 300자를 넘음 | `fileName` / `note` | — |
 | `DEMO_LIMIT` | 422 | 공개 데모에서만. 인스턴스당 올리기 횟수(지운 파일 포함)가 `DEMO_LIMIT` 건수에 도달했거나, 인스턴스에 저장된 파일 총량에 이번 파일을 더하면 32MiB를 넘음 | — | — |
-| `RATE_LIMITED` | 429 | 올리기 경로의 IP당 1분 한도(기본 30회, `ATTACHMENT_UPLOAD_RATE_LIMIT_MAX`) 초과 | — | — |
+| `RATE_LIMITED` | 429 | 올리기 경로의 IP당 1분 한도(기본 30회, `ATTACHMENT_UPLOAD_RATE_LIMIT_MAX`) 초과. 저장된 올리기뿐 아니라 사전 검사에서 거부된 시도(401·403·404·409·413·415·422)도 센다. 이 경로는 전체 API 한도(`RATE_LIMIT_MAX`) 대신 이 한도를 쓴다 | — | — |
 | `NOT_FOUND` | 404 | 다른 조직의 요청, 또는 그 요청에 없는 파일 id(다른 요청의 파일 id 포함) | — | — |
 
 ## 멱등성
@@ -129,7 +129,7 @@
 | `canEdit` | 조회자가 작성자이고 요청 작성 권한이 있으며 잠기지 않음. `allowedActions`는 바뀌지 않았다 |
 | `uploadsEnabled` | 이 환경에서 올리기가 켜져 있는지(`REQUEST_ATTACHMENTS=off`이면 false) |
 
-**올리기 형식(파일 하나에 요청 하나).** 본문은 파일 바이트 그대로(`Content-Type: application/octet-stream`), 이름은 머리글 `X-Attachment-Name: <encodeURIComponent(UTF-8 이름)>`(없으면 '지급근거-<SHA-256 앞 8자>.<확장자>'). 이름을 쿼리 문자열에 두지 않는 것은 요청 주소가 로그에 남기 때문이다(이 머리글은 로그에서 가린다). `multipart/form-data`와 base64 JSON은 받지 않는다. `Idempotency-Key`는 쓰지 않는다(같은 내용을 다시 보내면 409 `ATTACHMENT_DUPLICATE`). 성공하면 201과 요청 상세 응답(요청 `version`이 1 오른다)을 돌려준다. 파일 붙이기·지우기·메모 저장은 모두 요청 버전을 올려, 그 전에 연 승인 요청 화면의 제출은 409 `VERSION_CONFLICT`로 다시 불러오게 한다(메모가 바뀌지 않았으면 아무것도 쓰지 않는다).
+**올리기 형식(파일 하나에 요청 하나).** 본문은 파일 바이트 그대로(`Content-Type: application/octet-stream`), 이름은 머리글 `X-Attachment-Name: <encodeURIComponent(UTF-8 이름)>`(없으면 '지급근거-<SHA-256 앞 8자>.<확장자>'). 이름을 쿼리 문자열에 두지 않는 것은 요청 주소가 로그에 남기 때문이다. 요청 기록(Fastify 기본 직렬화)은 머리글과 본문을 남기지 않으므로 이 이름과 파일 내용은 로그에 들어가지 않는다(`tests/attachments.test.ts` '로그'가 실제 로그로 확인). 로그 설정의 가림 목록에도 이 머리글을 넣어 두었다(머리글을 기록하게 바꿀 때를 대비한 예방). `multipart/form-data`와 base64 JSON은 받지 않는다. `Idempotency-Key`는 쓰지 않는다(같은 내용을 다시 보내면 409 `ATTACHMENT_DUPLICATE`). 성공하면 201과 요청 상세 응답(요청 `version`이 1 오른다)을 돌려준다. 파일 붙이기·지우기·메모 저장은 모두 요청 버전을 올려, 그 전에 연 승인 요청 화면의 제출은 409 `VERSION_CONFLICT`로 다시 불러오게 한다(메모가 바뀌지 않았으면 아무것도 쓰지 않는다).
 
 **내려받기 머리글.** `Content-Type`은 저장된 형식(`application/pdf`·`image/png`·`image/jpeg`, charset 없음), `Content-Disposition: attachment; filename="<ASCII 대체 이름>"; filename*=UTF-8''<RFC 5987 인코딩>`(대체 이름에 읽을 영문·숫자가 없으면 `attachment.<확장자>`), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`(머리글 하나), `Cache-Control: no-store`, `Cross-Origin-Resource-Policy: same-origin`(같은 출처의 `<img>` 미리 보기는 된다), `Content-Length`. 공개 경로·서명 주소는 없다.
 
@@ -244,7 +244,7 @@ UTF-8(BOM) CSV, 줄바꿈 CRLF. 목록과 같은 필터(`action`, `actor`, `q`, 
 | POST /requests/:id/review \| back-to-draft \| submit \| cancel | request.create(작성자) | 상태 전이. 검토 이동·제출은 저장된 수량을 읽을 수 없으면 422 `AMOUNT_UNREADABLE`(되돌리기·취소는 된다). submit 본문 `{version, confirmTail, ackIrreversible, checkReasons?}`: `checkReasons`는 점검 id → 진행 사유(300자 이내, 알 수 없는 id는 422). 서버가 제출 시점 기준으로 점검을 다시 계산하고, 사유가 필요한 주의 항목에 글자·숫자 5자 이상 사유가 없으면 `CHECK_REASON_REQUIRED`(저장하는 사유에서는 보이지 않는 서식 문자를 지운다). 통과하면 지문(`intentHash`)과 점검 결과·사유, 실제로 예약한 지갑·자산·수량을 바꿀 수 없는 기록으로 저장하고 감사 기록 `request.submitted`에 지문·점검 결과·사유를 남긴다. 승인 가능 인원 부족 시 `APPROVERS_INSUFFICIENT` |
 | GET /requests/:id/attachments | request.read(같은 조직) | 지급 근거(위 '지급 근거' 형식). 다른 조직 404 |
 | GET /requests/:id/attachments/:attachmentId/content | request.read(같은 조직) | 파일 내려받기(위 '내려받기 머리글'). 그 요청에 없는 파일 id·다른 조직 404 |
-| POST /requests/:id/attachments (본문 `application/octet-stream`, 머리글 `X-Attachment-Name`) | request.create(작성자, 작성 중·검토 중) | 파일 하나 붙이기 → 201 + 요청 상세. **이 경로만 본문 한도 2MiB**(그 밖은 64KB). IP당 1분 30회(`ATTACHMENT_UPLOAD_RATE_LIMIT_MAX`). 공개 데모는 `DEMO_LIMIT`(올리기 횟수·인스턴스 총 32MiB) |
+| POST /requests/:id/attachments (본문 `application/octet-stream`, 머리글 `X-Attachment-Name`) | request.create(작성자, 작성 중·검토 중) | 파일 하나 붙이기 → 201 + 요청 상세. **이 경로만 본문 한도 2MiB**(그 밖은 64KB). IP당 1분 30회(`ATTACHMENT_UPLOAD_RATE_LIMIT_MAX`, 거부된 시도 포함). 공개 데모는 `DEMO_LIMIT`(올리기 횟수·인스턴스 총 32MiB) |
 | DELETE /requests/:id/attachments/:attachmentId | request.create(작성자, 작성 중·검토 중) | 파일 하나 지우기 → 요청 상세. 무엇을 지웠는지(이름·크기·SHA-256)는 감사 기록에 남는다 |
 | PUT /requests/:id/evidence-note `{note}` | request.create(작성자, 작성 중·검토 중) | 지급 근거 메모 저장(300자, 빈 값은 지움, 보이지 않는 서식 문자 제거) → 요청 상세 |
 | POST /requests/:id/approve `{version, intentHash}` \| reject `{version, reason, intentHash}` | request.approve(작성자 제외) | 승인 / 반려(`reason` 500자 이내, 필수 사유 규칙, 채우지 못하면 422 `VALIDATION`). `intentHash`는 요청 응답의 값을 그대로 보낸다(없으면 422, 다르면 409 `INTENT_CHANGED`, 지문 없는 이전 요청의 승인은 409 `INTENT_MISSING`, 반려는 `null`). 검사 순서: 권한 → 요청(404) → 자기 승인 → 이미 결정 → 상태·버전 → 지문 → 저장 내용 재계산(`INTENT_TAMPERED`) → 받는 주소(`ADDRESS_NOT_ACTIVE`). 승인 표마다 지문을 남기고, 정족수가 차면 커스터디로 넘기기 직전에 다시 계산·대조한 뒤 지문과 함께 넘긴다. 반려·취소(승인 대기)는 지금 행의 수량이 아니라 승인 요청 때 예약 기록으로 예약을 풀고, 감사 기록 상세에 `released`(푼 수량)·`releasedAssetCode`와 지문이 있는 요청이면 `contentMatchesIntent`(지금 내용이 지문과 같은지)를 남긴다 |

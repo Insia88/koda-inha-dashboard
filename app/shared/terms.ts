@@ -314,7 +314,12 @@ export const AUDIT_EXPORT_TEXT = {
 export const PAYMENT_EVIDENCE_TEXT = {
   title: '지급 근거',
   none: '근거 기록 없음',
+  /** 결정 카드(승인자에게 하는 말) */
   noneBody: '요청자가 지급 근거 파일이나 메모를 남기지 않았습니다. 수량과 받는 곳은 요청자에게 받은 문서와 직접 대조하세요.',
+  /** 읽기 카드(요청자·감사 담당자 등 누구나 본다). 대조하라는 말은 결정 카드에만 둔다. */
+  noneBodyCard: '이 요청에는 지급 근거 파일이나 메모가 없습니다.',
+  /** 승인 대기 중인 자기 요청의 읽기 카드에서 noneBodyCard 뒤에 붙인다 */
+  noneRequesterNote: "승인자 화면에도 '근거 기록 없음'으로 보입니다.",
   /** 결정 카드(아래에 대조할 받는 주소가 있다) */
   source: '요청자가 승인 요청 전에 올린 자료입니다. 문서가 진짜인지, 받는 주소가 맞는지는 이 화면이 확인하지 않습니다. 받는 주소는 아래 대조 띠와 원본으로 확인하세요.',
   /** 읽기 카드(받는 주소는 위 요청 내용에 있다) */
@@ -330,6 +335,20 @@ export const PAYMENT_EVIDENCE_TEXT = {
   noteLabel: '지급 근거 메모',
   noteHint: '문서 번호나 정산 건처럼 승인자가 근거를 찾을 수 있는 내용을 300자 이내로 적으세요. 예: 인보이스 INV-2026-1043',
   uploadsOff: '이 환경에서는 지급 근거 파일 올리기를 꺼 두었습니다. 메모는 적을 수 있습니다.',
+  /**
+   * 파일을 올리지 못한 이유(message)와 다음에 할 일(action). 서버 오류 응답(server/domain/attachments.ts)과
+   * 화면의 보내기 전 검사(PaymentEvidenceEditor)가 같은 짝을 쓴다. 화면은 '{message} {action}'을 한 줄로 보인다.
+   * 숫자(2MB·5개)는 shared/attachments.ts의 한도와 같다(tests/glossary.test.ts가 확인한다).
+   */
+  upload: {
+    type: { message: '이 파일 형식은 올릴 수 없습니다. PDF·PNG·JPEG 파일만 받습니다.', action: '문서는 PDF로, 화면이나 사진은 PNG·JPEG로 저장해 올리세요. 아이폰 사진(HEIC)은 JPEG로 내보내 올리세요.' },
+    empty: { message: '빈 파일은 올릴 수 없습니다.', action: '내용이 있는 파일을 고르세요.' },
+    tooLarge: { message: '파일이 2MB를 넘어 올리지 않았습니다.', action: '파일 크기를 줄이거나 여러 파일로 나눠 올리세요.' },
+    limit: { message: '지급 근거 파일은 요청당 5개까지 붙일 수 있습니다.', action: '필요 없는 파일을 지운 뒤 다시 올리세요.' },
+    unreadable: { message: '파일을 읽지 못했습니다.', action: '파일을 다시 저장한 뒤 다시 고르세요.' },
+    failed: { message: '파일을 올리지 못했습니다.', action: '잠시 후 다시 올리세요.' },
+    stopped: { message: '앞 파일에서 멈춰 올리지 않았습니다.', action: '앞 파일의 안내를 확인하세요.' },
+  },
   /** 요청자가 「내용 수정」 중일 때 편집 카드 대신 보이는 읽기 카드의 끝 줄 */
   editingNote: '내용 수정을 마치면 지급 근거를 다시 고칠 수 있습니다.',
   /** 승인 요청 카드: 메모를 고쳤지만 저장하지 않았을 때 */

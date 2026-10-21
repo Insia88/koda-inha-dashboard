@@ -11,8 +11,9 @@ export interface TestCtx { app: FastifyInstance; db: DB; custody: MockCustodyAda
  * cooldownHours: 주소 확인 뒤 사용 대기 시간. 기존 흐름(확인 즉시 사용 가능)을 그대로 검사하도록 기본 0으로 둔다.
  * 사용 대기를 검사할 때만 값을 준다(tests/address-lifecycle.test.ts).
  * config: 그 밖의 설정 덮어쓰기(예: 지급 근거 올리기 끄기·업로드 한도, tests/attachments.test.ts).
+ * logStream: 로그를 받아 볼 곳(config.logLevel을 'silent' 밖으로 줄 때만 쓰인다, tests/attachments.test.ts '로그').
  */
-export async function makeApp(opts: { processingMs?: number; rateLimitMax?: number; loginRateLimitMax?: number; holdingRelated?: boolean; cooldownHours?: number; config?: Partial<AppConfig> } = {}): Promise<TestCtx> {
+export async function makeApp(opts: { processingMs?: number; rateLimitMax?: number; loginRateLimitMax?: number; holdingRelated?: boolean; cooldownHours?: number; config?: Partial<AppConfig>; logStream?: { write(msg: string): void } } = {}): Promise<TestCtx> {
   const cfg = loadConfig({ dbPath: ':memory:', logLevel: 'silent', serveClient: false, rateLimitMax: opts.rateLimitMax ?? 10000, attachmentUploadRateLimitMax: 10000, ...(opts.loginRateLimitMax ? { loginRateLimitMax: opts.loginRateLimitMax } : {}), ...opts.config });
   cfg.policy.mockCustodyProcessingMs = opts.processingMs ?? 0;
   cfg.policy.addressBook.cooldownHours = opts.cooldownHours ?? 0;
@@ -21,7 +22,7 @@ export async function makeApp(opts: { processingMs?: number; rateLimitMax?: numb
   migrate(db);
   seed(db);
   const custody = new MockCustodyAdapter(cfg.policy.mockCustodyProcessingMs);
-  const app = await buildApp({ cfg, db, custody });
+  const app = await buildApp({ cfg, db, custody, logStream: opts.logStream });
   return { app, db, custody };
 }
 

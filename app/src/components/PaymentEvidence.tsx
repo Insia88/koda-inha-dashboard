@@ -78,8 +78,12 @@ function NoteBlock({ note }: { note: NonNullable<PaymentEvidence['note']> }) {
 /**
  * 읽기 전용 지급 근거(결정 카드 'decide', 요청 상세의 읽기 카드 'card').
  * 근거가 없으면 '근거 기록 없음'을 성공 색이 아닌 중립 글로 보인다. 근거가 있으면 출처 안내(이 화면은 문서가 진짜인지·받는 주소가 맞는지 확인하지 않음)를 먼저 둔다.
+ * '근거 기록 없음'의 설명: 결정 카드는 승인자에게 대조를 권하는 문장, 읽기 카드는 누가 보든 맞는 사실 한 문장이다(요청자·감사 담당자에게 대조하라고 하지 않는다).
+ * requesterWaiting: 요청자가 승인 대기 중인 자기 요청을 볼 때 '승인자 화면에도 …'를 붙인다.
  */
-export function PaymentEvidenceView({ pe, level = 3, variant, stateText }: { pe: PaymentEvidence; level?: Heading; variant: 'decide' | 'card'; stateText?: string }) {
+export function PaymentEvidenceView({ pe, level = 3, variant, stateText, requesterWaiting = false }: {
+  pe: PaymentEvidence; level?: Heading; variant: 'decide' | 'card'; stateText?: string; requesterWaiting?: boolean;
+}) {
   const headId = useId();
   return (
     <div className={`pe-block pe-${variant}`} role="group" aria-labelledby={headId}>
@@ -93,7 +97,7 @@ export function PaymentEvidenceView({ pe, level = 3, variant, stateText }: { pe:
       ) : (
         <div className="pe-none">
           <strong className="pe-none-title">{T.none}</strong>
-          <p>{T.noneBody}</p>
+          <p>{variant === 'decide' ? T.noneBody : requesterWaiting ? `${T.noneBodyCard} ${T.noneRequesterNote}` : T.noneBodyCard}</p>
         </div>
       )}
       {stateText ? <p className="pe-state">{stateText}</p> : pe.locked ? pe.hasAny && <p className="pe-state">{T.locked}</p> : <p className="pe-state">{T.draftOthers}</p>}
@@ -102,6 +106,9 @@ export function PaymentEvidenceView({ pe, level = 3, variant, stateText }: { pe:
 }
 
 type FileProblem = { name: string; message: string };
+/** 올리지 못한 이유와 다음에 할 일을 한 줄로(서버 오류 응답의 message·action과 같은 짝) */
+const UP = T.upload;
+const problemText = (p: { message: string; action: string }) => `${p.message} ${p.action}`;
 
 /**
  * 요청자의 지급 근거 편집(작성 중·검토 중, canEdit). 메모 입력값(noteDraft)과 올리는 중 여부는 요청 상세가 갖고,
@@ -162,15 +169,15 @@ export function PaymentEvidenceEditor({ requestId, pe, noteDraft, onNoteDraft, o
     const dup: FileProblem[] = [];
     const queue: File[] = [];
     for (const f of files) {
-      if (f.size === 0) { bad.push({ name: f.name, message: '빈 파일은 올릴 수 없습니다.' }); continue; }
-      if (f.size > pe.limits.maxFileBytes) { bad.push({ name: f.name, message: '파일이 2MB를 넘어 올리지 않았습니다. 파일 크기를 줄이거나 여러 파일로 나눠 올리세요.' }); continue; }
+      if (f.size === 0) { bad.push({ name: f.name, message: problemText(UP.empty) }); continue; }
+      if (f.size > pe.limits.maxFileBytes) { bad.push({ name: f.name, message: problemText(UP.tooLarge) }); continue; }
       let head: Uint8Array;
-      try { head = new Uint8Array(await f.slice(0, ATTACHMENT_SNIFF_BYTES).arrayBuffer()); } catch { bad.push({ name: f.name, message: '파일을 읽지 못했습니다.' }); continue; }
-      if (!sniffAttachmentType(head)) { bad.push({ name: f.name, message: '이 파일 형식은 올릴 수 없습니다. PDF·PNG·JPEG 파일만 받습니다.' }); continue; }
+      try { head = new Uint8Array(await f.slice(0, ATTACHMENT_SNIFF_BYTES).arrayBuffer()); } catch { bad.push({ name: f.name, message: problemText(UP.unreadable) }); continue; }
+      if (!sniffAttachmentType(head)) { bad.push({ name: f.name, message: problemText(UP.type) }); continue; }
       queue.push(f);
     }
     const room = Math.max(0, pe.limits.maxFiles - pe.attachments.length);
-    for (const f of queue.splice(room)) bad.push({ name: f.name, message: `지급 근거 파일은 요청당 ${pe.limits.maxFiles}개까지 붙일 수 있습니다.` });
+    for (const f of queue.splice(room)) bad.push({ name: f.name, message: problemText(UP.limit) });
     let added = 0;
     if (queue.length) {
       onBusy(true);
@@ -182,11 +189,11 @@ export function PaymentEvidenceEditor({ requestId, pe, noteDraft, onNoteDraft, o
             added += 1;
           } catch (e) {
             const err = e instanceof ApiError ? e : null;
-            const item = { name: f.name, message: err ? [err.body.message, err.body.action].filter(Boolean).join(' ') : '파일을 올리지 못했습니다.' };
+            const item = { name: f.name, message: err ? [err.body.message, err.body.action].filter(Boolean).join(' ') : problemText(UP.failed) };
             if (err?.code === 'ATTACHMENT_DUPLICATE') dup.push(item); else bad.push(item);
             // 승인 요청이 먼저 되었거나(잠김) 다른 화면에서 바뀌었으면 남은 파일은 보내지 않고 최신 상태를 다시 불러온다.
             if (stale(e)) {
-              for (const rest of queue.slice(i + 1)) bad.push({ name: rest.name, message: '앞 파일에서 멈춰 올리지 않았습니다.' });
+              for (const rest of queue.slice(i + 1)) bad.push({ name: rest.name, message: problemText(UP.stopped) });
               onStale();
               break;
             }
