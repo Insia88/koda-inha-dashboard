@@ -83,7 +83,8 @@ export function createDemoSharedState(db: DB): DemoSharedState {
   const pull = async () => {
     if (!enabled) return;
     const now = Date.now();
-    if (now - lastPullAt < 700) return;
+    // 쓰기 직후 다른 인스턴스가 바로 읽어도 같은 데이터를 보도록 매 요청 확인한다(동시 요청은 inflight로 합친다).
+    if (now - lastPullAt < 120) return;
     if (inflightPull) return inflightPull;
     lastPullAt = now;
     inflightPull = (async () => {
