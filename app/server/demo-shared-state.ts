@@ -83,7 +83,8 @@ export function createDemoSharedState(db: DB): DemoSharedState {
   const pull = async () => {
     if (!enabled) return;
     const now = Date.now();
-    if (now - lastPullAt < 100) return;
+    // 매 요청 조건부 GET으로 최신 여부를 확인한다(동시 요청은 아래 inflight로 합친다).
+    if (now - lastPullAt < 0) return;
     if (inflightPull) return inflightPull;
     lastPullAt = now;
     inflightPull = (async () => {
@@ -96,13 +97,13 @@ export function createDemoSharedState(db: DB): DemoSharedState {
         if (got.statusCode === 304) return;
         const text = await new Response(got.stream).text();
         const data = JSON.parse(text) as { rev?: number; tables?: Record<string, unknown[]> };
-        const nextEtag = got.blob.etag;
-        const nextRev = typeof data.rev === 'number' ? data.rev : rev;
-        if (nextRev > rev && data.tables) {
+        // 원격이 바뀌었으면(200) rev 비교 없이 그대로 반영한다. 여러 인스턴스가 각자 첫 스냅샷을 올리면 rev가 같을 수 있어
+        // rev 비교로는 서로 다른 초기 스냅샷을 영원히 합치지 못한다. 변경이 없으면 위에서 304로 끝난다.
+        if (data.tables) {
           importSnapshot(db, data.tables);
-          rev = nextRev;
+          if (typeof data.rev === 'number') rev = data.rev;
         }
-        etag = nextEtag;
+        etag = got.blob.etag;
       } catch {
         /* 공유 저장소가 잠시 안 되면 이 인스턴스 DB로 계속 동작한다. */
       } finally {
