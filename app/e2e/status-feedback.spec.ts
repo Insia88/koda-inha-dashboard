@@ -158,22 +158,24 @@ test('주소 확인 뒤 결과 안내로 포커스, 승인 1/2 뒤 결과 안내
   const partial = page.getByRole('status').filter({ hasText: '승인했습니다 (1/2)' });
   await expect(partial).toBeVisible();
   await expect(partial).toContainText('다른 승인자의 결정을 기다립니다');
+  await expect(partial).toContainText('필요한 승인 수가 채워지면 바로 수탁사 처리가 시작됩니다.');
   await expect(page.locator('.rc-focus-target').filter({ has: partial })).toBeFocused();
   await expect(partial).toBeInViewport();
   await expect(page.locator('.next-action')).toContainText('내 결정을 마쳤습니다. 다른 승인자의 결정을 기다리는 중입니다.');
   await expect(page.locator('.next-action')).not.toContainText('승인하거나 사유와 함께 반려하세요');
   await logout(page);
 
-  // 4) 마지막 승인: 커스터디 처리를 시작했다는 안내로 포커스, 상태 변화가 화면 안에 보인다.
+  // 4) 마지막 승인: 수탁사 처리를 시작했다는 안내로 포커스, 상태 변화가 화면 안에 보인다(버튼·효과 문장과 같은 낱말 '수탁사 처리').
   await loginAs(page, '서예린');
   await page.goto(`/requests/${draft.id}`);
   await tick();
   // 두 번째(마지막) 승인: 버튼 이름이 처리 시작을 말한다(A1).
   await expect(page.getByRole('button', { name: '승인', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '승인하고 처리 시작', exact: true }).click();
-  const final = page.getByRole('status').filter({ hasText: '커스터디 처리를 시작했습니다' });
+  const final = page.getByRole('status').filter({ hasText: '수탁사 처리(이 환경은 모의 커스터디)를 시작했습니다' });
   await expect(final).toBeVisible();
   await expect(final).toContainText('승인했습니다');
+  await expect(final).toContainText('완료되면 이 화면과 자산 활동 내역에 표시됩니다.');
   await expect(page.locator('.rc-focus-target').filter({ has: final })).toBeFocused();
   await expect(final).toBeInViewport();
   await expect(page.locator('.page-header .badge')).toBeInViewport();

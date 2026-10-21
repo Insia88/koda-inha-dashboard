@@ -66,14 +66,14 @@ test('유사 주소: 등록자는 비교를 보고 사유를 남기고, 승인�
   await page.getByRole('textbox', { name: /^확인한 상대·연락처/ }).fill('모의 거래처 재무팀 대표번호');
   await page.getByLabel(/별도 연락 수단/).check();
   await page.getByLabel(/보증하지 않는다는/).check();
-  await page.getByRole('button', { name: '확인 요청 보내기' }).click();
+  await page.getByRole('button', { name: '주소 등록', exact: true }).click();
   const reason = page.getByRole('textbox', { name: /^비슷한 주소가 있는데도 등록하는 사유/ });
   await expect(reason).toBeFocused();
   await expect(reason).toHaveAttribute('aria-invalid', 'true');
   await expect(page.locator('#lookalikeReason-error')).toContainText('5자 이상');
   await expect(page.getByRole('alert').filter({ hasText: '비슷한 기존 주소가 있어 등록 사유가 필요합니다' })).toBeVisible();
   await reason.fill('거래처 재무팀에 전화로 전체 주소를 한 글자씩 확인했습니다');
-  await page.getByRole('button', { name: '확인 요청 보내기' }).click();
+  await page.getByRole('button', { name: '주소 등록', exact: true }).click();
   await expect(page.getByText('주소를 등록했습니다 — 다른 승인자의 확인이 필요합니다')).toBeVisible();
   // 등록자 화면에도 비교 결과가 남는다
   await expect(page.getByRole('heading', { name: '비슷한 기존 주소' })).toBeVisible();

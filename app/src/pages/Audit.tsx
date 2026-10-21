@@ -31,9 +31,10 @@ export function AuditPage() {
       {me.permissions.includes('audit.read') && !me.permissions.includes('audit.export') && (
         <p className="muted small audit-no-export">이 역할에는 CSV 내보내기 권한이 없습니다. 감사 증빙 파일이 필요하면 감사 담당자에게 요청하세요.</p>
       )}
+      {/* 해시 연결 확인은 '끊긴 곳이 없음'까지만 말한다. 빠진 기록이 없다(완전함)는 뜻으로 읽히는 말은 쓰지 않는다(바로 아래 한계 문장 참고). */}
       <div className="audit-integrity" role="status">
         {verify.data ? (verify.data.ok ? <Badge tone="success">무결성 확인됨</Badge> : <Badge tone="danger">무결성 오류</Badge>) : <Badge tone="neutral">무결성 확인 중</Badge>}
-        <span className="small muted">{verify.data ? (verify.data.ok ? `기록 ${verify.data.count}건이 앞 기록과 빠짐없이 이어져 있습니다(해시 연결 확인).` : `${verify.data.brokenAtNo}번 기록에서 해시가 맞지 않습니다. 보안 담당자에게 알리세요.`) : ''}</span>
+        <span className="small muted">{verify.data ? (verify.data.ok ? `기록 ${verify.data.count}건이 각각 바로 앞 기록과 끊김 없이 이어져 있습니다(해시 연결 확인).` : `${verify.data.brokenAtNo}번 기록에서 해시가 맞지 않습니다. 보안 담당자에게 알리세요.`) : ''}</span>
       </div>
       {/* 확인 범위: 해시가 키 없는 SHA-256이라, 이 확인은 해시 연결이 끊긴 곳만 찾는다. 가장 최근 기록을 지우거나,
           기록을 고친 뒤 그 뒤의 prev_hash·hash를 모두 다시 계산하면 연결은 그대로라 드러나지 않는다.

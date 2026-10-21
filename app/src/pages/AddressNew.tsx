@@ -191,7 +191,7 @@ export function AddressNewPage() {
         <ApiErrorNotice error={m.error} />
         <div className="form-actions">
           <Link to="/addresses" className="btn">취소</Link>
-          <button type="submit" className="btn btn-primary" disabled={m.isPending || !formatOk}>{m.isPending ? '등록 중…' : '확인 요청 보내기'}</button>
+          <button type="submit" className="btn btn-primary" disabled={m.isPending || !formatOk}>{m.isPending ? '등록 중…' : '주소 등록'}</button>
         </div>
         {guard.guardDialog}
         <div className="lc-flow muted small">

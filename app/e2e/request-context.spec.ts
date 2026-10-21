@@ -48,7 +48,12 @@ test('WR-000003: 평가액·출처·기준 시각과 필요 승인 근거, 승�
   const hint = page.getByText('세 항목을 모두 확인하면 승인할 수 있습니다.');
   await expect(approve).toBeDisabled();
   await expect(page.getByRole('button', { name: '승인하고 처리 시작' })).toHaveCount(0);
-  await expect(page.locator('#approve-effect')).toHaveText('이번 승인은 필요한 2명 중 1번째입니다. 1명이 더 승인해야 처리가 시작됩니다.');
+  await expect(page.locator('#approve-effect')).toHaveText('지금 기준으로 이번 승인은 필요한 승인 2명 중 첫 번째입니다. 1명이 더 승인해야 처리가 시작됩니다.');
+  // 마지막 승인이 아니므로 승인 뒤 흐름 줄(처리 결과)은 없다(위 문장과 어긋나지 않게).
+  await expect(card.locator('.rc-after-approve')).toHaveCount(0);
+  // 받는 곳 이름이 이미 괄호로 끝나면 요약에서 괄호를 겹치지 않는다.
+  await expect(card.locator('.rc-decide-summary')).toContainText('정산 파트너 B (Kaia USDC) · 모의 정산 파트너 B에 120,000 USDC');
+  await expect(card.locator('.rc-decide-summary')).not.toContainText(')(');
   await expect(hint).toBeVisible();
   await expect(approve).toHaveAttribute('aria-describedby', 'approve-effect approve-hint');
   await page.getByLabel(/받는 곳과 목적이/).check();

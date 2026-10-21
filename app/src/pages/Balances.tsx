@@ -12,10 +12,14 @@ export function BalancesPage() {
   const h = q.data;
   return (
     <div className="page">
-      <PageHeader title="잔고" description="자산별 보유 수량과, 승인 대기 요청에 묶인 예약 수량을 지갑·네트워크별로 보여 줍니다." />
+      <PageHeader title="잔고" description="자산별 보유 수량과, 승인 대기·처리 중인 출금 요청에 묶인 수량(예약)을 지갑·네트워크별로 보여 줍니다." />
       <section className="card">
         <div className="total total-row">
-          <div><div className="total-label"><Term label="총 평가액">{GLOSSARY.valuation}</Term></div><div className="total-value">{krwShort(h.totalKrw)}</div><div className="muted">{krw(h.totalKrw)}</div></div>
+          <div>
+            <div className="total-label"><Term label="총 평가액">{GLOSSARY.valuation}</Term></div><div className="total-value">{krwShort(h.totalKrw)}</div><div className="muted">{krw(h.totalKrw)}</div>
+            {/* 합계를 보는 자리에서 스테이킹이 들어가는지 묻게 되므로 바로 아래에 짧게 쓴다(긴 설명은 화면 아래 그대로). */}
+            <p className="muted small total-staking-note">스테이킹 현황의 맡긴 수량·보상은 이 합계에 넣지 않았습니다(모의 데이터).</p>
+          </div>
           <div className="stamps"><DataStamp asOf={h.price.asOf} state={h.price.state} source={h.price.source} label="시세 기준" /><span className="stamp">잔고 기준 {dateTime(h.balanceAsOf)} KST</span></div>
         </div>
         {h.assets.length > 0 && <AllocationBar items={h.assets.map((a: any) => ({ key: a.assetCode, label: a.assetCode, value: a.krwValue ?? '0' }))} caption="자산별 평가액 비중 (모의 시세 기준)" />}

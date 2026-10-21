@@ -34,13 +34,14 @@ export function checkSummary(items: RequestCheck[]): string {
  * - showReasons면 제출 때 저장한 요청자 사유를 보인다(승인 화면).
  * - 둘 다 아니면(작성 화면 미리 보기·작성 중 상세) 사유가 필요한 주의 항목에 「사유 필요」 표시를 붙인다(어느 항목에 사유를 적어야 하는지 미리 알 수 있게).
  * - compact(작성 화면 미리 보기)는 항목 사이 간격을 줄인다.
+ * - requesterView는 요청자가 보는 화면이다. '확인 불가' 뜻 문장 끝의 '진행 사유는 적지 않아도 됩니다'는 요청자에게만 붙인다(승인자·감사 담당자의 할 일로 읽히지 않게).
  * 보이는 순서(A1): 주의 → 확인 불가를 펼쳐 먼저 두고, 기준 이내 항목은 아래 접힌 묶음(네이티브 <details>)에 넣는다.
  * 항목은 하나도 빼지 않는다(묶음 안에도 같은 결과·세부 내용·기준이 있다). 사유가 필요하거나 저장된 사유가 있는 항목은 결과와 관계없이 접지 않는다(A-28).
  * 요약 줄('주의 n건 · 확인 불가 n건 · 기준 이내 n건')과 각주(기준은 설계 가정, 보증 아님)는 접히지 않는다.
  */
-export function CheckList({ items, title, intro, reasons, onReason, reasonError, showReasons, compact, footnote, level = 3 }: {
+export function CheckList({ items, title, intro, reasons, onReason, reasonError, showReasons, compact, footnote, requesterView = false, level = 3 }: {
   items: RequestCheck[]; title: string; level?: 2 | 3; intro?: string; reasons?: Record<string, string>; onReason?: (id: string, value: string) => void;
-  reasonError?: (id: string) => string | undefined; showReasons?: boolean; compact?: boolean; footnote?: string;
+  reasonError?: (id: string) => string | undefined; showReasons?: boolean; compact?: boolean; footnote?: string; requesterView?: boolean;
 }) {
   const headId = useId();
   const folded = (c: RequestCheck) => c.outcome === 'pass' && !c.requiresReason && !(showReasons && c.reason);
@@ -63,7 +64,7 @@ export function CheckList({ items, title, intro, reasons, onReason, reasonError,
           </p>
           {/* '확인 불가'가 실패나 통과로 읽히지 않게 뜻을 한 줄로 붙인다(A1). */}
           {c.outcome === 'unknown' && (
-            <p className="rc-unknown-note">{c.requiresReason ? '자료가 부족해 판단하지 못한 항목입니다. 문제가 없다는 뜻은 아닙니다.' : '자료가 부족해 판단하지 못한 항목입니다. 문제가 없다는 뜻은 아니며, 진행 사유는 적지 않아도 됩니다.'}</p>
+            <p className="rc-unknown-note">{c.requiresReason || !requesterView ? '자료가 부족해 판단하지 못한 항목입니다. 문제가 없다는 뜻은 아닙니다.' : '자료가 부족해 판단하지 못한 항목입니다. 문제가 없다는 뜻은 아니며, 진행 사유는 적지 않아도 됩니다.'}</p>
           )}
           <p className="rc-detail">{c.detail}</p>
           <p className="rc-basis">기준: {c.basis}</p>
@@ -183,7 +184,7 @@ function ChecksPreview({ value, requestId, amountReadable }: { value: RequestFor
   if (!q.data) return null;
   const needsReason = q.data.items.some((c) => c.requiresReason);
   return (
-    <CheckList compact title="출금 전 점검 미리 보기" items={q.data.items}
+    <CheckList compact requesterView title="출금 전 점검 미리 보기" items={q.data.items}
       intro={needsReason ? '「사유 필요」 표시가 있는 주의 항목은 검토 단계에서 진행 사유를 적어야 승인 요청을 보낼 수 있습니다. 이 대시보드로 처음 보내는 주소라면 소액 시험 전송을 먼저 요청하는 방법도 있습니다.' : undefined}
       footnote="점검 기준은 설계 가정이며, 검토 단계에서 기준과 함께 다시 보여 드립니다." />
   );

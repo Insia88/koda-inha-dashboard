@@ -350,6 +350,8 @@ body:has(dialog[open]) { overflow: hidden; }
 .input-unit span { display: grid; place-items: center; padding: 0 var(--s3); border: 1px solid var(--line-strong); border-left: 0; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--paper); font-weight: 700; min-width: 64px; white-space: nowrap; flex: none; }
 .checks { display: flex; flex-direction: column; gap: var(--s2); border: 0; padding: 0; margin: 0; }
 .check { display: flex; gap: var(--s2); align-items: flex-start; font-size: 14px; cursor: pointer; }
+/* 확인 카드(승인 전 확인 등)의 체크 줄은 누르는 영역을 44px 이상으로 둔다 */
+.card-action .checks .check { min-height: 44px; align-items: center; }
 .check-inline { display: inline-flex; gap: 4px; align-items: center; margin-right: var(--s3); font-size: 14px; }
 .form-actions { display: flex; justify-content: flex-end; gap: var(--s2); flex-wrap: wrap; }
 .form-actions-left { justify-content: flex-start; }
@@ -502,17 +504,21 @@ body:has(dialog[open]) { overflow: hidden; }
   /* 머리글 출금 요청 버튼: '출금 요청'만 보이고 '작성'은 화면 낭독기에만(이름은 그대로 '출금 요청 작성'). 누르는 영역 40px */
   .topbar-send { min-height: 40px; padding: 0 10px; gap: 4px; }
   .topbar-send-more { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  /* 휴대폰에서 체크 상자를 조금 크게(승인 전 확인 등 확인 카드) */
+  .card-action .checks input[type='checkbox'] { width: 22px; height: 22px; margin: 0; }
 }
-/* 좁은 휴대폰(≤420px): 조직명이 읽힐 자리를 남기도록 상단 막대 간격과 로고 크기(비율 그대로)를 조금 줄인다 */
+/* 좁은 휴대폰(≤420px): 조직명이 잘리지 않도록 상단 막대 간격과 로고 크기(비율 그대로)를 줄이고, 출금 요청 버튼의 + 아이콘을 빼고 글자 '출금 요청'만 남긴다 */
 @media (max-width: 420px) {
   .topbar { gap: 6px; }
   .logo { height: 16px; }
-  .org-name { padding-left: 6px; }
-  .topbar-send { padding: 0 8px; }
+  .org-name { padding-left: 4px; }
+  .topbar-send { padding: 0 6px; }
+  .topbar-send svg { display: none; }
 }
 /* 아주 좁은 화면: 출금 요청 버튼은 아이콘만(이름·툴팁은 '출금 요청 작성') */
 @media (max-width: 379px) {
   .topbar-send { width: 40px; padding: 0; }
+  .topbar-send svg { display: inline-block; }
   .topbar-send-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

@@ -84,7 +84,7 @@ test('사용 대기: 홈 알림 → 목록 필터 → 상세의 사용 가능 �
   await expect(page.getByRole('link', { name: TASK_TITLE })).toHaveCount(0);
   await page.goto('/addresses/ab-14');
   await expect(page.getByRole('heading', { name: '사용 대기 중입니다' })).toBeVisible();
-  await expect(page.getByText('정지는 주소 등록·확인 담당자나 조직 관리자가 할 수 있습니다.')).toBeVisible();
+  await expect(page.getByText('정지는 자산 담당자·승인자·조직 관리자가 할 수 있습니다.')).toBeVisible();
   await expect(page.getByRole('button', { name: '사용 대기 중 정지' })).toHaveCount(0);
 });
 
@@ -142,7 +142,7 @@ test('주소 오염 의심: 0원 입금에 위험 배지·설명, 보낸 주소�
   await page.getByRole('combobox', { name: /^네트워크/ }).selectOption('ETHEREUM');
   await page.locator('#address').fill(sender);
   await expect(page.getByText('최근 0원·소액 입금을 보낸 주소와 같습니다. 주소 오염 공격에서 자주 보이는 패턴이라 등록할 수 없습니다.')).toBeVisible();
-  await expect(page.getByRole('button', { name: '확인 요청 보내기' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '주소 등록', exact: true })).toBeDisabled();
 });
 
 test('사용 대기 중 정지: 사유 없이 누르면 사유 입력으로 안내, 대화상자(취소 초기 포커스·Escape) 뒤 확정하면 바로 사용 중지', async ({ page }) => {

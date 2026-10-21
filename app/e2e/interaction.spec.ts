@@ -300,7 +300,7 @@ test('주소 등록 오류: 끝자리 불일치 시 해당 입력으로 포커�
   await page.getByRole('textbox', { name: /^확인한 상대·연락처/ }).fill('모의 거래처 재무팀 대표번호');
   await page.getByLabel(/별도 연락 수단/).check();
   await page.getByLabel(/보증하지 않는다는/).check();
-  await page.getByRole('button', { name: '확인 요청 보내기' }).click();
+  await page.getByRole('button', { name: '주소 등록', exact: true }).click();
   const tail = page.getByLabel(/주소 끝 6자리/);
   await expect(tail).toBeFocused();
   await expect(tail).toHaveAttribute('aria-invalid', 'true');
@@ -310,7 +310,7 @@ test('주소 등록 오류: 끝자리 불일치 시 해당 입력으로 포커�
   await tail.fill('990000');
   const middle = page.getByLabel(/가운데 8자리/);
   await middle.fill('55550000');
-  await page.getByRole('button', { name: '확인 요청 보내기' }).click();
+  await page.getByRole('button', { name: '주소 등록', exact: true }).click();
   await expect(middle).toBeFocused();
   await expect(middle).toHaveAttribute('aria-invalid', 'true');
   await expect(page.locator('#confirmMiddle-error')).toContainText('가운데 글자와 일치하지 않습니다');

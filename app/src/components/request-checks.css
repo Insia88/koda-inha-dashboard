@@ -53,6 +53,8 @@
 .rc-decide-summary { margin: 0; font-size: 16px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; }
 /* 받는 주소의 주소록 기록(사람이 남긴 기록) */
 .rc-addr-record { margin: -4px 0 0; color: var(--ink-2); overflow-wrap: anywhere; }
+/* 지문 바로 아래 승인자 쪽 할 일(다른 연락 수단으로 받은 지문과 대조, 선택 단계) */
+.rc-intent-todo { margin: -4px 0 0; color: var(--ink); }
 /* 이번 승인이 마지막인지·몇 번째인지 */
 .rc-approve-effect { margin: 0; padding: var(--s2) var(--s3); border-left: 4px solid var(--ink); background: var(--paper); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 /* 승인 전 확인 안의 보조 문장과, 주소 대조 체크 바로 위의 전체 주소 */

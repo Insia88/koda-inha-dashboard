@@ -16,6 +16,7 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await page.getByRole('combobox', { name: /^자산/ }).selectOption('USDC');
   await expect(page.getByText('네트워크를 잘못 고르면')).toBeVisible();
   await page.getByRole('combobox', { name: /^네트워크/ }).selectOption('ETHEREUM');
+  await expect(page.getByText('거래처 안내문의 네트워크 이름이 이 목록과 다르면, 거래처에 어느 블록체인 네트워크로 받는지 물어 확인하세요.', { exact: false })).toBeVisible();
   await page.locator('#address').fill('MOCK-BTC-ABCDEFGHJKLMNPQRSTUV');
   await expect(page.getByText(/Ethereum 형식이 아닙니다.*Bitcoin/)).toBeVisible();
   await page.locator('#address').fill(ADDR);
@@ -32,10 +33,10 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await page.getByRole('textbox', { name: /^확인한 상대·연락처/ }).fill('모의 거래처 재무팀 대표번호');
   await page.getByLabel(/별도 연락 수단/).check();
   await page.getByLabel(/보증하지 않는다는/).check();
-  await page.getByRole('button', { name: '확인 요청 보내기' }).click();
+  await page.getByRole('button', { name: '주소 등록', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: '끝 6자리가 주소와 다릅니다' }).first()).toBeVisible();
   await page.getByLabel(/주소 끝 6자리/).fill('CD9876');
-  await page.getByRole('button', { name: '확인 요청 보내기' }).click();
+  await page.getByRole('button', { name: '주소 등록', exact: true }).click();
   // 등록 직후에는 다음 단계 안내 하나만 보인다: 알림이 가지 않는다는 점과, 등록자가 아닌 승인자가 확인해야 한다는 점(A1).
   const created = page.getByRole('status').filter({ hasText: '주소를 등록했습니다 — 다른 승인자의 확인이 필요합니다' });
   await expect(created).toBeVisible();
@@ -43,6 +44,7 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await expect(created).toContainText('등록자가 아닌 승인자가 원본과 대조해 확인하면');
   await expect(page.getByText('본인이 등록한 주소는 직접 확인할 수 없습니다')).toHaveCount(0);
   await expect(page.getByText('확인 요청을 보냈습니다')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /보내기/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /사용 가능으로 확인/ })).toHaveCount(0);
   // 나중에 다시 열면 등록자에게 직접 확인할 수 없다는 안내가 보이고, 확인 버튼은 여전히 없다.
   await page.goto('/addresses?status=PENDING_REVIEW');
@@ -66,6 +68,7 @@ test('수직 흐름: 자산 확인 → 주소 등록 → 다른 승인자 확인
   await page.getByRole('link', { name: '출금 요청 작성' }).first().click();
   await page.getByRole('combobox', { name: /^자산/ }).selectOption('USDC');
   await page.getByRole('combobox', { name: /^네트워크/ }).selectOption('ETHEREUM');
+  await expect(page.getByText('거래처 안내문의 네트워크 이름이 이 목록과 다르면, 거래처에 어느 블록체인 네트워크로 받는지 물어 확인하세요.', { exact: false })).toBeVisible();
   await page.getByLabel(/받는 주소/).selectOption({ label: 'E2E 거래처 입금 주소 — 모의 E2E 거래처' });
   await page.getByLabel(/수량/).fill('1.1234567');
   await page.getByRole('textbox', { name: /^요청 목적/ }).fill('E2E 정산 테스트');

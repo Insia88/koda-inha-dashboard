@@ -128,7 +128,8 @@ export function Layout() {
   const can = (p: string) => me.permissions.includes(p);
   const dash = useQuery({ queryKey: ['dashboard'], queryFn: () => api('/api/dashboard'), enabled: can('dashboard.read'), refetchInterval: 15_000 });
   const taskCount = (k: string) => dash.data?.tasks.find((t: any) => t.kind === k)?.count ?? 0;
-  // 메뉴 배지는 내가 바로 처리할 수 있는 일만 종류별로 센다(A1): 승인할 요청(승인자) '승인 n', 제출 전 내 요청(요청자) '초안 n', 확인할 주소 '확인 n'.
+  // 메뉴 배지는 내가 바로 처리할 수 있는 일만 종류별로 센다(A1): 승인할 요청(승인자) '승인 n', 제출 전 내 요청(요청자, 작성 중+검토 중) '제출 전 n', 확인할 주소 '확인 n'.
+  // 검토 중 요청은 '초안'이 아니므로 탭('내가 작성한 요청 · 제출 전 n')·홈 할 일('제출 전 내 요청')과 같은 말을 쓴다.
   // 받는 주소가 사용 중지되어 승인할 수 없는 요청은 홈의 별도 위험 항목으로 보여 주고 배지에는 더하지 않는다(A-17).
   const approveN = taskCount('approve_requests');
   const draftN = taskCount('my_drafts');
@@ -163,7 +164,7 @@ export function Layout() {
     { title: '업무', items: [
       { to: '/requests', label: '결재 및 요청', icon: IconChecklist, perm: 'request.read', badges: [
         { text: `승인 ${approveN}`, spoken: `승인할 요청 ${approveN}건`, count: approveN },
-        { text: `초안 ${draftN}`, spoken: `제출 전 내 요청 ${draftN}건`, count: draftN },
+        { text: `제출 전 ${draftN}`, spoken: `제출 전 내 요청 ${draftN}건`, count: draftN },
       ] },
       { to: '/addresses', label: '보낼 곳 주소록', icon: IconAddressBook, perm: 'address.read', badges: [
         { text: `확인 ${reviewN}`, spoken: `확인할 주소 ${reviewN}건`, count: reviewN },

@@ -228,7 +228,7 @@ export function AddressDetailPage() {
           {/* 이 주소에 실제로 적용된 대기 시간(확인 시각 → 사용 가능 시각). 지금 정책 값과 다를 수 있다. */}
           <LifecycleSteps hours={a.reviewedAt ? Math.max(1, Math.round((Date.parse(a.activeFrom) - Date.parse(a.reviewedAt)) / 3600_000)) : undefined} current="COOLING_DOWN" />
           <p className="muted">두 사람이 확인한 주소도 바로 쓰지 않고 기다리는 시간입니다. 이 주소의 등록을 요청한 적이 없거나 받는 곳에서 확인되지 않았다면 대기 중에 정지하세요.</p>
-          {!canStop && <p className="muted small">정지는 주소 등록·확인 담당자나 조직 관리자가 할 수 있습니다.</p>}
+          {!canStop && <p className="muted small">정지는 자산 담당자·승인자·조직 관리자가 할 수 있습니다.</p>}
         </section>
       )}
 

@@ -22,7 +22,8 @@ const TASK_COPY: Record<string, { title: string; description: string }> = {
   approve_requests: { title: '승인할 출금 요청', description: '다른 담당자가 보낸 요청입니다. 받는 곳·주소·수량을 대조하고 한 건씩 승인하거나 반려하세요.' },
   blocked_requests: { title: '받는 주소가 사용 중지되어 승인할 수 없는 요청', description: '사유와 함께 반려하면 예약 수량이 풀립니다.' },
   review_addresses: { title: '확인할 새 주소', description: '등록자가 보낸 자료가 아니라, 미리 알고 있던 연락처로 받는 곳에 연락해 주소를 대조한 뒤 확인하세요.' },
-  cooling_addresses: { title: '사용 대기 중인 새 주소 — 모르는 등록이면 정지하세요', description: '확인을 마친 주소도 대기 시간이 지나야 출금에 쓸 수 있습니다. 요청한 적 없는 등록이면 대기 중에 바로 정지하세요.' },
+  // 제목이 첫 정지 사유(모르는 등록)와 '정지하세요'를 맡고, 설명은 서버 문구의 둘째 정지 사유(받는 곳에서 확인되지 않음)와 정지 방법을 쓴다(같은 지시를 두 번 쓰지 않는다).
+  cooling_addresses: { title: '사용 대기 중인 새 주소 — 모르는 등록이면 정지하세요', description: '확인을 마친 주소도 대기 시간이 지나야 출금에 쓸 수 있습니다. 받는 곳에서 확인되지 않은 주소도 정지하세요. 정지는 주소를 열어 「사용 대기 중 정지」로 합니다.' },
   my_drafts: { title: '제출 전 내 요청', description: '승인 요청을 보내야 승인자에게 보입니다.' },
   my_rejected: { title: '반려·실패한 내 요청 (최근 14일)', description: '사유를 확인하고 필요하면 새 요청을 작성하세요.' },
   my_blocked_requests: { title: '받는 주소가 사용 중지된 내 요청', description: '승인될 수 없는 요청입니다. 취소하면 예약 수량이 풀립니다.' },
@@ -166,15 +167,15 @@ export function HomePage() {
                 return (
                   <li key={r.id}>
                     <Link to={`/requests/${r.id}`} className="progress-item">
+                      {/* 첫 줄은 번호·상태·'내 승인 차례'·수량만 둬서 수량이 줄마다 같은 자리에 오게 한다. 누구 차례인지는 둘째 줄 맨 앞에 쓴다(표시용, 상태 이름은 그대로). */}
                       <div className="progress-top">
                         <span className="ref">{r.refNo}</span>
                         <Badge tone={st.tone}>{st.label}</Badge>
-                        {/* 누구 차례인지(표시용). 상태 이름은 그대로 두고 옆에 덧붙인다. */}
-                        {st.turn && <span className="turn-text">{st.turn}</span>}
                         {myTurn.has(r.id) && <span className="badge badge-turn">내 승인 차례</span>}
                         <span className="progress-amt">{amount(r.amount, r.assetCode)}</span>
                       </div>
                       <div className="progress-meta small" style={{ color: 'var(--ink-2)' }}>
+                        {st.turn && <><span className="turn-text">{st.turn}</span> · </>}
                         {r.creatorName} → {r.addressLabel} · <time className="nowrap" dateTime={r.updatedAt}>{dateTime(r.updatedAt)}</time> <span className="muted nowrap">({relative(r.updatedAt)})</span>
                         {r.status === 'PENDING_APPROVAL' && <span className="nowrap"> · 승인 {r.approved}/{r.requiredApprovals}</span>}
                       </div>
@@ -230,6 +231,8 @@ function HoldingsCard({ h, className }: { h: any; className: string }) {
           <div className="total-label"><Term label="총 평가액">{GLOSSARY.valuation}</Term></div>
           <div className="total-value">{krwShort(h.totalKrw)}</div>
           <div className="total-exact muted">{krw(h.totalKrw)}</div>
+          {/* 총 평가액을 보는 자리에서 스테이킹이 들어가는지 묻게 되므로 합계 바로 아래에 짧게 쓴다(긴 설명은 잔고 화면 아래). */}
+          <p className="muted small total-staking-note">스테이킹 현황의 맡긴 수량·보상은 이 합계에 넣지 않았습니다(모의 데이터).</p>
           <DataStamp asOf={h.price.asOf} state={h.price.state} source={h.price.source} label="시세 기준" />
           {h.price.state === 'stale' && <p className="warn-text">시세가 {h.price.staleAfterMinutes}분 넘게 갱신되지 않았습니다. 평가액이 실제와 다를 수 있습니다. 수량은 영향을 받지 않습니다.</p>}
         </div>
@@ -244,8 +247,8 @@ function HoldingsCard({ h, className }: { h: any; className: string }) {
                   <tr key={a.assetCode}>
                     <th scope="row"><span className="asset-code">{a.assetCode}</span> <span className="muted small">{a.name}</span></th>
                     <td className="num" data-label="보유 수량">{amount(a.total, a.assetCode)}</td>
-                    {/* '예약'은 예약 이체로 읽히기 쉬워 무엇에 묶였는지 쓴다(A1). 뜻은 잔고 화면의 '묶인 수량(예약)' 설명과 같다. */}
-                    <td className="num" data-label="사용 가능">{amount(a.available, a.assetCode)}{a.reserved !== '0' && <div className="muted small">승인 대기로 묶임 {amount(a.reserved)}</div>}</td>
+                    {/* '예약'은 예약 이체로 읽히기 쉬워 무엇에 묶였는지 쓴다(A1). 승인 대기와 처리 중 모두 묶여 있으므로(처리가 끝날 때 풀림) 두 경우에 맞는 말을 쓴다. 뜻은 잔고 화면의 '묶인 수량(예약)' 설명과 같다. */}
+                    <td className="num" data-label="사용 가능">{amount(a.available, a.assetCode)}{a.reserved !== '0' && <div className="muted small">출금 요청에 묶임 {amount(a.reserved)}</div>}</td>
                     <td className="num" data-label="평가액">{krwShort(a.krwValue)}</td>
                   </tr>
                 ))}

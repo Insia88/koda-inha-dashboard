@@ -28,8 +28,9 @@ function RoleImpact({ members, editing, policy }: { members: any[]; editing: { i
   }
   if (requesters === 0) warnings.push('자산 담당자가 0명이 되면 출금 요청 작성과 주소 등록을 할 수 없습니다.');
   return (
-    <div className="role-impact">
-      <p className="small role-impact-note" role="status">저장하면 승인자 {approvers}명 · 자산 담당자 {requesters}명 · 조직 관리자 {admins}명이 됩니다.</p>
+    // 인원 줄과 경고를 한 번에 읽어 주도록 바깥 상자를 알림 영역으로 둔다(경고만 빠지지 않게).
+    <div className="role-impact" role="status">
+      <p className="small role-impact-note">저장하면 승인자 {approvers}명 · 자산 담당자 {requesters}명 · 조직 관리자 {admins}명이 됩니다.</p>
       {warnings.map((w) => <Notice key={w} tone="warning">{w}</Notice>)}
     </div>
   );

@@ -86,6 +86,8 @@ test('주소 대조 띠: 상세 화면의 묶음은 같은 굵기·대비, 확�
     await expect(card.getByText(`가운데 8자리(${prefix} 뒤 ${a.middle.start}~${a.middle.end}번째 글자)입니다.`)).toBeVisible();
     await expect(card.getByText(`${prefix} 뒤의 글자(고유부)를 1부터 셉니다.`, { exact: false })).toBeVisible();
     await expect(card.getByText(/고유부는 주소에서/)).toHaveCount(0);
+    // 확인 단계 1(A1-09): 등록자 자료가 아니라 미리 알고 있던 연락처로 받는 곳에 연락해 불러 달라고 한다.
+    await expect(card.getByText('미리 알고 있던 연락처(거래처 대표번호 등)로 연락해 자산·네트워크·주소를 불러 달라고 합니다', { exact: false })).toBeVisible();
     await expect(card.getByText('서버')).toHaveCount(0);
   }
 });
@@ -110,7 +112,7 @@ test('메뉴 배지: 종류마다 따로(승인 n), 처리할 수 있는 건수�
   const count = (k: string) => dash.tasks.find((t: any) => t.kind === k)?.count ?? 0;
   const approveN = count('approve_requests'); // 주소가 사용 중지되어 승인할 수 없는 요청(blocked_requests)은 세지 않는다
   expect(approveN).toBeGreaterThan(0); // 시드: 오민재가 승인할 요청이 있다
-  expect(count('my_drafts')).toBe(0); // 오민재는 요청 작성 권한이 없어 '초안' 배지가 없다
+  expect(count('my_drafts')).toBe(0); // 오민재는 요청 작성 권한이 없어 '제출 전' 배지가 없다
   const link = page.getByRole('link', { name: /결재 및 요청/ });
   const badges = link.locator('.nav-badge');
   // 보이는 배지는 종류마다 하나씩이고 숫자는 그 종류의 서버 건수다(합계가 아니다).
@@ -203,8 +205,10 @@ test('감사 기록: 무결성 확인의 범위를 넘겨 말하지 않고 보�
   await loginAs(page, '문태호');
   await page.goto('/audit');
   await expect(page.getByText('무결성 확인됨')).toBeVisible();
-  // 무엇을 확인했는지(앞 기록과 이어짐, 해시 연결)와 확인하지 못하는 경우를 펼치지 않아도 보이게 쓴다(A1에서 문장만 짧게).
-  await expect(page.locator('.audit-integrity')).toContainText(/기록 \d+건이 앞 기록과 빠짐없이 이어져 있습니다\(해시 연결 확인\)\./);
+  // 무엇을 확인했는지(바로 앞 기록과 이어짐, 해시 연결)와 확인하지 못하는 경우를 펼치지 않아도 보이게 쓴다(A1에서 문장만 짧게).
+  // 해시 연결 확인은 빠진 기록이 없다는 것(완전함)을 증명하지 못하므로 '빠짐없이' 같은 말을 쓰지 않는다.
+  await expect(page.locator('.audit-integrity')).toContainText(/기록 \d+건이 각각 바로 앞 기록과 끊김 없이 이어져 있습니다\(해시 연결 확인\)\./);
+  await expect(page.locator('.audit-integrity')).not.toContainText('빠짐없이');
   const scope = page.locator('.audit-scope');
   await expect(scope).toBeVisible();
   await expect(scope).toContainText('가장 최근 기록을 지웠거나 기록을 고친 뒤 뒤쪽 해시를 모두 다시 계산했다면 이 확인으로는 찾지 못합니다');

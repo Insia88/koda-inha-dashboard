@@ -24,6 +24,10 @@ const NO_STORED_CHECKS = '이 요청에는 저장된 출금 전 점검 결과가
 /** 승인 전 확인 세 항목의 처음 상태(모두 확인 안 함). 409를 받으면 이 상태로 되돌린다. */
 const NO_CHECKS = { counterparty: false, amount: false, address: false };
 
+/** 몇 번째 승인인지(0부터 센 승인 수를 받아): '첫 번째', '두 번째' … 다섯을 넘으면 숫자로 쓴다. */
+const ORD = ['첫', '두', '세', '네', '다섯'];
+const ordinal = (i: number) => (ORD[i] ? `${ORD[i]} 번째` : `${i + 1}번째`);
+
 type RoleKey = 'requester' | 'approver' | 'other';
 
 const NEXT_FOR_ROLE: Record<string, Record<RoleKey, string>> = {
@@ -31,7 +35,7 @@ const NEXT_FOR_ROLE: Record<string, Record<RoleKey, string>> = {
   DRAFT: { requester: '내용을 확인하고 「검토로 이동」을 누르세요.', approver: "요청자가 작성 중입니다. 승인 요청이 오면 '지금 처리할 일'과 「내가 승인할 요청」에 표시됩니다. 알림은 보내지 않습니다.", other: '요청자가 작성 중입니다.' },
   // REVIEW 요청자 문구는 끝자리 길이에 따라 nextAction()에서 만든다.
   REVIEW: { requester: '', approver: '요청자가 최종 검토 중입니다.', other: '요청자가 최종 검토 중입니다.' },
-  PENDING_APPROVAL: { requester: '승인자의 결정을 기다리는 중입니다. 이 대시보드는 승인자에게 알림을 보내지 않으니 필요하면 직접 알려 주세요. 필요하면 요청을 취소할 수 있습니다.', approver: '받는 곳·주소·수량·목적을 확인하고 승인하거나 사유와 함께 반려하세요.', other: '승인자의 결정을 기다리는 중입니다.' },
+  PENDING_APPROVAL: { requester: '승인자의 결정을 기다리는 중입니다. 알림이 가지 않으니 승인자에게 직접 알려 주세요. 요청을 취소할 수도 있습니다.', approver: '받는 곳·주소·수량·목적을 확인하고 승인하거나 사유와 함께 반려하세요.', other: '승인자의 결정을 기다리는 중입니다.' },
   PROCESSING: { requester: '수탁사 처리 중입니다(이 환경은 모의 커스터디). 더 할 일은 없습니다.', approver: '수탁사 처리 중입니다(이 환경은 모의 커스터디).', other: '수탁사 처리 중입니다(이 환경은 모의 커스터디).' },
   COMPLETED: { requester: '처리가 끝났습니다. 받는 곳에 입금 확인을 요청하세요.', approver: '처리가 끝났습니다.', other: '처리가 끝났습니다.' },
   REJECTED: { requester: '반려 사유를 확인하고 필요하면 새 요청을 작성하세요.', approver: '반려된 요청입니다.', other: '반려된 요청입니다.' },
@@ -327,9 +331,11 @@ export function RequestDetailPage() {
     : justDecided.action === 'reject'
       ? { title: '반려했습니다', body: '요청자에게 반려 사유가 보이고, 승인 요청 때 예약한 수량이 풀렸습니다.' }
       : justDecided.status === 'PENDING_APPROVAL'
-        ? { title: `승인했습니다 (${justDecided.approved}/${justDecided.required})`, body: '다른 승인자의 결정을 기다립니다. 필요한 승인 수가 채워지면 바로 커스터디 처리가 시작됩니다. 알림은 가지 않으니 필요하면 다른 승인자에게 직접 알려 주세요.' }
-        : { title: '승인했습니다', body: '필요한 승인 수가 채워져 커스터디 처리를 시작했습니다. 블록체인 전송은 처리 후 되돌릴 수 없습니다. 완료되면 이 화면과 자산 활동 내역에 표시됩니다.' };
-  // 이번 승인으로 필요한 승인 수가 채워지는지(표시용, A1). 정족수와 처리 시작은 서버가 정하고(A-15, A-18), 화면의 승인 수가 낡았으면 서버의 버전 검사(409)가 막는다.
+        ? { title: `승인했습니다 (${justDecided.approved}/${justDecided.required})`, body: '다른 승인자의 결정을 기다립니다. 필요한 승인 수가 채워지면 바로 수탁사 처리가 시작됩니다. 알림은 가지 않으니 필요하면 다른 승인자에게 직접 알려 주세요.' }
+        : { title: '승인했습니다', body: '필요한 승인 수가 채워져 수탁사 처리(이 환경은 모의 커스터디)를 시작했습니다. 블록체인 전송은 처리 후 되돌릴 수 없습니다. 완료되면 이 화면과 자산 활동 내역에 표시됩니다.' };
+  // 이번 승인으로 필요한 승인 수가 채워지는지(표시용, A1). 정족수와 처리 시작은 서버가 정한다(A-15, A-18). 화면의 승인 수가 낡았으면 대개 서버의 버전 검사(409)가 막지만,
+  // 이미 승인한 사람에게 승인자 역할을 다시 주면 요청 버전이 그대로인 채 유효 승인 수가 늘 수 있다(다음 새로 고침, 최대 15초 전까지).
+  // 그래서 마지막이 아닐 때의 문장은 '지금 기준으로'라고 쓰고, 바로 아래 되돌릴 수 없음 문장('채워지면 바로 처리가 시작')은 그대로 둔다.
   const finalApproval = can('approve') && r.approvedCount + 1 >= r.requiredApprovals;
   const addr = addrRecord.data as undefined | { createdBy: { name: string }; createdAt: string; reviewedBy: { name: string } | null; reviewedAt: string | null };
   // 승인 요청 때 보낼 진행 사유: 지금 보이는 점검 항목 id만 보낸다.
@@ -424,7 +430,7 @@ export function RequestDetailPage() {
       {showSubmitted && (
         <div ref={submittedRef} tabIndex={-1} className="rc-focus-target">
           <Notice tone="success" role="status" title="승인 요청을 보냈습니다">
-            승인자에게 알림은 가지 않으니 직접 알려 주세요. 권장: 메신저가 아닌 다른 연락 수단으로 승인 대상 지문 <b className="rc-intent-inline">{r.intentHashDisplay}</b>도 함께 알려 주면, 승인자가 자기 화면의 지문과 같은지 대조할 수 있습니다.
+            승인자에게 알림이 가지 않으니 직접 알려 주세요. 권장: 알릴 때 쓴 메신저가 아니라 전화 등 다른 연락 수단으로 승인 대상 지문(<b className="rc-intent-inline">{r.intentHashDisplay}</b>)을 불러 주면, 승인자가 자기 화면의 지문과 같은지 대조할 수 있습니다.
           </Notice>
         </div>
       )}
@@ -489,8 +495,10 @@ export function RequestDetailPage() {
       {/* 작성 중이거나 다른 사람이 보는 검토 중 요청: 지금 기준 점검(읽기 전용). 요청자의 검토 단계는 아래 확인 카드 안에서 사유와 함께 보인다. */}
       {preSubmit && !editing && !can('submit') && checks && (
         <section className="card">
-          <CheckList level={2} title="출금 전 점검" items={checks.items}
-            intro={checksIntro(mine, hold, checks.items)} />
+          {/* 기준 이내 항목을 접어도 '설계 가정·보증 아님' 각주는 접지 않는다(검토 카드·결정 카드와 같은 문장). */}
+          <CheckList level={2} title="출금 전 점검" items={checks.items} requesterView={mine}
+            intro={checksIntro(mine, hold, checks.items)}
+            footnote="점검 기준은 설계 가정이며, 기준 이내라는 결과도 받는 곳이나 전송을 보증하지 않습니다." />
         </section>
       )}
 
@@ -498,7 +506,7 @@ export function RequestDetailPage() {
       {submitted && !decideCard && (
         <section className="card">
           {checks
-            ? <CheckList level={2} title="출금 전 점검 결과" items={checks.items} showReasons footnote={`승인 요청 때(${dateTime(checks.evaluatedAt)} KST) 점검한 결과입니다. 기준은 설계 가정입니다.`} />
+            ? <CheckList level={2} title="출금 전 점검 결과" items={checks.items} showReasons footnote={`승인 요청 때(${dateTime(checks.evaluatedAt)} KST) 점검한 결과입니다. 기준은 설계 가정이며, 기준 이내라는 결과도 받는 곳이나 전송을 보증하지 않습니다.`} />
             : <><h2>출금 전 점검 결과</h2><p className="muted small" style={{ margin: 0 }}>{NO_STORED_CHECKS}</p></>}
         </section>
       )}
@@ -526,7 +534,7 @@ export function RequestDetailPage() {
           <h2 id="submit-h">최종 검토 후 승인 요청</h2>
           <p>보내고 나면 승인자에게 전달되고 수량이 예약됩니다. 블록체인 전송은 처리 후 되돌릴 수 없습니다.</p>
           {checks && (
-            <CheckList title="출금 전 점검" items={checks.items} reasons={checkReasons}
+            <CheckList title="출금 전 점검" items={checks.items} reasons={checkReasons} requesterView
               onReason={(cid, v) => setCheckReasons((prev) => ({ ...prev, [cid]: v }))}
               reasonError={(cid) => actErr?.fieldError(`checkReasons.${cid}`)}
               intro={checks.items.some((c) => c.requiresReason) ? '진행 사유 입력란이 있는 주의 항목마다 그대로 진행하는 이유를 적어 주세요. 사유와 점검 결과는 승인 요청과 함께 승인자에게 전달됩니다.' : '승인 요청을 보낼 때 다시 점검해 그 결과를 승인자에게 함께 보입니다.'}
@@ -548,13 +556,14 @@ export function RequestDetailPage() {
       {decideCard && (
         <section className="card card-action" aria-labelledby="approve-h">
           <h2 id="approve-h">{can('approve') ? '승인 또는 반려' : '반려'}</h2>
-          {/* 무엇을 결정하는지 한 줄 요약(A1): 누가·어디로·얼마·왜·몇 명 중 몇 명. 평가액은 제출 때 저장한 값이다. */}
+          {/* 무엇을 결정하는지 한 줄 요약(A1): 누가·어디로·얼마·왜·몇 명 중 몇 명. 평가액은 제출 때 저장한 값이다.
+              받는 곳 이름이 이미 괄호로 끝나면(예: '정산 파트너 B (Kaia USDC)') 괄호를 겹치지 않고 가운뎃점으로 상대를 잇는다. */}
           <p className="rc-decide-summary">
-            {r.createdBy.name}님의 출금 요청: {r.address.label}({r.address.counterparty})에 {amount(r.amount, r.assetCode)}{r.krwValueAtSubmit ? ` (${krwShort(r.krwValueAtSubmit)})` : ''} · 목적: {r.purpose} · 승인 {r.approvedCount}/{r.requiredApprovals}명
+            {r.createdBy.name}님의 출금 요청: {r.address.label}{r.address.label.endsWith(')') ? ` · ${r.address.counterparty}` : `(${r.address.counterparty})`}에 {amount(r.amount, r.assetCode)}{r.krwValueAtSubmit ? ` (${krwShort(r.krwValueAtSubmit)})` : ''} · 목적: {r.purpose} · 승인 {r.approvedCount}/{r.requiredApprovals}명
           </p>
           {/* 받는 주소의 주소록 기록(사람이 남긴 기록이지 증명이 아니다, A-32). 못 불러오면 링크만 보인다. */}
           <p className="rc-addr-record small">
-            {addr && <>주소록 기록(사람이 남긴 기록): {addr.createdBy.name} 등록 {date(addr.createdAt)}{addr.reviewedBy ? ` · ${addr.reviewedBy.name} 확인 ${date(addr.reviewedAt)}` : ''} · </>}
+            {addr && <>주소록: {addr.createdBy.name} 등록 {date(addr.createdAt)}{addr.reviewedBy ? ` · ${addr.reviewedBy.name} 확인 ${date(addr.reviewedAt)}` : ''} (사람이 남긴 기록이며 증명이 아닙니다) · </>}
             <Link to={`/addresses/${r.address.id}`}>주소 기록 보기</Link>
           </p>
           {/* 같은 내용의 409 안내(지문 불일치)가 바로 아래에 있으면 되풀이하지 않는다. */}
@@ -572,6 +581,8 @@ export function RequestDetailPage() {
           )}
           {/* 무엇을 승인하는지(지문)와 승인 요청 때의 점검 결과·요청자 사유를 결정 버튼보다 먼저 읽게 한다. */}
           <IntentFingerprint display={r.intentHashDisplay} mismatch={tampered} />
+          {/* 요청자 화면의 권장 단계(다른 연락 수단으로 지문 불러 주기)와 짝을 이루는 승인자 쪽 할 일. 선택 단계이며 승인 조건은 그대로다(A-29). */}
+          {can('approve') && <p className="small rc-intent-todo">요청자에게서 이 지문을 메신저가 아닌 다른 연락 수단으로 받았다면 같은지 대조하세요. 다르면 승인하지 말고 반려하세요.</p>}
           {checks
             ? <CheckList title="출금 전 점검 결과" items={checks.items} showReasons footnote={`승인 요청 때(${dateTime(checks.evaluatedAt)} KST) 점검한 결과입니다. 기준은 설계 가정이며, 기준 이내라는 결과도 받는 곳이나 전송을 보증하지 않습니다.`} />
             : <p className="muted small" style={{ margin: 0 }}>{NO_STORED_CHECKS}</p>}
@@ -583,7 +594,7 @@ export function RequestDetailPage() {
               <p id="approve-effect" className="rc-approve-effect">
                 {finalApproval
                   ? <><b>이번 승인이 마지막 승인입니다.</b> 승인하면 바로 수탁사 처리가 시작되고, 그 뒤에는 요청자도 취소할 수 없습니다.</>
-                  : <>이번 승인은 필요한 {r.requiredApprovals}명 중 {r.approvedCount + 1}번째입니다. {r.requiredApprovals - r.approvedCount - 1}명이 더 승인해야 처리가 시작됩니다.</>}
+                  : <>지금 기준으로 이번 승인은 필요한 승인 {r.requiredApprovals}명 중 {ordinal(r.approvedCount)}입니다. {r.requiredApprovals - r.approvedCount - 1}명이 더 승인해야 처리가 시작됩니다.</>}
               </p>
               <p className="rc-irreversible">필요한 승인 수가 채워지면 바로 처리가 시작되며, 블록체인 전송은 처리 후 되돌릴 수 없습니다. 은행 착오송금처럼 되돌려 받는 절차도 없습니다.</p>
               <fieldset className="checks">
@@ -602,7 +613,8 @@ export function RequestDetailPage() {
                 {!allChecked && <p id="approve-hint" className="small" style={{ margin: 0, color: 'var(--ink-2)' }}>세 항목을 모두 확인하면 승인할 수 있습니다.</p>}
                 <button className="btn btn-primary" onClick={() => act.mutate({ action: 'approve', body: { intentHash: r.intentHash } })} disabled={act.isPending || !allChecked} aria-describedby={allChecked ? 'approve-effect' : 'approve-effect approve-hint'}>{finalApproval ? '승인하고 처리 시작' : '승인'}</button>
               </div>
-              <p className="muted small rc-after-approve">승인 뒤에는 수탁사 처리(이 환경은 모의 커스터디)를 거쳐 처리 완료가 됩니다. 완료되면 이 화면의 상태가 '처리 완료'로 바뀌고 자산 활동 내역에 출금으로 기록됩니다.</p>
+              {/* 승인 뒤 흐름은 마지막 승인일 때만 쓴다(아니면 위 효과 문장이 몇 명 더 필요한지 말한다). 결과는 완료와 실패 둘 다 있을 수 있다. */}
+              {finalApproval && <p className="muted small rc-after-approve">처리 결과(처리 완료 또는 처리 실패)는 이 화면의 상태로 표시되고, 완료되면 자산 활동 내역에 출금으로 기록됩니다.</p>}
               <hr />
             </>
           )}

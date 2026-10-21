@@ -112,8 +112,9 @@ test('요청자: 작성 미리 보기와 검토 단계의 점검, 진행 사유�
   const fp = (await sent.locator('.rc-intent-inline').textContent())!.trim();
   expect(fp).toMatch(FINGERPRINT);
   // 알림이 가지 않는다는 점과, 지문 대조는 권장 단계라는 점을 분명히 쓴다(A1).
-  await expect(sent).toContainText('승인자에게 알림은 가지 않으니 직접 알려 주세요.');
-  await expect(sent).toContainText(`권장: 메신저가 아닌 다른 연락 수단으로 승인 대상 지문 ${fp}도 함께 알려 주면, 승인자가 자기 화면의 지문과 같은지 대조할 수 있습니다.`);
+  await expect(sent).toContainText('승인자에게 알림이 가지 않으니 직접 알려 주세요.');
+  await expect(sent).toContainText(`권장: 알릴 때 쓴 메신저가 아니라 전화 등 다른 연락 수단으로 승인 대상 지문(${fp})을 불러 주면, 승인자가 자기 화면의 지문과 같은지 대조할 수 있습니다.`);
+  await expect(sent).not.toContainText('함께 알려');
   await expect(page.locator('.dl dd').filter({ hasText: fp })).toHaveCount(1);
   await expect(page.getByRole('heading', { name: '출금 전 점검 결과' })).toBeVisible();
   await expect(page.locator('.rc-reason').filter({ hasText: reasonText })).toBeVisible();
@@ -129,6 +130,8 @@ test('요청자: 작성 미리 보기와 검토 단계의 점검, 진행 사유�
   const intent = decide.getByRole('group', { name: '승인 대상 지문' });
   await expect(intent.locator('.rc-intent-value')).toHaveText(fp);
   await expect(intent).toContainText('승인 요청 뒤 이 중 하나라도 바뀌면 지문이 달라져 승인되지 않습니다');
+  // 요청자 쪽 권장 단계와 짝을 이루는 승인자 쪽 할 일(선택 단계, 승인 조건은 그대로)
+  await expect(decide.locator('.rc-intent-todo')).toHaveText('요청자에게서 이 지문을 메신저가 아닌 다른 연락 수단으로 받았다면 같은지 대조하세요. 다르면 승인하지 말고 반려하세요.');
   await expect(decide.getByRole('heading', { name: '출금 전 점검 결과' })).toBeVisible();
   await expect(decide.locator('.rc-item', { hasText: '이 대시보드로 처음 보내는 주소입니다' }).locator('.rc-reason')).toContainText(reasonText);
   await expect(decide).toContainText('은행 착오송금처럼 되돌려 받는 절차도 없습니다');

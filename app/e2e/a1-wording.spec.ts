@@ -82,6 +82,31 @@ test.describe('머리글 출금 요청 작성(A1-01)', () => {
     await expect(page).toHaveURL(/\/requests\/new$/);
   });
 
+  test('휴대폰 폭(380·390·393px)에서 조직명이 잘리지 않는다: 머리글 버튼은 + 아이콘 없이 \'출금 요청\'만', async ({ page }) => {
+    // 모의법인 A(한지수)와 모의법인 B(배서준): 두 조직 이름이 '모의법…'으로 같아 보이면 어느 회사로 보내는지 헷갈린다.
+    for (const user of ['한지수', '배서준']) {
+      await loginAs(page, user);
+      await page.locator('#page-title').waitFor();
+      for (const width of [380, 390, 393]) {
+        await page.setViewportSize({ width, height: 844 });
+        const m = await page.evaluate(() => {
+          const name = document.querySelector('.topbar .org-name-text') as HTMLElement;
+          const icon = document.querySelector('.topbar-send svg') as SVGElement;
+          return { text: name.textContent, client: name.clientWidth, scroll: name.scrollWidth, icon: getComputedStyle(icon).display };
+        });
+        expect(m.scroll, `${user} ${width}px 조직명 '${m.text}' ${m.client}/${m.scroll}`).toBeLessThanOrEqual(m.client);
+        expect(m.icon, `${user} ${width}px`).toBe('none');
+        await expect(headerSend(page).locator('.topbar-send-text'), `${user} ${width}px`).toBeVisible();
+        expect(await overflow(page), `${user} ${width}px`).toBeLessThanOrEqual(0);
+      }
+      // 380px 아래(아이콘만 남는 폭)에서는 + 아이콘이 다시 보인다.
+      await page.setViewportSize({ width: 375, height: 812 });
+      expect(await page.locator('.topbar-send svg').evaluate((el) => getComputedStyle(el).display)).not.toBe('none');
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await logout(page);
+    }
+  });
+
   test('접근성 자동 검사: 머리글 버튼이 있는 홈·잔고(1440px·390px)', async ({ page }) => {
     await loginAs(page, '한지수');
     for (const width of [1440, 390]) {
@@ -177,7 +202,7 @@ test('내 차례(A1-03): 종류별 배지와 탭 건수는 서버 할 일 건수
     expect(a).toBeGreaterThan(0);
     expect(b).toBeGreaterThan(0);
     const link = page.locator('#sidenav').getByRole('link', { name: /결재 및 요청/ });
-    await expect(link.locator('.nav-badge')).toHaveText([`승인 ${a}`, `초안 ${b}`]);
+    await expect(link.locator('.nav-badge')).toHaveText([`승인 ${a}`, `제출 전 ${b}`]);
     await expect(link).toHaveAccessibleName(new RegExp(`^결재 및 요청\\s*처리할 일 ${a + b}건: 승인할 요청 ${a}건, 제출 전 내 요청 ${b}건$`));
     const fit = await link.evaluate((el) => ({ right: el.getBoundingClientRect().right, nav: el.closest('nav')!.getBoundingClientRect().right, badges: [...el.querySelectorAll('.nav-badge')].map((x) => x.getBoundingClientRect().right) }));
     for (const r of fit.badges) expect(r).toBeLessThanOrEqual(fit.right);
@@ -200,7 +225,7 @@ test('내 차례(A1-03): 종류별 배지와 탭 건수는 서버 할 일 건수
   }
   await logout(page);
 
-  // 오민재(승인자만): '승인 n'만. 한지수(자산 담당자만): '초안 n'만.
+  // 오민재(승인자만): '승인 n'만. 한지수(자산 담당자만): '제출 전 n'만.
   await loginAs(page, '오민재');
   const oh = await dashboardTasks(page);
   await expect(page.locator('#sidenav').getByRole('link', { name: /결재 및 요청/ }).locator('.nav-badge')).toHaveText([`승인 ${oh.find((t) => t.kind === 'approve_requests')!.count}`]);
@@ -208,12 +233,20 @@ test('내 차례(A1-03): 종류별 배지와 탭 건수는 서버 할 일 건수
   const wr4 = page.locator('a.progress-item', { hasText: 'WR-000004' });
   await expect(wr4.locator('.badge-turn')).toHaveText('내 승인 차례');
   await expect(wr4.locator('.turn-text')).toHaveText('승인자 결정 대기');
+  // 누구 차례인지는 둘째 줄(요청자 → 받는 곳) 맨 앞에 있고, 첫 줄의 수량은 '내 승인 차례'가 붙은 줄에서도 번호와 같은 줄에 남는다(1440px).
+  await expect(wr4.locator('.progress-meta .turn-text')).toHaveCount(1);
+  await expect(wr4.locator('.progress-meta')).toContainText(/^승인자 결정 대기 · 강도윤 → /);
+  for (const ref of ['WR-000004', 'WR-000003', 'WR-000005']) {
+    const row = page.locator('a.progress-item', { hasText: ref });
+    const ys = await row.evaluate((el) => ['.ref', '.progress-amt'].map((s) => { const b = el.querySelector(s)!.getBoundingClientRect(); return Math.round((b.top + b.bottom) / 2); }));
+    expect(Math.abs(ys[0]! - ys[1]!), `${ref} 수량이 번호와 같은 줄`).toBeLessThanOrEqual(4);
+  }
   await logout(page);
   await loginAs(page, '한지수');
   const han = await dashboardTasks(page);
   const hanDrafts = han.find((t) => t.kind === 'my_drafts')!.count;
   expect(hanDrafts).toBeGreaterThan(0); // 시드: WR-000005(검토 중)·WR-000006(작성 중)
-  await expect(page.locator('#sidenav').getByRole('link', { name: /결재 및 요청/ }).locator('.nav-badge')).toHaveText([`초안 ${hanDrafts}`]);
+  await expect(page.locator('#sidenav').getByRole('link', { name: /결재 및 요청/ }).locator('.nav-badge')).toHaveText([`제출 전 ${hanDrafts}`]);
   // '검토 중'은 요청자 차례라는 것을 상태 옆에 쓴다(홈과 목록). 상태 이름은 그대로다.
   const homeRow = page.locator('a.progress-item', { hasText: 'WR-000005' });
   await expect(homeRow.locator('.badge')).toHaveText('검토 중');
@@ -239,7 +272,10 @@ test('홈 지금 처리할 일(A1-04): 건수는 서버와 같고, 사용 대기
     if (tasks.some((t) => t.kind === 'cooling_addresses')) {
       await expect(cooling, user).toHaveCount(1);
       await expect(cooling).toHaveClass(/task-warning/);
-      await expect(cooling).toContainText('요청한 적 없는 등록이면 대기 중에 바로 정지하세요');
+      // 두 가지 정지 사유가 모두 보인다: 제목의 '모르는 등록'과 설명의 '받는 곳에서 확인되지 않은 주소'(서버 문구와 같은 두 사유). 같은 지시를 두 번 쓰지 않는다.
+      await expect(cooling).toContainText('받는 곳에서 확인되지 않은 주소도 정지하세요.');
+      await expect(cooling).toContainText('정지는 주소를 열어 「사용 대기 중 정지」로 합니다.');
+      await expect(cooling.locator('.task-desc')).not.toContainText('요청한 적 없는 등록이면');
     } else {
       await expect(cooling, user).toHaveCount(0);
     }
@@ -276,10 +312,11 @@ test('결정 카드(A1-05·06·07): 요약 → 주소록 기록 → 지문 → �
   // 카드의 첫 글은 제목 다음의 요약이다.
   expect(await card.evaluate((el) => el.querySelector('h2')!.nextElementSibling!.className)).toBe('rc-decide-summary');
   const rec = card.locator('.rc-addr-record');
-  await expect(rec).toContainText(/^주소록 기록\(사람이 남긴 기록\): 강도윤 등록 \d{4}-\d{2}-\d{2} · 오민재 확인 \d{4}-\d{2}-\d{2} · 주소 기록 보기$/);
+  await expect(rec).toContainText(/^주소록: 강도윤 등록 \d{4}-\d{2}-\d{2} · 오민재 확인 \d{4}-\d{2}-\d{2} \(사람이 남긴 기록이며 증명이 아닙니다\) · 주소 기록 보기$/);
   await expect(rec.getByRole('link', { name: '주소 기록 보기' })).toHaveAttribute('href', '/addresses/ab-03');
-  // 지문은 그대로 카드 안에 보인다(A-29). 요청자 화면과 같은 값(서버 값).
+  // 지문은 그대로 카드 안에 보인다(A-29). 요청자 화면과 같은 값(서버 값). 바로 아래 승인자 쪽 할 일(다른 연락 수단으로 받은 지문과 대조, 선택 단계).
   await expect(card.getByRole('group', { name: '승인 대상 지문' }).locator('.rc-intent-value')).toHaveText(dto.intentHashDisplay);
+  await expect(card.locator('.rc-intent + .rc-intent-todo')).toHaveText('요청자에게서 이 지문을 메신저가 아닌 다른 연락 수단으로 받았다면 같은지 대조하세요. 다르면 승인하지 말고 반려하세요.');
   const order = await card.evaluate((el) => {
     const pos = (s: string) => [...el.querySelectorAll('*')].indexOf(el.querySelector(s)!);
     return [pos('.rc-decide-summary'), pos('.rc-addr-record'), pos('.rc-intent'), pos('.rc-list'), pos('.rc-check-address'), pos('button.btn-primary')];
@@ -291,7 +328,9 @@ test('결정 카드(A1-05·06·07): 요약 → 주소록 기록 → 지문 → �
   await expect(firstTwo).toHaveCount(2);
   await expect(firstTwo.nth(0)).toContainText('주의이 대시보드로 처음 보내는 주소입니다');
   await expect(firstTwo.nth(1)).toContainText('확인 불가과거 출금 부족');
-  await expect(firstTwo.nth(1)).toContainText('자료가 부족해 판단하지 못한 항목입니다. 문제가 없다는 뜻은 아니며, 진행 사유는 적지 않아도 됩니다.');
+  // 승인자 화면: '확인 불가'의 뜻만 쓰고, 요청자에게 하는 말('진행 사유는 적지 않아도 됩니다')은 붙이지 않는다.
+  await expect(firstTwo.nth(1).locator('.rc-unknown-note')).toHaveText('자료가 부족해 판단하지 못한 항목입니다. 문제가 없다는 뜻은 아닙니다.');
+  await expect(card).not.toContainText('진행 사유는 적지 않아도 됩니다');
   await expect(card.locator('.rc-item')).toHaveCount(5);
   const pass = card.locator('details.rc-pass-group');
   await expect(pass.locator('summary')).toHaveText('기준 이내 3건 · 기준과 세부 내용 보기');
@@ -318,7 +357,10 @@ test('결정 카드(A1-05·06·07): 요약 → 주소록 기록 → 지문 → �
   await expect(card.locator('#approve-effect')).toHaveText('이번 승인이 마지막 승인입니다. 승인하면 바로 수탁사 처리가 시작되고, 그 뒤에는 요청자도 취소할 수 없습니다.');
   await expect(approve).toHaveAttribute('aria-describedby', 'approve-effect approve-hint');
   await expect(card.locator('.rc-irreversible')).toHaveText('필요한 승인 수가 채워지면 바로 처리가 시작되며, 블록체인 전송은 처리 후 되돌릴 수 없습니다. 은행 착오송금처럼 되돌려 받는 절차도 없습니다.');
-  await expect(card).toContainText("승인 뒤에는 수탁사 처리(이 환경은 모의 커스터디)를 거쳐 처리 완료가 됩니다. 완료되면 이 화면의 상태가 '처리 완료'로 바뀌고 자산 활동 내역에 출금으로 기록됩니다.");
+  // 마지막 승인에만 승인 뒤 흐름 한 줄(완료와 실패 둘 다)
+  await expect(card.locator('.rc-after-approve')).toHaveText('처리 결과(처리 완료 또는 처리 실패)는 이 화면의 상태로 표시되고, 완료되면 자산 활동 내역에 출금으로 기록됩니다.');
+  // 승인 전 확인의 체크 줄은 누르는 영역이 44px 이상이다(1440px).
+  for (const h of await card.locator('.checks .check').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))) expect(h).toBeGreaterThanOrEqual(44);
   await page.getByLabel(/받는 곳과 목적이/).check();
   await page.getByLabel(/근거 문서와 같습니다/).check();
   await expect(approve).toBeDisabled(); // 세 항목을 모두 확인해야 한다(규칙 그대로)
@@ -340,6 +382,9 @@ test('결정 카드(A1-05·06·07): 요약 → 주소록 기록 → 지문 → �
   expect(c.y + c.height - s.y).toBeLessThanOrEqual(844);
   expect(await overflow(page)).toBeLessThanOrEqual(0);
   for (const right of await card.locator('.rc-decide-summary, .rc-addr-record, .rc-check-address, .addr-chunk').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().right))) expect(right).toBeLessThanOrEqual(390);
+  // 390px: 체크 줄 44px 이상, 체크 상자 22px
+  for (const h of await card.locator('.checks .check').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))) expect(h).toBeGreaterThanOrEqual(44);
+  for (const w of await card.locator('.checks input[type=checkbox]').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width))) expect(w).toBeGreaterThanOrEqual(22);
   await logout(page);
 
   // 요청자(강도윤)와 감사 담당자(문태호)에게는 결정 버튼이 없다.
@@ -365,7 +410,7 @@ test('필요 승인 2명(A1-06): 첫 승인자는 승인·몇 번째, 다음 승
     // 요청자: 알림이 없다는 안내와, 누가 승인할 수 있는지 볼 곳(조직 관리)
     await page.goto(`/requests/${draft.id}`);
     const next = page.locator('section.next-action');
-    await expect(next).toContainText('이 대시보드는 승인자에게 알림을 보내지 않으니 필요하면 직접 알려 주세요.');
+    await expect(next.locator('p').first()).toHaveText('승인자의 결정을 기다리는 중입니다. 알림이 가지 않으니 승인자에게 직접 알려 주세요. 요청을 취소할 수도 있습니다.');
     await expect(next).toContainText('승인할 수 있는 사람은 「조직 관리」의 역할 표에서 승인자로 표시된 구성원입니다.');
     await expect(page.getByRole('button', { name: BOTH_APPROVE })).toHaveCount(0);
     await next.getByRole('link', { name: '「조직 관리」' }).click();
@@ -374,14 +419,17 @@ test('필요 승인 2명(A1-06): 첫 승인자는 승인·몇 번째, 다음 승
 
     await loginAs(page, '오민재');
     await page.goto(`/requests/${draft.id}`);
-    await expect(page.locator('#approve-effect')).toHaveText('이번 승인은 필요한 2명 중 1번째입니다. 1명이 더 승인해야 처리가 시작됩니다.');
+    await expect(page.locator('#approve-effect')).toHaveText('지금 기준으로 이번 승인은 필요한 승인 2명 중 첫 번째입니다. 1명이 더 승인해야 처리가 시작됩니다.');
     await expect(page.getByRole('button', { name: '승인하고 처리 시작' })).toHaveCount(0);
+    // 마지막이 아닌 승인에는 승인 뒤 흐름 줄이 없다(위 문장과 어긋나지 않게).
+    await expect(page.locator('.rc-after-approve')).toHaveCount(0);
     await page.getByLabel(/받는 곳과 목적이/).check();
     await page.getByLabel(/근거 문서와 같습니다/).check();
     await page.getByLabel(/앞·뒤 묶음과 네트워크/).check();
     await page.getByRole('button', { name: '승인', exact: true }).click();
     const partial = page.getByRole('status').filter({ hasText: '승인했습니다 (1/2)' });
-    await expect(partial).toContainText('알림은 가지 않으니 필요하면 다른 승인자에게 직접 알려 주세요.');
+    await expect(partial).toContainText('필요한 승인 수가 채워지면 바로 수탁사 처리가 시작됩니다. 알림은 가지 않으니 필요하면 다른 승인자에게 직접 알려 주세요.');
+    await expect(partial).not.toContainText('커스터디 처리');
     await logout(page);
 
     await loginAs(page, '서예린');
@@ -390,6 +438,7 @@ test('필요 승인 2명(A1-06): 첫 승인자는 승인·몇 번째, 다음 승
     await expect(page.getByRole('button', { name: '승인하고 처리 시작', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: '승인', exact: true })).toHaveCount(0);
     await expect(page.locator('#approve-effect')).toContainText('이번 승인이 마지막 승인입니다.');
+    await expect(page.locator('.rc-after-approve')).toBeVisible();
     await logout(page);
   } finally {
     // 정리: 요청자 세션으로 바꿔(화면 상태와 관계없이) 취소한다.
@@ -415,6 +464,21 @@ test('점검 목록(A1-07) 검토 단계: 주의 항목마다 진행 사유 칸�
     await expect(card.locator('details.rc-pass-group')).not.toHaveAttribute('open', '');
   }
   await expect(card.locator('.rc-footnote')).toBeVisible();
+
+  // 읽기 전용 점검(작성 중인 내 요청 wr-6, 승인자가 보는 검토 중 요청 wr-5): 기준 이내 항목이 접혀 있어도 '설계 가정·보증 아님' 각주는 접히지 않고 보인다.
+  const footnote = '점검 기준은 설계 가정이며, 기준 이내라는 결과도 받는 곳이나 전송을 보증하지 않습니다.';
+  await page.goto('/requests/wr-6');
+  await expect(page.getByRole('heading', { name: '출금 전 점검', level: 2 })).toBeVisible();
+  await expect(page.locator('.rc-footnote')).toBeVisible();
+  await expect(page.locator('.rc-footnote')).toHaveText(footnote);
+  await logout(page);
+  await loginAs(page, '오민재');
+  await page.goto('/requests/wr-5');
+  await expect(page.getByRole('heading', { name: '출금 전 점검', level: 2 })).toBeVisible();
+  await expect(page.locator('section.card-action')).toHaveCount(0); // 결정 카드가 아니라 읽기 전용 목록
+  await expect(page.locator('.rc-footnote')).toBeVisible();
+  await expect(page.locator('.rc-footnote')).toHaveText(footnote);
+  await expect(page.getByText('진행 사유는 적지 않아도 됩니다')).toHaveCount(0); // 승인자에게는 요청자용 말을 붙이지 않는다
 });
 
 test('승인자가 보는 작성 중 요청(A1-08): 알려 드린다고 약속하지 않고 어디에 나타나는지 쓴다', async ({ page }) => {
@@ -441,12 +505,26 @@ test('감사 기록(A1-10): 내보내기 권한이 없으면 이유와 요청할
 
 test('잔고·스테이킹(A1-09·10): 묶인 수량(예약) 이름과 스테이킹이 총 평가액에 더해지지 않는다는 문장', async ({ page }) => {
   await loginAs(page, '한지수');
-  // 홈 보유 자산의 USDC 행: 예약 대신 '승인 대기로 묶임'
+  // 홈 보유 자산의 USDC 행: 예약 대신 '출금 요청에 묶임'(승인 대기·처리 중 모두 맞는 말)
   const usdc = page.locator('.card-holdings.only-wide tbody tr', { hasText: 'USDC' });
-  await expect(usdc).toContainText(/승인 대기로 묶임 [\d,]+/);
+  await expect(usdc).toContainText(/출금 요청에 묶임 [\d,]+/);
+  await expect(page.getByText('승인 대기로 묶임')).toHaveCount(0);
+  const shortNote = '스테이킹 현황의 맡긴 수량·보상은 이 합계에 넣지 않았습니다(모의 데이터).';
+  // 홈 총 평가액 바로 아래 짧은 문장(넓은 화면은 오른쪽 열 카드, 좁은 화면은 할 일 아래 카드)
+  await expect(page.locator('.card-holdings.only-wide .total .total-staking-note')).toHaveText(shortNote);
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
+    if (width === 390) {
+      await page.goto('/');
+      await expect(page.locator('.card-holdings.only-narrow .total .total-staking-note')).toBeVisible();
+    }
     await page.goto('/balances');
+    // 잔고: 총 평가액 바로 아래 짧은 문장(합계와 같은 덩어리), 화면 아래 긴 문장은 그대로
+    const near = page.locator('.total .total-staking-note');
+    await expect(near).toBeVisible();
+    await expect(near).toHaveText(shortNote);
+    const gap = await page.evaluate(() => document.querySelector('.total .total-staking-note')!.getBoundingClientRect().top - document.querySelector('.total-value')!.getBoundingClientRect().bottom);
+    expect(gap, `${width}px 합계와 문장 사이`).toBeLessThanOrEqual(80);
     await expect(page.locator('.bal-staking-note')).toBeVisible();
     await expect(page.locator('.bal-staking-note')).toHaveText('총 평가액은 지갑 보유 수량으로만 계산하며, 스테이킹 현황의 맡긴 수량과 보상은 따로 더하지 않습니다. 맡긴 자산이 지갑 보유 수량에 들어 있는지는 KODA 자료로 확인해야 합니다(모의 데이터).');
     if (width === 1440) await expect(page.locator('.bal-wide thead')).toContainText('묶인 수량(예약)');
@@ -475,8 +553,14 @@ test('조직 관리(A1-10·11): 역할 이름, 저장 전 영향 안내와 경�
   await lim.getByRole('button', { name: '역할 변경' }).click();
   await expect(lim.locator('.notice-warning')).toContainText('승인자가 1명이면 원화 평가액 1억 원 이상 출금(서로 다른 승인자 2명 필요, 설계 가정)은 승인 요청을 보낼 수 없습니다.');
   await lim.getByRole('checkbox', { name: '승인자' }).uncheck();
-  await expect(lim.getByRole('status')).toHaveText('저장하면 승인자 0명 · 자산 담당자 1명 · 조직 관리자 1명이 됩니다.');
+  await expect(lim.locator('.role-impact-note')).toHaveText('저장하면 승인자 0명 · 자산 담당자 1명 · 조직 관리자 1명이 됩니다.');
   await expect(lim.locator('.notice-warning')).toHaveText(['승인자가 0명이 되면 아무도 출금 요청을 승인하거나 새 주소를 확인할 수 없고, 승인 요청 보내기가 거부됩니다.']);
+  // 화면 낭독기: 인원 줄과 경고가 한 알림 영역 안에 있어 함께 읽힌다(경고만 빠지지 않게).
+  const live = lim.getByRole('status');
+  await expect(live).toHaveCount(1);
+  await expect(live).toHaveClass(/role-impact/);
+  await expect(live).toContainText('저장하면 승인자 0명');
+  await expect(live).toContainText('승인자가 0명이 되면 아무도 출금 요청을 승인하거나');
   const axe = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
   expect(axe.violations.map((v) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(' | ')}`)).toEqual([]);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -495,6 +579,18 @@ test('조직 관리(A1-10·11): 역할 이름, 저장 전 영향 안내와 경�
   await expect(saved).toBeVisible();
   const members = await (await page.request.get('/api/org/members')).json();
   expect(members.find((m: any) => m.name === '임하은').roles).toContain('approver');
+
+  // 유일한 자산 담당자(배서준)의 역할을 빼면 자산 담당자 0명 경고. 저장하지 않고 취소한다.
+  const bae = page.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '배서준' }) });
+  await bae.getByRole('button', { name: '역할 변경' }).click();
+  await bae.getByRole('checkbox', { name: '자산 담당자' }).uncheck();
+  await expect(bae.locator('.role-impact-note')).toHaveText('저장하면 승인자 1명 · 자산 담당자 0명 · 조직 관리자 1명이 됩니다.');
+  await expect(bae.locator('.notice-warning')).toContainText(['자산 담당자가 0명이 되면 출금 요청 작성과 주소 등록을 할 수 없습니다.']);
+  await expect(bae.getByRole('status')).toContainText('자산 담당자가 0명이 되면 출금 요청 작성과 주소 등록을 할 수 없습니다.');
+  await bae.getByRole('button', { name: '취소' }).click();
+  await expect(bae.locator('.role-impact')).toHaveCount(0);
+  const after = await (await page.request.get('/api/org/members')).json();
+  expect(after.find((m: any) => m.name === '배서준').roles).toContain('requester');
 });
 
 test('자주 묻는 질문(A1-12): 처음에는 접혀 있고 키보드로 펼치며, 정책 숫자(설계 가정)를 쓰고 안전을 약속하지 않는다', async ({ page }) => {
@@ -525,6 +621,9 @@ test('자주 묻는 질문(A1-12): 처음에는 접혀 있고 키보드로 펼�
   }
   await expect(faq).toContainText(`끝 ${me.policy.confirmTailLength}자리와 가운데 8자리를 직접 입력하세요`);
   await expect(faq).toContainText('이 대시보드는 알림을 보내지 않습니다.');
+  // 정지할 수 있는 사람은 조직 관리에 보이는 역할 이름으로 쓴다(주소 등록·확인 권한과 관리 권한을 가진 세 역할).
+  await expect(faq.locator('.faq-item', { hasText: '모르는 주소가 사용 대기 중이면요?' })).toContainText('자산 담당자·승인자·조직 관리자 누구나 정지할 수 있고, 사유는 감사 기록에 남습니다.');
+  await expect(faq).not.toContainText('담당자와 조직 관리자가');
   await expect(faq.getByRole('link')).toHaveCount(0);
   await expect(page.getByText(/안전합니다|안전한 주소|검증됨|위험 없음/)).toHaveCount(0);
   let axe = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
