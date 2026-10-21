@@ -708,3 +708,13 @@ body:has(dialog[open]) { overflow: hidden; }
 
 /* A7: 상세 화면 불러오는 중에도 최소 높이를 잡아 콘텐츠 교체 때 아래 요소가 튀지 않게 한다(CLS). */
 .detail-loading { min-height: calc(100vh - 220px); display: grid; place-items: center; }
+
+
+/* A8: 터치 화면에서 작은 버튼·링크의 실제 누를 수 있는 영역을 44px으로 넓힌다(보이는 크기·배치·줄 간격은 그대로).
+   ::after는 요소에 속하므로 그 영역을 눌러도 같은 동작이 일어난다. */
+@media (pointer: coarse) {
+  .term-btn, .link-more, .btn-xs, .task-sub-link, .addr-code + .btn { position: relative; }
+  .term-btn::after, .link-more::after, .btn-xs::after, .task-sub-link::after, .addr-code + .btn::after {
+    content: ''; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%);
+  }
+}
