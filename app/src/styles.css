@@ -172,6 +172,8 @@ input[type='checkbox'] { width: 18px; height: 18px; min-height: 0; accent-color:
 .turn-text { font-size: 13px; color: var(--ink-2); white-space: nowrap; }
 /* 승인 대기(A2-1): 승인할 수 있는 사람 이름과 기다린 시간. 이름이 길면 390px에서도 줄을 바꿀 수 있게 한다(시간은 한 덩어리). */
 .turn-text.turn-wait { white-space: normal; }
+/* 남은 승인보다 후보가 적을 때 끝에 붙는 '승인할 사람 부족'(글자가 뜻을 전하고 색·굵기는 보조, 지연 색은 아님) */
+.turn-text .turn-short { color: var(--warning); font-weight: 700; white-space: nowrap; }
 .badge-turn { background: var(--surface); color: var(--ink); border: 1px solid var(--ink); padding: 1px 9px; }
 .total { display: flex; flex-direction: column; gap: 2px; }
 .total-row { flex-direction: row; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: var(--s3); }

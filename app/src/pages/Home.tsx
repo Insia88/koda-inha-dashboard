@@ -47,6 +47,14 @@ function waitingText(cands: ApproverRef[], meId: string): string {
   return `${head}: ${approverNames(cands, meId, '·', WAIT_NAMES_MAX)}`;
 }
 
+/**
+ * 남은 승인보다 승인할 수 있는 사람이 적은지(홈 '승인할 사람 부족', 요청 상세 경고와 같은 판정). 홈의 approved는 정족수에 든 승인 수(validApprovals)라
+ * 서버 approvalWait.shortfall과 같은 값이다. 후보 0명은 머리 문구가 이미 '승인할 수 있는 사람 없음'이라 붙이지 않는다.
+ */
+function shortOf(r: { waitingFor: ApproverRef[]; requiredApprovals: number; approved: number }): boolean {
+  return r.waitingFor.length > 0 && r.waitingFor.length < Number(r.requiredApprovals) - Number(r.approved);
+}
+
 type SubLine = { key: string; to: string; text: ReactNode };
 type SubList = { items: SubLine[]; more: number };
 
@@ -91,7 +99,8 @@ export function HomePage() {
     const items: any[] = toApprove.data.items;
     subs.approve_requests = subList(items.map((r) => ({
       key: r.id, to: `/requests/${r.id}`,
-      text: <>{r.createdBy.name}님 · {amount(r.amount, r.assetCode)} → {r.address.label} · {relative(r.submittedAt)} 승인 요청</>,
+      // 기다린 시간은 아래 진행 중인 요청·요청 상세와 같은 '승인 요청 n시간째'(내림)로 쓴다. 같은 요청이 두 카드에서 다른 숫자로 보이지 않게 한다.
+      text: <>{r.createdBy.name}님 · {amount(r.amount, r.assetCode)} → {r.address.label} · <span className="nowrap">승인 요청 <WaitedTime iso={r.submittedAt} /></span></>,
     })), toApprove.data.total);
   }
   if (reviewN > 0 && toReview.data) {
@@ -177,6 +186,7 @@ export function HomePage() {
             <ul className="progress-list">
               {d.inProgress.map((r: any) => {
                 const st = REQUEST_STATUS[r.status as RequestStatus];
+                const waiting = r.status === 'PENDING_APPROVAL' && Array.isArray(r.waitingFor);
                 return (
                   <li key={r.id}>
                     <Link to={`/requests/${r.id}`} className="progress-item">
@@ -188,11 +198,13 @@ export function HomePage() {
                         <span className="progress-amt">{amount(r.amount, r.assetCode)}</span>
                       </div>
                       <div className="progress-meta small" style={{ color: 'var(--ink-2)' }}>
-                        {/* 승인 대기: 지금 승인할 수 있는 사람과 승인 요청 뒤 기다린 시간(A2-1, 지연 색 없음). 서버가 후보를 주지 않으면 A1 차례 문구 */}
-                        {r.status === 'PENDING_APPROVAL' && Array.isArray(r.waitingFor)
-                          ? <><span className="turn-text turn-wait">{waitingText(r.waitingFor, me.user.id)} · <WaitedTime iso={r.submittedAt} /></span> · </>
+                        {/* 승인 대기: 지금 승인할 수 있는 사람과 '승인 요청 n시간째'(A2-1, 요청 상세와 같은 이름, 지연 색 없음). 서버가 후보를 주지 않으면 A1 차례 문구.
+                            남은 승인보다 후보가 적으면 끝에 '승인할 사람 부족'(글자가 뜻을 전하고 색은 보조). */}
+                        {waiting
+                          ? <><span className="turn-text turn-wait">{waitingText(r.waitingFor, me.user.id)} · <span className="nowrap">승인 요청 <WaitedTime iso={r.submittedAt} /></span>{shortOf(r) && <> · <span className="warn-text turn-short">{APPROVAL_WAIT_TEXT.short}</span></>}</span> · </>
                           : st.turn && <><span className="turn-text">{st.turn}</span> · </>}
-                        {r.creatorName} → {r.addressLabel} · <time className="nowrap" dateTime={r.updatedAt}>{dateTime(r.updatedAt)}</time> <span className="muted nowrap">({relative(r.updatedAt)})</span>
+                        {/* 이름 줄을 보인 행은 같은 줄에 상대 시간이 두 번 오지 않게 절대 시각만 둔다(기다린 시간은 앞의 '승인 요청 n시간째'). */}
+                        {r.creatorName} → {r.addressLabel} · <time className="nowrap" dateTime={r.updatedAt}>{dateTime(r.updatedAt)}</time>{!waiting && <> <span className="muted nowrap">({relative(r.updatedAt)})</span></>}
                         {r.status === 'PENDING_APPROVAL' && <span className="nowrap"> · 승인 {r.approved}/{r.requiredApprovals}</span>}
                       </div>
                       <StatusRail step={st.step} status={r.status} compact />

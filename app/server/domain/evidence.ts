@@ -5,8 +5,8 @@ import { ROLE_LABEL, type DecisionEvidence, type Role } from '../../shared/terms
 /**
  * 결정 근거(A2-3): 이미 저장된 기록에서 읽을 때 계산한다. 승인 표·지문 기록·감사 기록에 새로 쓰지 않는다(해시 대상 아님, 마이그레이션 없음).
  * - 결정 당시 역할: 같은 조직 감사 기록의 역할 변경(member.roles_changed {before, after})에서 결정 시각 이전의 마지막 행
- * - 결정한 지문: 표마다 남긴 approval_intents(수정·삭제 금지)
- * - 정족수 포함: 요청의 counted_approver_ids(결정이 끝난 요청) 또는 지금 역할(승인 대기). 호출 측(requests.ts)이 계산해 넘긴다.
+ * - 결정 때 본 승인 대상 지문: 표마다 남긴 approval_intents(수정·삭제 금지)
+ * - 필요 승인 수에 셌는지(정족수 포함): 요청의 counted_approver_ids(결정이 끝난 요청) 또는 지금 역할(승인 대기). 호출 측(requests.ts)이 계산해 넘긴다.
  */
 
 const ROLE_CODES = new Set<string>(Object.keys(ROLE_LABEL));

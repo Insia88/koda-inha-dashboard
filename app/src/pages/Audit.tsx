@@ -26,10 +26,11 @@ export function AuditPage() {
       <PageHeader
         title="감사 기록"
         description="요청·승인·주소·역할 변경과 로그인 기록입니다. 기록은 추가만 가능하며 수정·삭제할 수 없습니다."
-        actions={me.permissions.includes('audit.export') && <a className="btn" href={`/api/audit/export.csv?${exportParams}`} download><IconDownload size={16} aria-hidden="true" />CSV 내보내기{filtered ? ' (필터 적용)' : ''}</a>}
+        actions={me.permissions.includes('audit.export') && <a className="btn" href={`/api/audit/export.csv?${exportParams}`} download aria-describedby="audit-export-hint"><IconDownload size={16} aria-hidden="true" />CSV 내보내기{filtered ? ' (필터 적용)' : ''}</a>}
       />
-      {/* 내보내기 권한이 있으면: 내보낸 파일 맨 위에 붙는 표지가 무엇을 담는지(A2-4). 표지는 내보낼 때 만든 설명이며 저장하지 않는다. */}
-      {me.permissions.includes('audit.export') && <p className="muted small audit-export-hint">{AUDIT_EXPORT_TEXT.screenHint}</p>}
+      {/* 내보내기 권한이 있으면: 내보낸 파일 맨 위에 붙는 표지가 무엇을 담는지(A2-4). 표지는 내보낼 때 만든 설명이며 저장하지 않는다.
+          버튼과 떨어져 있어도 화면 낭독기가 버튼에서 이 안내를 함께 읽도록 버튼의 설명(aria-describedby)으로 잇는다. */}
+      {me.permissions.includes('audit.export') && <p id="audit-export-hint" className="muted small audit-export-hint">{AUDIT_EXPORT_TEXT.screenHint}</p>}
       {/* 내보내기 권한이 없는 역할(조직 관리자 등): 버튼이 왜 없는지와 누구에게 부탁하는지(A1). 권한은 바꾸지 않는다. */}
       {me.permissions.includes('audit.read') && !me.permissions.includes('audit.export') && (
         <p className="muted small audit-no-export">이 역할에는 CSV 내보내기 권한이 없습니다. 감사 증빙 파일이 필요하면 감사 담당자에게 요청하세요.</p>

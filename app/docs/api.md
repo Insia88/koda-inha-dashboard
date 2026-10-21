@@ -73,7 +73,7 @@
 | `approvedCount` | 정족수에 들어간 승인 수. 승인 대기 중에는 지금 유효한 표(같은 조직 활성 사용자, 지금 승인 권한 있음, 작성자 아님)만 센다. 결정이 끝난 요청은 결정 당시 저장한 목록 기준(목록이 없는 이전 요청은 당시 승인 표 전체) |
 | `approvals[]` | `{userId, name, decision('approved'\|'rejected'), reason, createdAt, counted, matchesRequestIntent, rolesAtDecision, rolesSource, approveRoleAtDecision}`. `counted`는 이 표가 정족수에 들어갔는지이며 반려 표는 항상 false. 뒤의 네 필드는 아래 '결정 근거'(A2-3)와 같은 값이다 |
 | `approvalWait` | (A2-1) 승인 대기 요청을 지금 누가 승인할 수 있는지 `{candidates: [{id, name}], remaining, shortfall}`. 상태가 승인 대기이고 승인할 수 있는 요청(`blockedReason` 없음, 지문 있음)일 때만 값이 있고, 그 밖과 **목록 응답에서는 null**. `candidates`는 같은 조직의 활성 사용자 가운데 지금 역할에 `request.approve`가 있는 사람에서 작성자와 이 요청에 이미 결정(승인·반려)을 남긴 사람을 뺀 목록(이름순, 항목의 키는 `id`·`name`뿐, 이메일·직함 없음). 제출 때 승인 가능 인원 검사(`APPROVERS_INSUFFICIENT`)와 같은 판정 함수를 쓴다. `remaining` = `requiredApprovals` − `approvedCount`(0 이상), `shortfall` = 후보 수 < `remaining`. 표시용이며 정족수·승인 가능 여부는 승인 처리가 다시 정한다. 대기 시작 시각은 `submittedAt` |
-| `timeline[]` | 상세·행동 응답의 처리 기록 `{action, actorName, summary, createdAt}`. `request.approved`·`request.rejected` 행에만 `evidence`(그 수행자의 결정 근거, 표를 찾지 못하면 null)가 붙는다. 수행자 id는 넣지 않는다 |
+| `timeline[]` | 상세·행동 응답의 처리 기록 `{action, actorName, summary, createdAt}`. `request.approved`·`request.rejected` 행에만 `evidence`(그 수행자의 결정 근거, 표를 찾지 못하면 null)가 붙는다. 수행자 id는 행에도 `evidence`에도 넣지 않는다(이 `evidence`에는 아래 '결정 근거'의 `userId`가 없다. 같은 사람의 id는 같은 응답 `approvals[].userId`에 있다) |
 | `approvalBasis` | 필요 승인 수의 근거: `value_below_threshold`, `value_at_or_above_threshold`, `price_missing`(시세 없음), `price_stale`(30분 초과·읽을 수 없음·5분 넘게 미래). 뒤의 둘은 고액 기준 적용. 제출 전이거나 이 필드 도입 전 요청은 null |
 | `priceAsOfAtSubmit` | 제출 때 쓴 시세 기준 시각(ISO). 시세가 없었으면 null |
 | `krwValueAtSubmit` | 제출 때 원화 평가액(원 단위 정수 문자열) 또는 null |
@@ -88,7 +88,7 @@
 
 ## 결정 근거 (`DecisionEvidence`, A2-3)
 
-요청 상세의 `approvals[]`·`timeline[].evidence`, 감사 기록 목록 항목의 `evidence`, 감사 CSV의 '결정 근거(내보낼 때 계산)' 열이 같은 값을 쓴다. **읽을 때 계산하는 값**이며 승인 표·지문 기록·감사 기록에 새로 쓰지 않는다(해시 대상 아님, 마이그레이션 없음).
+요청 상세의 `approvals[]`·`timeline[].evidence`, 감사 기록 목록 항목의 `evidence`, 감사 CSV의 '결정 근거(내보낼 때 계산)' 열이 같은 값을 쓴다(처리 기록의 `timeline[].evidence`만 `userId`를 빼고 준다. 감사 기록 목록 항목은 `actorId`가 이미 있어 그대로 둔다). **읽을 때 계산하는 값**이며 승인 표·지문 기록·감사 기록에 새로 쓰지 않는다(해시 대상 아님, 마이그레이션 없음).
 
 ```json
 { "userId": "u-a-oh", "name": "오민재", "decision": "approved", "decidedAt": "ISO", "intentHashDisplay": "17B9 C2A0 9F3E 11D4",
@@ -97,14 +97,14 @@
 
 | 필드 | 뜻 |
 | --- | --- |
-| `intentHashDisplay` | 그 사람이 결정할 때 본 지문(`approval_intents`, 수정·삭제 금지). 이 기능 도입 전 표는 null |
+| `intentHashDisplay` | 그 사람이 결정할 때 본 승인 대상 지문(`approval_intents`, 수정·삭제 금지). 이 기능 도입 전 표는 null |
 | `matchesRequestIntent` | 표의 지문이 요청 지문(`intentHash`)과 같은지. 표 지문이 없으면 null |
-| `counted` | 정족수에 들어갔는지(승인 대기 중에는 지금 역할로 다시 판단, 결정이 끝난 요청은 결정 당시 목록 `counted_approver_ids`). 반려 표는 false |
+| `counted` | 필요 승인 수에 셌는지(정족수 포함 여부. 승인 대기 중에는 지금 역할로 다시 판단, 결정이 끝난 요청은 결정 당시 목록 `counted_approver_ids`). 반려 표는 false. 필드 이름은 그대로다 |
 | `rolesAtDecision` | 결정 당시 역할: 같은 조직 감사 기록의 `member.roles_changed`(대상 사용자 = 결정자) 가운데 `created_at` ≤ 결정 시각이고 그 결정의 감사 기록(`request.approved`·`request.rejected`)보다 앞선 마지막 행의 `detail.after`. 알려진 역할 코드의 배열이 아니거나 기록이 없으면 null. **감사 기록 조회 권한(`audit.read`: 감사 담당자·조직 관리자)이 있는 조회자에게만 채우고, 그 밖에는 늘 null**이다(역할 변경 기록은 지금도 `audit.read`로만 보인다) |
 | `rolesSource` | `rolesAtDecision`이 있으면 `'role_history'`(역할 변경 기록 기준), 없으면 null |
 | `approveRoleAtDecision` | `rolesAtDecision`에 출금 승인 권한이 있는지(역할→권한 표는 코드라 지금 권한표 기준, A-01). `rolesAtDecision`이 null이면 null. false이면 화면·CSV가 '역할 변경 기록상 이때 승인 권한이 없습니다 — 기록을 확인하세요'를 쓴다 |
 
-문구(`shared/terms.ts` `decisionEvidenceText`): '결정 당시 역할: 승인자(역할 변경 기록 기준) · 정족수 포함 · 결정한 지문 17B9 C2A0 9F3E 11D4(요청 지문과 같음)'. 역할 조각은 `audit.read`가 있을 때만 쓰고, 반려 표에는 정족수 조각이 없으며, 지문이 다르면 '(요청 지문과 다름)', 없으면 '지문 기록 없음(이 기능 도입 전 결정)'이다. 이메일·직함은 넣지 않는다.
+문구(`shared/terms.ts` `decisionEvidenceText`): '결정 당시 역할: 승인자(역할 변경 기록 기준) · 필요 승인 수에 셈 · 결정 때 본 승인 대상 지문 17B9 C2A0 9F3E 11D4(지금 요청과 같음)'. 화면 낱말('승인 x/y'·'필요한 승인 수'·결정 카드의 '승인 대상 지문')과 맞추려고 '정족수'·'결정한 지문'이라는 말은 쓰지 않는다. 역할 조각은 `audit.read`가 있을 때만 쓰고, 역할 변경 기록이 없으면 '결정 당시 역할: 알 수 없음(역할 변경 기록 없음)'(기록상 역할이 비어 있던 '없음(역할 변경 기록 기준)'과 다르다), 반려 표에는 필요 승인 수 조각이 없고, 승인했지만 세지 않은 표는 '필요 승인 수에 세지 않음', 지문이 다르면 '(지금 요청과 다름)', 없으면 '승인 대상 지문 기록 없음(이 기능 도입 전 결정)'이다. 화면은 지문 네 묶음만 고정폭·한 줄로 보인다(글자는 CSV와 같다). 이메일·직함은 넣지 않는다.
 
 ## 주소 응답 (`GET /addresses`, `GET /addresses/:id`)
 
@@ -153,11 +153,11 @@ UTF-8(BOM) CSV, 줄바꿈 CRLF. 목록과 같은 필터(`action`, `actor`, `q`, 
 | 내보낸 사람 | `이름 (역할 이름, …)` |
 | 내보낸 시각 | `YYYY-MM-DD HH:mm:ss (한국 시간)`(아래 `audit.exported` 기록 시각과 같다) |
 | 해시 연결 확인(조직 전체) | 감사 기록 화면과 같은 A1 문장: '기록 n건이 각각 바로 앞 기록과 끊김 없이 이어져 있습니다(해시 연결 확인).' 또는 'n번 기록에서 해시가 맞지 않습니다. 보안 담당자에게 알리세요.'(조직 안 번호) |
-| 보관용 값 | `기록 n건 · 마지막 기록 해시 …`(체인이 맞을 때만) |
+| 보관용 값 | `기록 n건 · 마지막 기록 해시 … (이 내보내기 기록이 남기 전 값입니다. 내보낸 직후 감사 기록 화면은 이 내보내기 기록 1건이 더해져 건수가 1건 많고 마지막 기록 해시도 다릅니다)`(체인이 맞을 때만, 괄호 문장은 `AUDIT_EXPORT_TEXT.anchorNote`) |
 | 확인 범위 | A1의 한계 문장(체인이 맞을 때만) |
 | 안내 | '표지와 결정 근거 열은 내보낼 때 계산한 값입니다. 아래 표의 각 행과 해시 열은 저장된 기록 그대로입니다.' |
 
-표지의 건수·마지막 해시는 행 조회·조건에 맞는 건수(COUNT)와 함께 `audit.exported`를 쓰기 전에 같은 트랜잭션에서 계산한다. 그래서 내보내기 직전 `GET /audit/verify`의 `count`·`headHash`와 같다. **프로그램으로 읽을 때: 머리글은 표지 다음 빈 줄 뒤, `순번`으로 시작하는 첫 줄이다.** 빈 줄이 표 범위를 나누므로 스프레드시트의 정렬·필터는 표에만 걸린다.
+표지의 건수·마지막 해시는 행 조회·조건에 맞는 건수(COUNT)와 함께 `audit.exported`를 쓰기 전에 같은 트랜잭션에서 계산한다. 그래서 내보내기 직전 `GET /audit/verify`의 `count`·`headHash`와 같고, 내보낸 직후의 `count`는 1 많으며 `headHash`도 다르다(표지 '보관용 값' 칸이 이 차이를 함께 적는다. 해시된 행·`verifyChain`·`audit.exported` 상세는 그대로). **프로그램으로 읽을 때: 머리글은 표지 다음 빈 줄 뒤, `순번`으로 시작하는 첫 줄이다.** 빈 줄이 표 범위를 나누므로 스프레드시트의 정렬·필터는 표에만 걸린다.
 
 **표 열(10개):** `순번`(목록의 `orgSeq`·화면의 '번호'·검증 결과의 `brokenAtNo`와 같은 조직 안 순번. 필터를 걸기 전에 매기므로 필터를 걸어도 같은 기록은 같은 순번이고, 필터 없이 내보내면 1부터 빈 번호 없이 이어진다), `시각(한국 시간)`(`YYYY-MM-DD HH:mm:ss`, KST), `수행자`, `행동`(화면과 같은 한국어 이름, `shared/terms.ts` `ACTION_LABEL`, 없는 코드는 코드 그대로), `행동 코드`(원래 코드, 예 `request.approved`), `대상 종류`, `대상 ID`, `내용`, `결정 근거(내보낼 때 계산)`(A2-3, 승인·반려 행에만 `decisionEvidenceText`, 다른 행은 빈칸), `해시`(마지막 열, 저장된 값 그대로).
 

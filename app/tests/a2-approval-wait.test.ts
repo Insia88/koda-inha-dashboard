@@ -63,6 +63,26 @@ describe('요청 상세 approvalWait', () => {
     expect((await han.get('/api/requests/wr-4')).body.approvalWait).toBeNull(); // 반려로 끝남
   });
 
+  it('counts only approvals that still count toward the required number: an approver who lost the role after approving leaves remaining at 2 and is not listed again', async () => {
+    const oh = await as('u-a-oh');
+    const cur = (await oh.get('/api/requests/wr-3')).body;
+    expect((await oh.post('/api/requests/wr-3/approve', { version: cur.version, intentHash: cur.intentHash })).status).toBe(200);
+    const han = await as('u-a-han');
+    expect((await han.get('/api/requests/wr-3')).body.approvalWait).toMatchObject({ remaining: 1 });
+    // 승인한 뒤 역할을 빼면 그 표는 필요 승인 수에서 빠진다(remaining은 승인 표 전체 수가 아니라 정족수에 든 표로 센다).
+    const admin = await as('u-a-yoon');
+    expect((await admin.put('/api/org/members/u-a-oh/roles', { roles: [], rolesVersion: 1 })).status).toBe(200);
+    const after = (await han.get('/api/requests/wr-3')).body;
+    expect(after.approvals).toHaveLength(1);
+    expect(after.approvals[0]).toMatchObject({ userId: 'u-a-oh', decision: 'approved', counted: false });
+    // 이미 결정했으므로 후보에도 다시 들어가지 않는다
+    expect(after.approvalWait).toEqual({ candidates: [{ id: 'u-a-kang', name: '강도윤' }, { id: 'u-a-seo', name: '서예린' }], remaining: 2, shortfall: false });
+    // 홈도 같은 판정(정족수에 든 승인 0/2, 후보 2명)
+    const row = (await han.get('/api/dashboard')).body.inProgress.find((x: any) => x.id === 'wr-3');
+    expect(row).toMatchObject({ approved: 0, requiredApprovals: 2 });
+    expect(row.waitingFor).toEqual(after.approvalWait.candidates);
+  });
+
   it('follows role changes and deactivation, and warns (shortfall) when too few people are left', async () => {
     const admin = await as('u-a-yoon');
     const han = await as('u-a-han');

@@ -331,7 +331,8 @@ export function auditCsvCover(input: AuditCsvCoverInput): string[][] {
     ['해시 연결 확인(조직 전체)', input.chain.ok ? AUDIT_INTEGRITY_TEXT.ok(input.chain.count) : AUDIT_INTEGRITY_TEXT.broken(input.chain.brokenAtNo)],
   ];
   // 보관용 값과 확인 범위는 감사 기록 화면처럼 체인이 맞을 때만 쓴다(어긋난 체인의 끝 해시는 보관할 근거가 아니다).
-  if (input.chain.ok && input.chain.headHash) rows.push(['보관용 값', AUDIT_INTEGRITY_TEXT.anchor(input.chain.count, input.chain.headHash)]);
+  // 보관용 값은 이번 audit.exported를 쓰기 전 체인이다. 내보낸 직후 화면의 건수·해시와 다른 이유를 같은 칸에 적는다(해시된 행·verifyChain·상세는 그대로).
+  if (input.chain.ok && input.chain.headHash) rows.push(['보관용 값', `${AUDIT_INTEGRITY_TEXT.anchor(input.chain.count, input.chain.headHash)} ${AUDIT_EXPORT_TEXT.anchorNote}`]);
   if (input.chain.ok) rows.push(['확인 범위', AUDIT_INTEGRITY_TEXT.scope('위')]);
   rows.push(['안내', AUDIT_EXPORT_TEXT.coverNote]);
   return rows;

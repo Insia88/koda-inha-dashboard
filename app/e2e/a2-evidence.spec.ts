@@ -7,11 +7,17 @@ import { middleSegment } from '../shared/address-rules.ts';
 // A2(서버 읽기 모델과 그 화면): 승인할 수 있는 사람과 대기 시간(A2-1), 결정 카드의 받는 주소 기록(A2-2),
 // 결정 근거(A2-3), 감사 기록 CSV 표지(A2-4). 정족수·자기 승인 금지·건별 승인·지문·주소 재입력은 그대로다.
 // 바꾸는 데이터: 이 파일에서 만든 KAIA 주소 1건과 그 주소로 가는 요청 1건(끝에 취소), 모의법인 B의 요청 1건(끝에 취소)과
-// 임하은의 역할(뺐다가 되돌림)뿐이다. 시드 주소·요청은 읽기만 한다(ab-08은 뒤의 display.spec.ts가 확인 대기 상태로 쓰므로 바꾸지 않는다).
+// 임하은의 역할(뺐다가 되돌림), 서예린·오민재의 활성 여부(저장 계층에서 잠시 끄고 되돌림)뿐이다. 시드 주소·요청은 읽기만 한다(ab-08은 뒤의 display.spec.ts가 확인 대기 상태로 쓰므로 바꾸지 않는다).
 // 다른 검사의 출금 전 점검(같은 자산 최근 요청 수)에 영향을 주지 않도록 새 요청은 KAIA·모의법인 B로 만든다.
 
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+/** 요소가 몇 줄에 걸쳐 그려졌는지. 안쪽 요소(<time> 등)마다 조각이 따로 잡히므로 조각 수가 아니라 위쪽 좌표(3px 안은 같은 줄)를 센다. */
+const lineCount = (el: Element) => {
+  const tops: number[] = [];
+  for (const r of el.getClientRects()) if (r.width > 0 && !tops.some((t) => Math.abs(t - r.top) <= 3)) tops.push(r.top);
+  return tops.length;
+};
 const mockEvm = () => `MOCK-EVM-${randomBytes(20).toString('hex').toUpperCase()}`;
 
 async function send(page: Page, method: 'POST' | 'PUT', url: string, body: unknown) {
@@ -41,17 +47,24 @@ async function submitRequest(page: Page, body: Record<string, unknown>) {
 
 test.describe('승인할 수 있는 사람과 대기 시간(A2-1)', () => {
   for (const width of [1440, 390]) {
-    test(`${width}px: 홈 진행 중 요청 둘째 줄 맨 앞 '다른 사람 차례 … · n시간째', 수량은 첫 줄, 요청 상세 다음 할 일에 이름·남은 승인·대기 시간, axe`, async ({ page }) => {
+    test(`${width}px: 홈 진행 중 요청 둘째 줄 맨 앞 '다른 사람 차례 … · 승인 요청 n시간째', 수량은 첫 줄, 요청 상세 다음 할 일에 이름·남은 승인·대기 시간, axe`, async ({ page }) => {
       await page.setViewportSize({ width, height: width > 400 ? 900 : 844 });
       await loginAs(page, '한지수');
       const wr3 = page.locator('a.progress-item', { hasText: 'WR-000003' });
-      await expect(wr3.locator('.turn-text')).toHaveText(/^다른 사람 차례: 강도윤·서예린·오민재 · \d+시간째$/);
+      await expect(wr3.locator('.turn-text')).toHaveText(/^다른 사람 차례: 강도윤·서예린·오민재 · 승인 요청 \d+시간째$/);
       // 둘째 줄 맨 앞(누구 차례·대기 시간) 다음에 요청자 → 받는 곳. 지연 색이나 기준 시간은 없다.
-      await expect(wr3.locator('.progress-meta')).toContainText(/^다른 사람 차례: 강도윤·서예린·오민재 · \d+시간째 · 한지수 → 정산 파트너 B/);
+      await expect(wr3.locator('.progress-meta')).toContainText(/^다른 사람 차례: 강도윤·서예린·오민재 · 승인 요청 \d+시간째 · 한지수 → 정산 파트너 B/);
+      // 같은 줄에 상대 시간은 '승인 요청 n시간째' 하나뿐이다('(n시간 전)'은 이름 줄이 없는 요청에만)
+      expect(await wr3.locator('.progress-meta').innerText()).not.toMatch(/\(\d+(분|시간|일) 전\)/);
+      await expect(wr3.locator('.turn-short')).toHaveCount(0);
       const t = wr3.locator('.turn-text time');
       await expect(t).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
       await expect(t).toHaveAttribute('title', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2} KST$/);
-      await expect(page.locator('a.progress-item', { hasText: 'WR-000004' }).locator('.turn-text')).toHaveText(/^다른 사람 차례: 서예린·오민재 · \d+시간째$/);
+      // '승인 요청'과 기다린 시간은 줄이 바뀌어도 함께 다닌다(390px 포함)
+      expect(await wr3.locator('.turn-text > span.nowrap').evaluate(lineCount)).toBe(1);
+      await expect(page.locator('a.progress-item', { hasText: 'WR-000004' }).locator('.turn-text')).toHaveText(/^다른 사람 차례: 서예린·오민재 · 승인 요청 \d+시간째$/);
+      // 이름 줄이 없는 검토 중 요청은 상대 시간 '(n시간 전)'이 그대로다
+      await expect(page.locator('a.progress-item', { hasText: 'WR-000005' }).locator('.progress-meta')).toContainText(/\(\d+(분|시간|일) 전\)/);
       // 검토 중 요청은 A1 차례 문구 그대로
       await expect(page.locator('a.progress-item', { hasText: 'WR-000005' }).locator('.turn-text')).toHaveText('요청자 최종 확인 중');
       for (const ref of ['WR-000003', 'WR-000004']) {
@@ -74,6 +87,8 @@ test.describe('승인할 수 있는 사람과 대기 시간(A2-1)', () => {
       await expect(next.locator('p').first()).toHaveText('승인자의 결정을 기다리는 중입니다. 알림이 가지 않으니 승인자에게 직접 알려 주세요. 요청을 취소할 수도 있습니다.');
       await expect(next.locator('.next-wait')).toHaveText(/^승인할 수 있는 사람: 강도윤 · 서예린 · 오민재 \(남은 승인 2명\) · 승인 요청 \d+시간째$/);
       await expect(next.locator('.next-wait time')).toHaveAttribute('title', /KST$/);
+      // '승인 요청'과 'n시간째'는 줄 끝·다음 줄 처음으로 갈리지 않는다(390px 포함)
+      expect(await next.locator('.next-wait > span.nowrap').evaluate(lineCount)).toBe(1);
       await expect(next.getByRole('link', { name: '「조직 관리」' })).toBeVisible();
       await expect(page.getByText('조직 관리자에게 승인자 추가를 요청하세요')).toHaveCount(0);
       expect(await overflow(page)).toBeLessThanOrEqual(0);
@@ -87,8 +102,30 @@ test.describe('승인할 수 있는 사람과 대기 시간(A2-1)', () => {
     await expect(page.locator('.next-wait')).toHaveText(/^승인할 수 있는 사람: 나 · 강도윤 · 서예린 \(남은 승인 2명\) · 승인 요청 \d+시간째$/);
     await page.goto('/');
     const wr3 = page.locator('a.progress-item', { hasText: 'WR-000003' });
-    await expect(wr3.locator('.turn-text')).toHaveText(/^승인할 수 있는 사람: 나·강도윤·서예린 · \d+시간째$/);
+    await expect(wr3.locator('.turn-text')).toHaveText(/^승인할 수 있는 사람: 나·강도윤·서예린 · 승인 요청 \d+시간째$/);
     await expect(wr3.locator('.badge-turn')).toHaveText('내 승인 차례');
+  });
+
+  test("후보가 남은 승인보다 적으면 홈 둘째 줄 끝에 '승인할 사람 부족'(서예린·오민재를 잠시 비활성으로 두고 되돌림)", async ({ page }) => {
+    // wr-3(남은 승인 2명)의 후보를 강도윤 1명으로 만든다. 저장 계층에서 활성 여부만 바꾸고 끝에 되돌린다(감사 기록·역할 버전은 그대로).
+    onDb((db) => db.prepare("UPDATE users SET is_active = 0 WHERE id IN ('u-a-seo', 'u-a-oh')").run());
+    try {
+      await loginAs(page, '한지수');
+      const wr3 = page.locator('a.progress-item', { hasText: 'WR-000003' });
+      await expect(wr3.locator('.turn-text')).toHaveText(/^다른 사람 차례: 강도윤 · 승인 요청 \d+시간째 · 승인할 사람 부족$/);
+      await expect(wr3.locator('.turn-short')).toHaveClass(/warn-text/);
+      await expect(wr3.locator('.progress-meta')).toContainText('승인 0/2');
+      // 후보가 0명(wr-4)이면 머리 문구가 이미 '없음'이라 '부족'을 붙이지 않는다
+      const wr4 = page.locator('a.progress-item', { hasText: 'WR-000004' });
+      await expect(wr4.locator('.turn-text')).toHaveText(/^승인할 수 있는 사람 없음 · 승인 요청 \d+시간째$/);
+      await expect(wr4.locator('.turn-short')).toHaveCount(0);
+      await axe(page);
+      // 요청 상세는 같은 판정으로 경고 Notice
+      await page.goto('/requests/wr-3');
+      await expect(page.locator('.notice-warning', { hasText: '남은 승인 2명을 채울 수 있는 사람이 1명뿐입니다. 조직 관리자에게 승인자 추가를 요청하세요.' })).toHaveCount(1);
+    } finally {
+      onDb((db) => db.prepare("UPDATE users SET is_active = 1 WHERE id IN ('u-a-seo', 'u-a-oh')").run());
+    }
   });
 
   test('남은 승인을 채울 사람이 없으면 경고, 승인할 수 없는 요청에는 이름 줄 없음(모의법인 B, 임하은 역할을 뺐다가 되돌림)', async ({ page }) => {
@@ -112,7 +149,9 @@ test.describe('승인할 수 있는 사람과 대기 시간(A2-1)', () => {
         expect(await page.locator('section.next-action').evaluate((el) => el.nextElementSibling?.className ?? '')).toContain('notice-warning');
         await axe(page);
         await page.goto('/');
-        await expect(page.locator('a.progress-item', { hasText: sent.refNo }).locator('.turn-text')).toHaveText(/^승인할 수 있는 사람 없음 · \d+분째$/);
+        const row = page.locator('a.progress-item', { hasText: sent.refNo });
+        await expect(row.locator('.turn-text')).toHaveText(/^승인할 수 있는 사람 없음 · 승인 요청 \d+분째$/);
+        await expect(row.locator('.turn-short')).toHaveCount(0);
       } finally {
         await send(page, 'PUT', '/api/org/members/u-b-lim/roles', { roles: ['approver'], rolesVersion: removed.rolesVersion });
       }
@@ -137,7 +176,7 @@ test.describe('승인할 수 있는 사람과 대기 시간(A2-1)', () => {
 });
 
 test.describe('결정 카드의 받는 주소 기록(A2-2)', () => {
-  test('등록자·받은 경로 → 다시 확인한 경로 / 확인자·지금 상태, 등록자가 남긴 연락처는 옮기지 않음, 390px·axe', async ({ page }) => {
+  test('등록자·받은 경로 → 등록자가 다시 확인한 경로 / 확인자·지금 상태, 등록자가 남긴 연락처는 옮기지 않음, 390px·axe', async ({ page }) => {
     // 한지수가 문서로 받은 주소를 미리 등록된 연락처로 다시 확인했다고 남기고 등록 → 서예린이 확인(E2E는 사용 대기 0시간) → 한지수가 요청
     const address = mockEvm();
     const verifiedWith = 'E2E 거래처 M 재무팀 대표번호(거래처 등록 연락처)';
@@ -161,11 +200,15 @@ test.describe('결정 카드의 받는 주소 기록(A2-2)', () => {
         await page.goto(`/requests/${sent.id}`);
         const card = page.locator('section.card-action');
         const lines = card.locator('.rc-addr-record .rc-addr-line');
+        // 다시 확인한 경로는 등록자가 남긴 값('등록자가'), 다음 줄의 확인자가 그 경로로 확인했다고 읽히지 않게 한다. 괄호는 시각에만 쓴다.
         await expect(lines).toHaveText([
-          /^등록 한지수 \d{4}-\d{2}-\d{2} · 받은 경로 문서\(공문·인보이스\) → 다시 확인한 경로 미리 등록된 연락처로 전화$/,
-          /^확인 서예린 \d{4}-\d{2}-\d{2} · 지금 상태 사용 가능 \(사람이 남긴 기록이며 증명이 아닙니다\) · 주소 기록 보기$/,
+          /^등록 한지수 \d{4}-\d{2}-\d{2} · 받은 경로 문서\(공문·인보이스\) → 등록자가 다시 확인한 경로 미리 등록된 연락처로 전화$/,
+          /^확인 서예린 \d{4}-\d{2}-\d{2} · 지금 상태 사용 가능 · 사람이 남긴 기록이며 증명이 아닙니다 · 주소 기록 보기$/,
         ]);
-        await expect(card.locator('.rc-addr-record').getByRole('link', { name: '주소 기록 보기' })).toHaveAttribute('href', `/addresses/${created.id}`);
+        const link = card.locator('.rc-addr-record').getByRole('link', { name: '주소 기록 보기' });
+        await expect(link).toHaveAttribute('href', `/addresses/${created.id}`);
+        // 링크 이름이 두 줄로 갈리지 않는다(390px 포함)
+        expect(await link.evaluate(lineCount)).toBe(1);
         // 등록자가 남긴 '확인한 상대·연락처'(자유 서술)는 카드 어디에도 없다(주소 기록 링크로만)
         await expect(card).not.toContainText('재무팀 대표번호');
         await expect(page.getByText(verifiedWith)).toHaveCount(0);
@@ -178,12 +221,21 @@ test.describe('결정 카드의 받는 주소 기록(A2-2)', () => {
       }
       // 사용 대기를 거친 주소면 사용 가능해진 시각, 등록 때 비슷한 주소 경고가 있었으면 그 사실만(사유는 주소 기록에서). 저장 계층에서 값을 넣어 흉내 낸다.
       onDb((db) => db.prepare("UPDATE address_book SET active_from = '2026-10-01T00:30:00.000Z', lookalike_reason = 'E2E 비슷한 주소 등록 사유 문장' WHERE id = ?").run(created.id));
-      await page.setViewportSize({ width: 1440, height: 900 });
-      await page.reload();
-      const card = page.locator('section.card-action');
-      await expect(card.locator('.rc-addr-line').nth(1)).toHaveText(/^확인 서예린 \d{4}-\d{2}-\d{2} · 지금 상태 사용 가능 \(2026-10-01 09:30부터\) \(사람이 남긴 기록이며 증명이 아닙니다\) · 주소 기록 보기$/);
-      await expect(card.locator('.rc-addr-warn')).toHaveText('등록 때 비슷한 주소 경고가 있었습니다 — 등록 사유는 주소 기록에서 확인하세요');
-      await expect(card).not.toContainText('E2E 비슷한 주소 등록 사유 문장');
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: width > 400 ? 900 : 844 });
+        await page.reload();
+        const card = page.locator('section.card-action');
+        // 괄호는 사용 가능 시각 하나뿐이고, 링크는 '주소 기록에서 확인하세요'라고 말하는 경고 줄 끝으로 옮겨 간다(링크는 하나).
+        await expect(card.locator('.rc-addr-line').nth(1)).toHaveText(/^확인 서예린 \d{4}-\d{2}-\d{2} · 지금 상태 사용 가능\(2026-10-01 09:30부터\) · 사람이 남긴 기록이며 증명이 아닙니다$/);
+        const warn = card.locator('.rc-addr-warn');
+        await expect(warn).toHaveText('등록 때 비슷한 주소 경고가 있었습니다 — 등록 사유는 주소 기록 보기에서 확인하세요');
+        await expect(warn.getByRole('link', { name: '주소 기록 보기' })).toHaveAttribute('href', `/addresses/${created.id}`);
+        await expect(card.locator('.rc-addr-record a')).toHaveCount(1);
+        expect(await warn.getByRole('link').evaluate(lineCount)).toBe(1);
+        await expect(card).not.toContainText('E2E 비슷한 주소 등록 사유 문장');
+        expect(await overflow(page)).toBeLessThanOrEqual(0);
+        await axe(page);
+      }
     } finally {
       await page.context().clearCookies();
       await loginAs(page, '한지수');
@@ -215,14 +267,16 @@ test.describe('결정 카드의 받는 주소 기록(A2-2)', () => {
 });
 
 test.describe('결정 근거(A2-3)', () => {
-  test('처리 기록의 승인 줄 아래: 감사 담당자·조직 관리자는 결정 당시 역할까지, 요청자는 정족수·지문만, 390px·axe', async ({ page }) => {
+  test('처리 기록의 승인 줄 아래: 감사 담당자·조직 관리자는 결정 당시 역할까지, 요청자는 필요 승인 수·지문만, 390px·axe', async ({ page }) => {
     for (const user of ['문태호', '윤가람']) {
       await loginAs(page, user);
       const dto = await (await page.request.get('/api/requests/wr-1')).json();
       await page.goto('/requests/wr-1');
       const row = page.locator('.timeline li', { hasText: 'WR-000001 승인 (1/1)' });
-      await expect(row.locator('.evidence')).toHaveText(`결정 당시 역할: 승인자(역할 변경 기록 기준) · 정족수 포함 · 결정한 지문 ${dto.intentHashDisplay}(요청 지문과 같음)`);
+      await expect(row.locator('.evidence')).toHaveText(`결정 당시 역할: 승인자(역할 변경 기록 기준) · 필요 승인 수에 셈 · 결정 때 본 승인 대상 지문 ${dto.intentHashDisplay}(지금 요청과 같음)`);
       await expect(row.locator('.evidence-danger, .evidence-warn')).toHaveCount(0);
+      // 지문 부분만 고정폭·한 줄(결정 카드의 '승인 대상 지문'과 같은 모양으로 맞춰 보게)
+      await expect(row.locator('.evidence .mono.nowrap')).toHaveText(dto.intentHashDisplay);
       // 결정이 아닌 줄에는 근거가 없다
       await expect(page.locator('.timeline li', { hasText: '승인 요청' }).locator('.evidence')).toHaveCount(0);
       await logout(page);
@@ -232,11 +286,13 @@ test.describe('결정 근거(A2-3)', () => {
     const dto = await (await page.request.get('/api/requests/wr-1')).json();
     await page.goto('/requests/wr-1');
     const row = page.locator('.timeline li', { hasText: 'WR-000001 승인 (1/1)' });
-    await expect(row.locator('.evidence')).toHaveText(`정족수 포함 · 결정한 지문 ${dto.intentHashDisplay}(요청 지문과 같음)`);
+    await expect(row.locator('.evidence')).toHaveText(`필요 승인 수에 셈 · 결정 때 본 승인 대상 지문 ${dto.intentHashDisplay}(지금 요청과 같음)`);
     await expect(page.getByText('결정 당시 역할')).toHaveCount(0);
+    // 390px에서도 지문 네 묶음은 중간에서 줄이 갈리지 않는다
+    expect(await row.locator('.evidence .mono.nowrap').evaluate(lineCount)).toBe(1);
     // 반려 줄(wr-2)
     await page.goto('/requests/wr-2');
-    await expect(page.locator('.timeline li', { hasText: 'WR-000002 반려' }).locator('.evidence')).toHaveText(/^결정한 지문 [0-9A-F]{4} [0-9A-F]{4} [0-9A-F]{4} [0-9A-F]{4}\(요청 지문과 같음\)$/);
+    await expect(page.locator('.timeline li', { hasText: 'WR-000002 반려' }).locator('.evidence')).toHaveText(/^결정 때 본 승인 대상 지문 [0-9A-F]{4} [0-9A-F]{4} [0-9A-F]{4} [0-9A-F]{4}\(지금 요청과 같음\)$/);
     expect(await overflow(page)).toBeLessThanOrEqual(0);
     await axe(page);
   });
@@ -247,7 +303,9 @@ test.describe('결정 근거(A2-3)', () => {
       await page.setViewportSize({ width, height: width > 400 ? 900 : 844 });
       await page.goto('/audit?action=request.approved');
       const cell = page.locator('.aud-summary', { hasText: 'WR-000001 승인 (1/1)' });
-      await expect(cell.locator('.evidence')).toContainText(/^결정 당시 역할: 승인자\(역할 변경 기록 기준\) · 정족수 포함 · 결정한 지문 [0-9A-F ]{19}\(요청 지문과 같음\)$/);
+      await expect(cell.locator('.evidence')).toContainText(/^결정 당시 역할: 승인자\(역할 변경 기록 기준\) · 필요 승인 수에 셈 · 결정 때 본 승인 대상 지문 [0-9A-F ]{19}\(지금 요청과 같음\)$/);
+      // 좁은 카드에서도 지문 네 묶음은 한 줄(묶음 중간에서 줄이 바뀌지 않음)
+      expect(await cell.locator('.evidence .mono.nowrap').evaluate(lineCount)).toBe(1);
       expect(await overflow(page)).toBeLessThanOrEqual(0);
       await axe(page);
     }
@@ -262,6 +320,10 @@ test.describe('감사 기록 CSV 표지(A2-4)', () => {
     await loginAs(page, '문태호');
     await page.goto('/audit');
     await expect(page.getByText('내보낸 파일 맨 위에 기간·조건·내보낸 사람·시각·해시 연결 확인 결과를 담은 표지가 붙습니다.')).toBeVisible();
+    // 안내는 내보내기 링크의 설명으로 이어져 있어 화면 낭독기가 링크에서 함께 읽는다
+    const exportLink = page.getByRole('link', { name: /CSV 내보내기/ });
+    await expect(exportLink).toHaveAttribute('aria-describedby', 'audit-export-hint');
+    await expect(exportLink).toHaveAccessibleDescription('내보낸 파일 맨 위에 기간·조건·내보낸 사람·시각·해시 연결 확인 결과를 담은 표지가 붙습니다.');
     const verify = await (await page.request.get('/api/audit/verify')).json();
     const res = await page.request.get('/api/audit/export.csv?action=request.approved');
     expect(res.ok()).toBeTruthy();
@@ -270,7 +332,11 @@ test.describe('감사 기록 CSV 표지(A2-4)', () => {
     expect(lines[0]).toBe('KODA 감사 기록 내보내기 표지 — 내보낼 때 만든 설명이며 감사 기록이 아닙니다(해시 대상 아님)');
     expect(lines).toContain('조건,행동: 승인(request.approved)');
     expect(lines).toContain('내보낸 사람,문태호 (감사 담당자)');
-    expect(lines).toContain(`보관용 값,기록 ${verify.count}건 · 마지막 기록 해시 ${verify.headHash}`);
+    // 보관용 값은 이번 내보내기 기록이 남기 전 값이며, 내보낸 직후 화면과 1건 다른 이유를 같은 칸에 적는다
+    expect(lines).toContain(`보관용 값,기록 ${verify.count}건 · 마지막 기록 해시 ${verify.headHash} (이 내보내기 기록이 남기 전 값입니다. 내보낸 직후 감사 기록 화면은 이 내보내기 기록 1건이 더해져 건수가 1건 많고 마지막 기록 해시도 다릅니다)`);
+    const after = await (await page.request.get('/api/audit/verify')).json();
+    expect(after.count).toBe(verify.count + 1);
+    expect(after.headHash).not.toBe(verify.headHash);
     const blank = lines.indexOf('');
     expect(lines[blank + 1]).toBe('순번,시각(한국 시간),수행자,행동,행동 코드,대상 종류,대상 ID,내용,결정 근거(내보낼 때 계산),해시');
     expect(String(res.headers()['content-disposition'])).toMatch(/^attachment; filename="koda-audit-\d{4}-\d{2}-\d{2}\.csv"$/);

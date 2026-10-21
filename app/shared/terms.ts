@@ -188,6 +188,8 @@ export const APPROVAL_WAIT_TEXT = {
   othersTurn: '다른 사람 차례',
   /** 후보가 0명일 때(홈 둘째 줄 머리) */
   nobody: '승인할 수 있는 사람 없음',
+  /** 후보가 1명 이상이지만 남은 승인보다 적을 때 홈 둘째 줄 끝에 붙이는 말(요청 상세는 경고 Notice) */
+  short: '승인할 사람 부족',
   /** 조회자 본인 */
   me: '나',
 } as const;
@@ -215,11 +217,12 @@ export function approverNames(candidates: ApproverRef[], meId: string, sep: stri
  * 승인·반려 표 하나의 결정 근거(A2-3). 읽을 때 계산하는 값이며 저장하지 않는다(해시 대상 아님).
  * - intentHashDisplay: 그 사람이 결정할 때 본 승인 대상 지문(표시용 16자). 이 기능 도입 전 표는 null
  * - matchesRequestIntent: 표의 지문이 요청 지문과 같은지. 표 지문이 없으면 null
- * - counted: 정족수에 들어갔는지(승인 대기 중에는 지금 역할로 다시 판단, 결정이 끝난 요청은 결정 당시 목록). 반려 표는 false
+ * - counted: 필요 승인 수에 셌는지(정족수 포함 여부. 승인 대기 중에는 지금 역할로 다시 판단, 결정이 끝난 요청은 결정 당시 목록). 반려 표는 false
  * - rolesAtDecision: 결정 시각 이전의 마지막 역할 변경 기록(member.roles_changed)의 바뀐 뒤 역할. 기록이 없거나 형식이 다르면 null.
  *   역할 변경 기록은 감사 기록 조회 권한(audit.read)으로만 보이므로, 그 권한이 없는 조회자에게는 늘 null이다.
  * - rolesSource: rolesAtDecision이 있으면 'role_history'(역할 변경 기록 기준), 없으면 null
  * - approveRoleAtDecision: rolesAtDecision에 지금 권한표 기준 출금 승인 권한이 있는지. rolesAtDecision이 null이면 null
+ * 요청 상세 처리 기록(timeline[].evidence)에는 userId를 빼고 준다(처리 기록 행에는 수행자 id를 넣지 않는다, DecisionEvidenceView).
  */
 export interface DecisionEvidence {
   userId: string;
@@ -234,32 +237,40 @@ export interface DecisionEvidence {
   approveRoleAtDecision: boolean | null;
 }
 
+/** 처리 기록 행에 붙는 결정 근거(수행자 id 없음). 문구 함수와 화면 줄은 이 모양만 쓴다. */
+export type DecisionEvidenceView = Omit<DecisionEvidence, 'userId'>;
+
 /** 결정 근거 한 줄의 조각. tone은 화면 색(흐린 글자·위험·경고)이며 CSV에서는 글자만 쓴다. */
 export type EvidencePart = { text: string; tone: 'muted' | 'danger' | 'warning' };
 
+/** 결정 근거 문구 안의 승인 대상 지문(표시용 16자, 4자 네 묶음). 화면은 이 부분만 고정폭·한 줄로 보인다(CSV는 글자 그대로). */
+export const EVIDENCE_HASH_PATTERN = /([0-9A-F]{4}(?: [0-9A-F]{4}){3})/;
+
 /**
  * 결정 근거 문구(화면 처리 기록·감사 기록 화면·감사 CSV가 함께 쓴다). '확인됨' 같은 보장 말 대신 출처('역할 변경 기록 기준')를 쓴다.
+ * 낱말은 화면의 다른 곳과 맞춘다: '정족수' 대신 '필요 승인 수'(승인 x/y·GLOSSARY.approvalCount와 같은 말), 지문은 결정 카드 제목과 같은 '승인 대상 지문'.
  * showRoles: 결정 당시 역할을 쓸지(감사 기록 조회 권한이 있는 화면·CSV). 없으면 역할 조각을 빼고 경고도 쓰지 않는다.
  */
-export function decisionEvidenceParts(e: DecisionEvidence, opts: { showRoles: boolean }): EvidencePart[] {
+export function decisionEvidenceParts(e: DecisionEvidenceView, opts: { showRoles: boolean }): EvidencePart[] {
   const parts: EvidencePart[] = [];
   if (opts.showRoles) {
     parts.push({
       tone: 'muted',
+      // 기록이 없을 때는 '역할이 없었다'로 읽히지 않게 '알 수 없음'을 앞에 쓴다(기록상 역할이 비어 있던 경우의 '없음(역할 변경 기록 기준)'과 구분).
       text: e.rolesAtDecision
         ? `결정 당시 역할: ${e.rolesAtDecision.length ? e.rolesAtDecision.map((r) => ROLE_LABEL[r].label).join(', ') : '없음'}(역할 변경 기록 기준)`
-        : '결정 당시 역할: 역할 변경 기록 없음',
+        : '결정 당시 역할: 알 수 없음(역할 변경 기록 없음)',
     });
   }
-  if (e.decision === 'approved') parts.push({ tone: 'muted', text: e.counted ? '정족수 포함' : '정족수에 들지 않음' });
-  if (!e.intentHashDisplay) parts.push({ tone: 'muted', text: '지문 기록 없음(이 기능 도입 전 결정)' });
-  else if (e.matchesRequestIntent === false) parts.push({ tone: 'danger', text: `결정한 지문 ${e.intentHashDisplay}(요청 지문과 다름)` });
-  else parts.push({ tone: 'muted', text: `결정한 지문 ${e.intentHashDisplay}(요청 지문과 같음)` });
+  if (e.decision === 'approved') parts.push({ tone: 'muted', text: e.counted ? '필요 승인 수에 셈' : '필요 승인 수에 세지 않음' });
+  if (!e.intentHashDisplay) parts.push({ tone: 'muted', text: '승인 대상 지문 기록 없음(이 기능 도입 전 결정)' });
+  else if (e.matchesRequestIntent === false) parts.push({ tone: 'danger', text: `결정 때 본 승인 대상 지문 ${e.intentHashDisplay}(지금 요청과 다름)` });
+  else parts.push({ tone: 'muted', text: `결정 때 본 승인 대상 지문 ${e.intentHashDisplay}(지금 요청과 같음)` });
   if (opts.showRoles && e.approveRoleAtDecision === false) parts.push({ tone: 'warning', text: '역할 변경 기록상 이때 승인 권한이 없습니다 — 기록을 확인하세요' });
   return parts;
 }
 
-export function decisionEvidenceText(e: DecisionEvidence, opts: { showRoles: boolean }): string {
+export function decisionEvidenceText(e: DecisionEvidenceView, opts: { showRoles: boolean }): string {
   return decisionEvidenceParts(e, opts).map((p) => p.text).join(' · ');
 }
 
@@ -280,6 +291,11 @@ export const AUDIT_EXPORT_TEXT = {
   coverTitle: 'KODA 감사 기록 내보내기 표지 — 내보낼 때 만든 설명이며 감사 기록이 아닙니다(해시 대상 아님)',
   coverNote: '표지와 결정 근거 열은 내보낼 때 계산한 값입니다. 아래 표의 각 행과 해시 열은 저장된 기록 그대로입니다.',
   evidenceColumn: '결정 근거(내보낼 때 계산)',
+  /**
+   * 표지 '보관용 값' 뒤 설명. 보관용 값은 이번 내보내기 기록(audit.exported)을 남기기 전의 체인이라,
+   * 내보낸 직후 화면과 바로 비교하면 기록이 빠진 것처럼 보이지 않게 한다.
+   */
+  anchorNote: '(이 내보내기 기록이 남기 전 값입니다. 내보낸 직후 감사 기록 화면은 이 내보내기 기록 1건이 더해져 건수가 1건 많고 마지막 기록 해시도 다릅니다)',
   /** 감사 기록 화면의 내보내기 버튼 아래 안내(내보내기 권한이 있을 때만) */
   screenHint: '내보낸 파일 맨 위에 기간·조건·내보낸 사람·시각·해시 연결 확인 결과를 담은 표지가 붙습니다.',
 } as const;

@@ -1,5 +1,5 @@
 // A2-4: 감사 기록 CSV 표지(기간·조건·내보낸 사람·내보낸 시각(KST)·해시 연결 확인 결과). 해시된 행은 그대로이고 표지는 저장하지 않는다.
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, login, makeApp, parseCsv, splitAuditCsv, type TestCtx } from './helpers.ts';
 import { verifyChain } from '../server/audit.ts';
 import { kstDateTime } from '../server/csv.ts';
@@ -10,6 +10,8 @@ beforeEach(async () => { ctx = await makeApp(); });
 afterEach(async () => { await ctx.app.close(); ctx.db.close(); });
 
 const coverMap = (cover: string[][]) => new Map(cover.slice(2).map((r) => [r[0]!, r[1]!]));
+/** 표지 '보관용 값' 뒤 설명: 이번 내보내기 기록이 남기 전 값이라 내보낸 직후 화면과 1건 다르다는 문장 */
+const ANCHOR_NOTE = '(이 내보내기 기록이 남기 전 값입니다. 내보낸 직후 감사 기록 화면은 이 내보내기 기록 1건이 더해져 건수가 1건 많고 마지막 기록 해시도 다릅니다)';
 const KST_TIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \(한국 시간\)$/;
 
 async function exportAs(userId: string, query = '') {
@@ -37,7 +39,7 @@ describe('감사 기록 CSV 표지', () => {
     expect(m.get('내보낸 행')).toMatch(/^\d+건 · 조건에 맞는 기록 \d+건$/);
     expect(verify.ok).toBe(true);
     expect(m.get('해시 연결 확인(조직 전체)')).toBe(`기록 ${verify.count}건이 각각 바로 앞 기록과 끊김 없이 이어져 있습니다(해시 연결 확인).`);
-    expect(m.get('보관용 값')).toBe(`기록 ${verify.count}건 · 마지막 기록 해시 ${verify.headHash}`);
+    expect(m.get('보관용 값')).toBe(`기록 ${verify.count}건 · 마지막 기록 해시 ${verify.headHash} ${ANCHOR_NOTE}`);
     expect(m.get('확인 범위')).toContain('가장 최근 기록을 지웠거나');
     expect(m.get('안내')).toBe('표지와 결정 근거 열은 내보낼 때 계산한 값입니다. 아래 표의 각 행과 해시 열은 저장된 기록 그대로입니다.');
     for (const [k, v] of m) expect(`${k} ${v}`).not.toMatch(/빠짐없이|변조 없음|안전합니다|보장/);
@@ -46,8 +48,26 @@ describe('감사 기록 CSV 표지', () => {
     const blank = lines.indexOf('');
     expect(lines[blank + 1]!.startsWith('순번,')).toBe(true);
     expect(header[0]).toBe('순번');
-    // 파일 이름의 날짜는 한국 시간(표지의 내보낸 시각과 같은 날짜)
+    // 파일 이름의 날짜는 한국 시간(표지의 내보낸 시각과 같은 날짜). 날짜가 갈리는 시각의 판별은 아래 시각 고정 검사가 맡는다.
     expect(String(res.headers['content-disposition'])).toBe(`attachment; filename="koda-audit-${m.get('내보낸 시각')!.slice(0, 10)}.csv"`);
+    // 표지의 설명대로 내보낸 직후 화면의 체인은 이 내보내기 기록 1건이 더해져 건수가 1건 많고 마지막 해시가 다르다
+    const s = await login(ctx.app, 'u-a-moon');
+    const afterExport = verifyChain(ctx.db, 'org-a');
+    expect(afterExport.count).toBe(verify.count + 2); // 내보내기 1건 + 방금 다시 로그인 1건
+    expect((await api(ctx.app, s).get('/api/audit/verify')).body.headHash).not.toBe(verify.headHash);
+  });
+
+  it('names the file and stamps the cover with the KST date even when the UTC date is still the day before (KST 01:00)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-10-20T16:00:00Z')); // 한국 시간 2026-10-21 01:00, UTC로는 아직 10월 20일
+      const { res } = await exportAs('u-a-moon');
+      expect(res.statusCode).toBe(200);
+      expect(String(res.headers['content-disposition'])).toBe('attachment; filename="koda-audit-2026-10-21.csv"');
+      expect(coverMap(splitAuditCsv(res.body).cover).get('내보낸 시각')).toMatch(/^2026-10-21 01:00:\d{2} \(한국 시간\)$/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('writes 전체 기간·조건 없음 without filters, counts every row, keeps table rows and hashes as stored, and records rowCount·matchedCount·chain in audit.exported', async () => {
@@ -105,16 +125,18 @@ describe('감사 기록 CSV 표지', () => {
   it('reports the first broken record by its in-org number and drops the anchor line when the chain is broken', async () => {
     // audit-chain.test.ts와 같은 방식: 테스트 DB에서 수정 금지 트리거를 지우고 기록 하나를 바꾼다.
     ctx.db.exec('DROP TRIGGER audit_no_update');
-    const target = ctx.db.prepare("SELECT seq FROM audit_log WHERE org_id = 'org-a' ORDER BY seq LIMIT 1 OFFSET 4").get() as { seq: number };
+    // 조직 안 7번째 기록을 고친다. 시드에서 모의법인 A의 앞 6건은 전체 공용 순번과 번호가 같아 둘을 가를 수 없으므로 7번째(공용 순번은 더 큼)를 쓴다.
+    const target = ctx.db.prepare("SELECT seq FROM audit_log WHERE org_id = 'org-a' ORDER BY seq LIMIT 1 OFFSET 6").get() as { seq: number };
+    expect(target.seq).not.toBe(7);
     ctx.db.prepare("UPDATE audit_log SET summary = summary || ' (변조)' WHERE seq = ?").run(target.seq);
     const { res, verify } = await exportAs('u-a-moon');
-    expect(verify).toMatchObject({ ok: false, brokenAtNo: 5 });
+    expect(verify).toMatchObject({ ok: false, brokenAtNo: 7 });
     const m = coverMap(splitAuditCsv(res.body).cover);
-    expect(m.get('해시 연결 확인(조직 전체)')).toBe('5번 기록에서 해시가 맞지 않습니다. 보안 담당자에게 알리세요.');
+    expect(m.get('해시 연결 확인(조직 전체)')).toBe('7번 기록에서 해시가 맞지 않습니다. 보안 담당자에게 알리세요.');
     expect(m.has('보관용 값')).toBe(false);
-    if (target.seq !== 5) expect(res.body).not.toContain(`${target.seq}번 기록`); // 전체 공용 순번은 쓰지 않는다
+    expect(res.body).not.toContain(`${target.seq}번 기록`); // 전체 공용 순번은 쓰지 않는다
     const d = JSON.parse((ctx.db.prepare("SELECT detail FROM audit_log WHERE action = 'audit.exported' ORDER BY seq DESC LIMIT 1").get() as { detail: string }).detail);
-    expect(d.chain).toEqual({ ok: false, count: verify.count, brokenAtNo: 5, headHash: null });
+    expect(d.chain).toEqual({ ok: false, count: verify.count, brokenAtNo: 7, headHash: null });
   });
 
   it('keeps permissions (admin and requester 403) and gives org B its own chain values', async () => {
@@ -127,7 +149,7 @@ describe('감사 기록 CSV 표지', () => {
     const m = coverMap(splitAuditCsv(res.body).cover);
     expect(m.get('내보낸 사람')).toBe('조은비 (조직 관리자, 감사 담당자)');
     expect(m.get('해시 연결 확인(조직 전체)')).toBe(`기록 ${verify.count}건이 각각 바로 앞 기록과 끊김 없이 이어져 있습니다(해시 연결 확인).`);
-    expect(m.get('보관용 값')).toBe(`기록 ${verify.count}건 · 마지막 기록 해시 ${verify.headHash}`);
+    expect(m.get('보관용 값')).toBe(`기록 ${verify.count}건 · 마지막 기록 해시 ${verify.headHash} ${ANCHOR_NOTE}`);
     expect(verify.count).toBe((ctx.db.prepare("SELECT COUNT(*) c FROM audit_log WHERE org_id = 'org-b'").get() as { c: number }).c - 1);
     expect(verify.headHash).not.toBe(verifyChain(ctx.db, 'org-a').headHash);
   });

@@ -9,7 +9,7 @@ import type { CustodyAdapter } from '../adapters/custody.ts';
 import { permissionsFor } from '../authz.ts';
 import { kstDateTime } from '../csv.ts';
 import { AmountError, formatUnits, krwValue, parsePositiveUnits } from '../../shared/decimal.ts';
-import { REQUEST_STATUS, type ApprovalWait, type ApproverRef, type DecisionEvidence, type RequestCheck, type RequestStatus, type Role } from '../../shared/terms.ts';
+import { REQUEST_STATUS, type ApprovalWait, type ApproverRef, type DecisionEvidence, type DecisionEvidenceView, type RequestCheck, type RequestStatus, type Role } from '../../shared/terms.ts';
 import { assertAssetOnNetwork, getAsset, getNetworkRule } from './catalog.ts';
 import { getAddressRow, likePattern } from './addresses.ts';
 import { evidenceOf } from './evidence.ts';
@@ -354,9 +354,9 @@ function checksView(db: DB, cfg: AppConfig, r: any): { evaluatedAt: string; stor
 export function getRequest(db: DB, cfg: AppConfig, auth: AuthContext, id: string) {
   const r = getRow(db, auth.org.id, id);
   const dto = toRequestDto(db, r, auth);
-  // 처리 기록의 승인·반려 행에는 수행자로 이은 결정 근거를 붙인다(A2-3). 수행자 id(actor_id)는 응답에 넣지 않는다.
-  const byUser = new Map(dto.approvals.map((a): [string, DecisionEvidence] => [a.userId, {
-    userId: a.userId, name: a.name, decision: a.decision, decidedAt: a.createdAt, intentHashDisplay: a.intentHashDisplay,
+  // 처리 기록의 승인·반려 행에는 수행자로 이은 결정 근거를 붙인다(A2-3). 수행자 id(actor_id)는 행에도 근거에도(userId 없음) 넣지 않는다.
+  const byUser = new Map(dto.approvals.map((a): [string, DecisionEvidenceView] => [a.userId, {
+    name: a.name, decision: a.decision, decidedAt: a.createdAt, intentHashDisplay: a.intentHashDisplay,
     matchesRequestIntent: a.matchesRequestIntent, counted: a.counted, rolesAtDecision: a.rolesAtDecision, rolesSource: a.rolesSource, approveRoleAtDecision: a.approveRoleAtDecision,
   }]));
   const rows = db.prepare("SELECT action, actor_id actorId, actor_name actorName, summary, created_at createdAt FROM audit_log WHERE org_id = ? AND target_type = 'request' AND target_id = ? ORDER BY seq").all(auth.org.id, id) as { action: string; actorId: string | null; actorName: string; summary: string; createdAt: string }[];

@@ -13,7 +13,7 @@ import { amount, date, dateTime, krw, krwShort } from '../format.ts';
 import { krwValue } from '../../shared/decimal.ts';
 import {
   ADDRESS_STATUS, APPROVAL_WAIT_TEXT, approvalShortfallText, approverNames, REQUEST_STATUS,
-  type AddressStatus, type ApprovalWait, type DecisionEvidence, type RequestCheck, type RequestStatus,
+  type AddressStatus, type ApprovalWait, type DecisionEvidenceView, type RequestCheck, type RequestStatus,
 } from '../../shared/terms.ts';
 
 /** 요청 응답의 출금 전 점검: 작성·검토 중이면 지금 기준(stored=false), 승인 요청 뒤에는 제출 때 저장한 결과(stored=true). 기록이 없는 이전 요청은 null. */
@@ -398,7 +398,7 @@ export function RequestDetailPage() {
             승인할 수 없는 요청(blockedReason)에는 두지 않는다. 알림을 약속하지 않는 위 문장(A1-08)은 그대로다. 지연 기준·색은 없다. */}
         {wait && (
           <p className="next-wait">
-            {APPROVAL_WAIT_TEXT.candidates}: <b>{wait.candidates.length ? approverNames(wait.candidates, me.user.id, ' · ') : '없음'}</b> (남은 승인 {wait.remaining}명) · 승인 요청 <WaitedTime iso={r.submittedAt} />
+            {APPROVAL_WAIT_TEXT.candidates}: <b>{wait.candidates.length ? approverNames(wait.candidates, me.user.id, ' · ') : '없음'}</b> (남은 승인 {wait.remaining}명) · <span className="nowrap">승인 요청 <WaitedTime iso={r.submittedAt} /></span>
           </p>
         )}
         {mine && r.status === 'PENDING_APPROVAL' && (
@@ -580,26 +580,31 @@ export function RequestDetailPage() {
           <p className="rc-decide-summary">
             {r.createdBy.name}님의 출금 요청: {r.address.label}{r.address.label.endsWith(')') ? ` · ${r.address.counterparty}` : `(${r.address.counterparty})`}에 {amount(r.amount, r.assetCode)}{r.krwValueAtSubmit ? ` (${krwShort(r.krwValueAtSubmit)})` : ''} · 목적: {r.purpose} · 승인 {r.approvedCount}/{r.requiredApprovals}명
           </p>
-          {/* 받는 주소의 주소록 기록 두 줄(A2-2, 사람이 남긴 기록이지 증명이 아니다, A-32): 등록자·받은 경로 → 다시 확인한 경로 / 확인자·지금 상태.
-              지금 상태는 15초마다 새로 읽는 요청 응답의 값(주소 조회는 60초 캐시). 확인자의 연락 경로는 저장하지 않으므로 쓰지 않는다.
-              등록자가 남긴 '확인한 상대·연락처'(자유 서술)는 독립 경로로 착각하지 않게 카드에 옮기지 않고 주소 기록 링크로만 남긴다. 못 불러오면 링크만 보인다. */}
+          {/* 받는 주소의 주소록 기록 두 줄(A2-2, 사람이 남긴 기록이지 증명이 아니다, A-32): 등록자·받은 경로 → 등록자가 다시 확인한 경로 / 확인자·지금 상태.
+              다시 확인한 경로는 등록자가 남긴 값이라 '등록자가'를 붙인다(다음 줄의 확인자가 그 경로로 확인했다고 읽히지 않게). 확인자의 연락 경로는 저장하지 않으므로 쓰지 않는다.
+              지금 상태는 15초마다 새로 읽는 요청 응답의 값(주소 조회는 60초 캐시). 괄호는 시각 하나에만 쓰고, 증명이 아니라는 말은 가운뎃점으로 잇는다.
+              등록자가 남긴 '확인한 상대·연락처'(자유 서술)는 독립 경로로 착각하지 않게 카드에 옮기지 않고 주소 기록 링크로만 남긴다. 못 불러오면 링크만 보인다.
+              등록 때 비슷한 주소 경고가 있었으면 링크를 그 경고 줄 끝으로 옮긴다('주소 기록 보기에서 확인하세요'가 링크와 같은 줄에 오게). */}
           <div className="rc-addr-record small" role="group" aria-label="받는 주소의 주소록 기록">
             {addr ? (
               <>
                 <p className="rc-addr-line">
                   등록 {addr.createdBy.name} {date(addr.createdAt)} · {addr.outOfBand
-                    ? <>받은 경로 {addr.outOfBand.receivedViaLabel} → 다시 확인한 경로 {addr.outOfBand.verifiedViaLabel}</>
-                    : '받은 경로·다시 확인한 경로: 기록 없음(이 기록을 남기기 전에 등록된 주소입니다)'}
+                    ? <>받은 경로 {addr.outOfBand.receivedViaLabel} → 등록자가 다시 확인한 경로 {addr.outOfBand.verifiedViaLabel}</>
+                    : '받은 경로·등록자가 다시 확인한 경로: 기록 없음(이 기록을 남기기 전에 등록된 주소입니다)'}
                 </p>
                 <p className="rc-addr-line">
                   {addr.reviewedBy ? `확인 ${addr.reviewedBy.name} ${date(addr.reviewedAt)}` : '확인 기록 없음'} · 지금 상태 {addrSt?.label ?? r.address.status}
-                  {addr.activeFrom && r.address.status === 'ACTIVE' && ` (${dateTime(addr.activeFrom)}부터)`}
-                  {addr.activeFrom && r.address.status === 'COOLING_DOWN' && ` (${dateTime(addr.activeFrom)}부터 사용 가능)`}
-                  {' '}(사람이 남긴 기록이며 증명이 아닙니다) · <Link to={`/addresses/${r.address.id}`}>주소 기록 보기</Link>
+                  {addr.activeFrom && r.address.status === 'ACTIVE' && `(${dateTime(addr.activeFrom)}부터)`}
+                  {addr.activeFrom && r.address.status === 'COOLING_DOWN' && `(${dateTime(addr.activeFrom)}부터 사용 가능)`}
+                  {' · 사람이 남긴 기록이며 증명이 아닙니다'}
+                  {!addr.lookalikeReason && <> · <Link className="nowrap" to={`/addresses/${r.address.id}`}>주소 기록 보기</Link></>}
                 </p>
-                {addr.lookalikeReason && <p className="rc-addr-line rc-addr-warn">등록 때 비슷한 주소 경고가 있었습니다 — 등록 사유는 주소 기록에서 확인하세요</p>}
+                {addr.lookalikeReason && (
+                  <p className="rc-addr-line rc-addr-warn">등록 때 비슷한 주소 경고가 있었습니다 — 등록 사유는 <Link className="nowrap" to={`/addresses/${r.address.id}`}>주소 기록 보기</Link>에서 확인하세요</p>
+                )}
               </>
-            ) : <p className="rc-addr-line"><Link to={`/addresses/${r.address.id}`}>주소 기록 보기</Link></p>}
+            ) : <p className="rc-addr-line"><Link className="nowrap" to={`/addresses/${r.address.id}`}>주소 기록 보기</Link></p>}
           </div>
           {/* 같은 내용의 409 안내(지문 불일치)가 바로 아래에 있으면 되풀이하지 않는다. */}
           {tampered && conflict?.code !== 'INTENT_TAMPERED' && (
@@ -696,8 +701,8 @@ export function RequestDetailPage() {
       <section className="card">
         <h2>처리 기록</h2>
         <ul className="timeline">
-          {/* 승인·반려 줄 아래에는 결정 근거(A2-3, 읽을 때 계산): 결정 당시 역할(감사 기록 조회 권한자만)·정족수 포함·결정한 지문 */}
-          {r.timeline.map((t: { createdAt: string; actorName: string; summary: string; evidence?: DecisionEvidence | null }, i: number) => (
+          {/* 승인·반려 줄 아래에는 결정 근거(A2-3, 읽을 때 계산): 결정 당시 역할(감사 기록 조회 권한자만)·필요 승인 수에 셌는지·결정 때 본 승인 대상 지문 */}
+          {r.timeline.map((t: { createdAt: string; actorName: string; summary: string; evidence?: DecisionEvidenceView | null }, i: number) => (
             <li key={i}>
               <span className="muted small">{dateTime(t.createdAt)}</span> <b>{t.actorName}</b> — {t.summary}
               {t.evidence && <DecisionEvidenceLine evidence={t.evidence} showRoles={canAudit} />}

@@ -233,10 +233,10 @@ test('내 차례(A1-03): 종류별 배지와 탭 건수는 서버 할 일 건수
   const wr4 = page.locator('a.progress-item', { hasText: 'WR-000004' });
   await expect(wr4.locator('.badge-turn')).toHaveText('내 승인 차례');
   // A2-1: 승인 대기 요청의 차례 문구는 지금 승인할 수 있는 사람(본인은 '나')과 승인 요청 뒤 기다린 시간이다(A1 '승인자 결정 대기' 자리).
-  await expect(wr4.locator('.turn-text')).toHaveText(/^승인할 수 있는 사람: 나·서예린 · \d+시간째$/);
+  await expect(wr4.locator('.turn-text')).toHaveText(/^승인할 수 있는 사람: 나·서예린 · 승인 요청 \d+시간째$/);
   // 누구 차례인지는 둘째 줄(요청자 → 받는 곳) 맨 앞에 있고, 첫 줄의 수량은 '내 승인 차례'가 붙은 줄에서도 번호와 같은 줄에 남는다(1440px).
   await expect(wr4.locator('.progress-meta .turn-text')).toHaveCount(1);
-  await expect(wr4.locator('.progress-meta')).toContainText(/^승인할 수 있는 사람: 나·서예린 · \d+시간째 · 강도윤 → /);
+  await expect(wr4.locator('.progress-meta')).toContainText(/^승인할 수 있는 사람: 나·서예린 · 승인 요청 \d+시간째 · 강도윤 → /);
   for (const ref of ['WR-000004', 'WR-000003', 'WR-000005']) {
     const row = page.locator('a.progress-item', { hasText: ref });
     const ys = await row.evaluate((el) => ['.ref', '.progress-amt'].map((s) => { const b = el.querySelector(s)!.getBoundingClientRect(); return Math.round((b.top + b.bottom) / 2); }));
@@ -291,7 +291,8 @@ test('홈 지금 처리할 일(A1-04): 건수는 서버와 같고, 사용 대기
     if (user === '문태호') expect(tasks.some((t) => t.kind === 'cooling_addresses')).toBe(false);
     if (user === '오민재') {
       const sub = list.locator('.task-sub a', { hasText: '0.5 BTC' });
-      await expect(sub).toHaveText(/^강도윤님 · 0\.5 BTC → 그룹사 BTC 보관 이전용 · \d+시간 전 승인 요청$/);
+      // 기다린 시간은 진행 중인 요청·요청 상세와 같은 '승인 요청 n시간째'(A2-1)
+      await expect(sub).toHaveText(/^강도윤님 · 0\.5 BTC → 그룹사 BTC 보관 이전용 · 승인 요청 \d+시간째$/);
       await sub.click();
       await expect(page).toHaveURL(/\/requests\/wr-4$/);
       await page.goto('/');
@@ -312,11 +313,11 @@ test('결정 카드(A1-05·06·07): 요약 → 주소록 기록 → 지문 → �
   await expect(card.locator('.rc-decide-summary')).toHaveText('강도윤님의 출금 요청: 그룹사 BTC 보관 이전용(모의 그룹사 C)에 0.5 BTC (약 5,000만 원) · 목적: 그룹사 보관 자산 일부 이전 (모의) · 승인 0/1명');
   // 카드의 첫 글은 제목 다음의 요약이다.
   expect(await card.evaluate((el) => el.querySelector('h2')!.nextElementSibling!.className)).toBe('rc-decide-summary');
-  // 주소록 기록 두 줄(A2-2): 기록 방식 도입 전 주소(ab-03)라 받은 경로·다시 확인한 경로는 '기록 없음'
+  // 주소록 기록 두 줄(A2-2): 기록 방식 도입 전 주소(ab-03)라 받은 경로·등록자가 다시 확인한 경로는 '기록 없음'
   const rec = card.locator('.rc-addr-record');
   await expect(rec.locator('.rc-addr-line')).toHaveText([
-    /^등록 강도윤 \d{4}-\d{2}-\d{2} · 받은 경로·다시 확인한 경로: 기록 없음\(이 기록을 남기기 전에 등록된 주소입니다\)$/,
-    /^확인 오민재 \d{4}-\d{2}-\d{2} · 지금 상태 사용 가능 \(사람이 남긴 기록이며 증명이 아닙니다\) · 주소 기록 보기$/,
+    /^등록 강도윤 \d{4}-\d{2}-\d{2} · 받은 경로·등록자가 다시 확인한 경로: 기록 없음\(이 기록을 남기기 전에 등록된 주소입니다\)$/,
+    /^확인 오민재 \d{4}-\d{2}-\d{2} · 지금 상태 사용 가능 · 사람이 남긴 기록이며 증명이 아닙니다 · 주소 기록 보기$/,
   ]);
   await expect(rec.getByRole('link', { name: '주소 기록 보기' })).toHaveAttribute('href', '/addresses/ab-03');
   // 지문은 그대로 카드 안에 보인다(A-29). 요청자 화면과 같은 값(서버 값). 바로 아래 승인자 쪽 할 일(다른 연락 수단으로 받은 지문과 대조, 선택 단계).
