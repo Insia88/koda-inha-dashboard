@@ -341,10 +341,27 @@ test('공통 검색: debounce, Enter 즉시, 한국어 IME 조합 중 조회 없
   await expect(page).not.toHaveURL(/q=/);
   await expect(page.getByRole('button', { name: '검색어 지우기' })).toHaveCount(0);
 
-  // Enter는 debounce를 기다리지 않는다
+  // Enter는 debounce(300ms)를 기다리지 않는다. 테스트 실행기 쪽 시계(브라우저 왕복 포함)로 재면 부하가 걸린 실행에서
+  // 흔들리므로, 페이지 안에서 Enter keydown부터 주소(URL) 갱신까지의 시간을 잰다.
+  await page.evaluate(() => {
+    const w = window as unknown as { __enterAt?: number; __urlAt?: number };
+    delete w.__enterAt; delete w.__urlAt;
+    document.addEventListener('keydown', (e) => { if (e.key === 'Enter') w.__enterAt ??= performance.now(); }, { capture: true });
+    for (const k of ['pushState', 'replaceState'] as const) {
+      const orig = history[k].bind(history);
+      history[k] = (data: unknown, unused: string, url?: string | URL | null) => {
+        if (String(url ?? '').includes('q=XRP')) w.__urlAt ??= performance.now();
+        return orig(data, unused, url);
+      };
+    }
+  });
   await page.keyboard.type('XRP');
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(/q=XRP/, { timeout: 200 });
+  await expect(page).toHaveURL(/q=XRP/);
+  const t = await page.evaluate(() => { const w = window as unknown as { __enterAt?: number; __urlAt?: number }; return { enter: w.__enterAt, url: w.__urlAt }; });
+  expect(t.enter, 'Enter keydown을 기록하지 못했습니다').toBeDefined();
+  expect(t.url, '주소 갱신을 기록하지 못했습니다').toBeDefined();
+  expect(t.url! - t.enter!).toBeLessThan(250);
   // Escape로 지우기
   await page.keyboard.press('Escape');
   await expect(box).toHaveValue('');
