@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ACTION_LABEL, actionLabel, ADDRESS_STATUS, GLOSSARY, GLOSSARY_LABEL, REQUEST_STATUS, ROLE_LABEL, type GlossaryKey } from '../shared/terms.ts';
+import { ACTION_LABEL, actionLabel, ADDRESS_STATUS, GLOSSARY, GLOSSARY_LABEL, PAYMENT_EVIDENCE_TEXT, REQUEST_STATUS, ROLE_LABEL, type GlossaryKey } from '../shared/terms.ts';
 
 // 용어·상태 설명의 단일 출처(shared/terms.ts)가 DASH-002 기준과 프로젝트 문구 규칙을 지키는지 확인한다.
 // 사람이 이해하는지는 이 테스트로 알 수 없다(사용자 검증 아님).
@@ -129,5 +129,45 @@ describe('문구 규칙', () => {
       expect(t.trim(), k).toMatch(/(?:니다|세요)\.$/);
       expect(t, k).not.toMatch(/서버|config|\.json|\.tsx?\b|API|DB_|localhost/i);
     }
+  });
+});
+
+describe('지급 근거 문구(A2b)', () => {
+  const texts = Object.entries(PAYMENT_EVIDENCE_TEXT).flatMap(([k, v]) =>
+    typeof v === 'function' ? [[`${k}(0,false)`, v(0, false)], [`${k}(2,true)`, v(2, true)], [`${k}(1,false)`, v(1, false)], [`${k}(0,true)`, v(0, true)]] : [[k, v]]) as [string, string][];
+
+  it('names the three evidence audit actions with Korean labels and no implementation words or safety claims', () => {
+    expect({
+      added: ACTION_LABEL['request.attachment_added'], removed: ACTION_LABEL['request.attachment_removed'], note: ACTION_LABEL['request.evidence_note_updated'],
+    }).toEqual({ added: '지급 근거 파일 첨부', removed: '지급 근거 파일 삭제', note: '지급 근거 메모 수정' });
+    for (const a of ['request.attachment_added', 'request.attachment_removed', 'request.evidence_note_updated']) {
+      expect(actionLabel(a), a).not.toBe(a);
+      expect(ACTION_LABEL[a], a).not.toMatch(/서버|config|.json|API|hash|intent/i);
+      expect(ACTION_LABEL[a], a).not.toMatch(POSITIVE_SAFETY_CLAIM);
+    }
+  });
+
+  it('makes no safety claim, uses no implementation words and never calls the field the address memo/tag', () => {
+    for (const [k, t] of texts) {
+      expect(t.trim(), k).not.toBe('');
+      expect(t, k).not.toMatch(POSITIVE_SAFETY_CLAIM);
+      expect(t, k).not.toMatch(/서버|config|.json|.tsx?|API|DB_|localhost|hash|intent|memo/i);
+      expect(t, k).not.toContain('메모/태그');
+      if (t.includes('안전')) expect(t, k).toMatch(/아닙니다|않습니다|없습니다/);
+    }
+    // 문서가 진짜인지·받는 주소가 맞는지를 이 화면이 확인한다고 말하지 않는다
+    expect(PAYMENT_EVIDENCE_TEXT.source).toContain('확인하지 않습니다');
+    expect(PAYMENT_EVIDENCE_TEXT.sourceCard).toContain('확인하지 않습니다');
+  });
+
+  it('uses the formal tone for sentences and keeps the exact none label and submit lines', () => {
+    for (const [k, t] of texts) {
+      if (['title', 'none', 'limits', 'noteLabel'].includes(k)) continue;
+      expect(t.trim(), k).toMatch(/(?:니다|세요|1043).?$/);
+    }
+    expect(PAYMENT_EVIDENCE_TEXT.none).toBe('근거 기록 없음');
+    expect(PAYMENT_EVIDENCE_TEXT.submitLine(0, false)).toBe("지급 근거 없이 보내면 승인자 화면에 '근거 기록 없음'으로 보입니다.");
+    expect(PAYMENT_EVIDENCE_TEXT.submitLine(2, true)).toBe('지급 근거(파일 2개·메모)가 승인자에게 함께 보입니다. 승인 요청을 보내면 바꿀 수 없습니다.');
+    expect(PAYMENT_EVIDENCE_TEXT.submitLine(1, false)).toBe('지급 근거(파일 1개)가 승인자에게 함께 보입니다. 승인 요청을 보내면 바꿀 수 없습니다.');
   });
 });

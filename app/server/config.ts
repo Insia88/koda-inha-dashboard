@@ -96,6 +96,15 @@ export interface AppConfig {
    * 요청이 다른 함수 인스턴스로 가도 로그인이 유지된다. 로컬은 저장소 세션을 쓰므로 항상 null이다.
    */
   demoSessionSecret: SessionSecret | null;
+  /**
+   * 출금 요청 지급 근거 파일 올리기(A2b, DEC-005). REQUEST_ATTACHMENTS=off이면 올리기만 403 ATTACHMENTS_DISABLED로 거부하고
+   * 목록·내려받기·삭제·지급 근거 메모는 그대로 둔다(되돌리기 수단). 기본은 켬.
+   */
+  attachmentsEnabled: boolean;
+  /** 지급 근거 파일 올리기 1분당 허용 횟수(IP 기준, 업로드 경로에만). ATTACHMENT_UPLOAD_RATE_LIMIT_MAX, 기본 30. 설계 가정(A-39). */
+  attachmentUploadRateLimitMax: number;
+  /** 공개 데모 인스턴스 하나에 저장할 수 있는 지급 근거 파일 총 바이트(기본 32MiB). 로컬에서는 적용하지 않는다. 설계 가정(A-39). */
+  demoAttachmentTotalBytes: number;
 }
 
 const LOOPBACK = /^(localhost|127(?:\.\d{1,3}){3}|::1|\[::1\]|::ffff:127(?:\.\d{1,3}){3})$/i;
@@ -170,6 +179,9 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     mockPriceFeed: env.MOCK_PRICE_FEED !== 'off',
     demoCreateLimit: 200,
     demoSessionSecret,
+    attachmentsEnabled: env.REQUEST_ATTACHMENTS !== 'off',
+    attachmentUploadRateLimitMax: Number(env.ATTACHMENT_UPLOAD_RATE_LIMIT_MAX ?? 30),
+    demoAttachmentTotalBytes: 32 * 1024 * 1024,
     ...overrides,
   };
 }

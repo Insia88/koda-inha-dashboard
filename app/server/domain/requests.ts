@@ -13,6 +13,7 @@ import { REQUEST_STATUS, type ApprovalWait, type ApproverRef, type DecisionEvide
 import { assertAssetOnNetwork, getAsset, getNetworkRule } from './catalog.ts';
 import { getAddressRow, likePattern } from './addresses.ts';
 import { evidenceOf } from './evidence.ts';
+import { evidenceSnapshot, paymentEvidenceOf } from './attachment-store.ts';
 import {
   attachCheckReasons, computeChecks, INTENT_VERSION, intentFieldsOf, intentHashDisplay, intentHashOf, normalizeIntentAddress, parseStoredChecks, readPrice, serializeChecks,
   type IntentRow,
@@ -322,7 +323,8 @@ export function toRequestDto(db: DB, r: any, auth: AuthContext, withApprovals = 
   };
 }
 
-function getRow(db: DB, orgId: string, id: string): any {
+/** 조회자 조직의 요청 행(다른 조직이면 404). 지급 근거 처리(attachments.ts)도 쓴다. */
+export function getRow(db: DB, orgId: string, id: string): any {
   const r = db.prepare(`${SELECT} WHERE r.id = ? AND r.org_id = ?`).get(id, orgId);
   if (!r) throw Errors.notFound('요청');
   return r;
@@ -362,7 +364,8 @@ export function getRequest(db: DB, cfg: AppConfig, auth: AuthContext, id: string
   const rows = db.prepare("SELECT action, actor_id actorId, actor_name actorName, summary, created_at createdAt FROM audit_log WHERE org_id = ? AND target_type = 'request' AND target_id = ? ORDER BY seq").all(auth.org.id, id) as { action: string; actorId: string | null; actorName: string; summary: string; createdAt: string }[];
   const timeline = rows.map(({ actorId, ...t }) => (DECISION_ACTIONS.has(t.action) ? { ...t, evidence: (actorId && byUser.get(actorId)) || null } : t));
   const balance = balanceFor(db, r.wallet_id, r.asset_code);
-  return { ...dto, timeline, available: formatUnits(balance.total - balance.reserved, r.precision), checks: checksView(db, cfg, r) };
+  // 지급 근거(A2b, 설계 가정 A-38): 상세·행동 응답에만. 목록 응답(listRequests)의 모양은 그대로다.
+  return { ...dto, timeline, available: formatUnits(balance.total - balance.reserved, r.precision), checks: checksView(db, cfg, r), paymentEvidence: paymentEvidenceOf(db, cfg, r, auth) };
 }
 
 export function listRequests(db: DB, auth: AuthContext, q: { status?: string; view?: string; q?: string; sort?: string; order?: string; page: number; pageSize: number }) {
@@ -504,19 +507,21 @@ function lockRow(db: DB, auth: AuthContext, id: string, action: RequestAction, v
   return r;
 }
 
-function requireCreator(r: any, auth: AuthContext) {
+export function requireCreator(r: any, auth: AuthContext) {
   if (!auth.perms.has('request.create')) throw Errors.forbidden('요청 작성·수정');
   if (r.created_by !== auth.user.id) throw new AppError(403, 'NOT_REQUEST_OWNER', '요청을 작성한 사람만 이 작업을 할 수 있습니다.', '작성자에게 요청하세요.');
 }
 
-function bump(db: DB, id: string, version: number, sets: Record<string, unknown>) {
+/** 요청 행의 버전·수정 시각을 올린다(지급 근거를 바꿀 때도 올려, 그 전에 연 승인 요청 화면이 409로 다시 불러오게 한다). */
+export function bump(db: DB, id: string, version: number, sets: Record<string, unknown>) {
   const keys = Object.keys(sets);
   const sql = `UPDATE withdrawal_requests SET ${keys.map((k) => `${k} = ?, `).join('')}updated_at = ?, version = version + 1 WHERE id = ? AND version = ?`;
   const res = db.prepare(sql).run(...(Object.values(sets) as any[]), now(), id, version);
   if (res.changes !== 1) throw new AppError(409, 'VERSION_CONFLICT', '다른 사용자가 먼저 이 요청을 변경했습니다.', '최신 내용을 다시 확인한 뒤 진행하세요.');
 }
 
-function audit(db: DB, auth: AuthContext, r: any, action: string, summary: string, detail: Record<string, unknown> = {}) {
+/** 요청 감사 기록(내용 앞에 요청 번호). 해시 체인은 writeAudit 하나로만 이어진다. */
+export function audit(db: DB, auth: AuthContext, r: any, action: string, summary: string, detail: Record<string, unknown> = {}) {
   writeAudit(db, { orgId: auth.org.id, actorId: auth.user.id, actorName: auth.user.name, action, targetType: 'request', targetId: r.id, summary: `${r.ref_no} ${summary}`, detail });
 }
 
@@ -646,6 +651,8 @@ export function submitForApproval(db: DB, cfg: AppConfig, auth: AuthContext, id:
       intentHash,
       checks: checks.map((c) => ({ id: c.id, outcome: c.outcome, requiresReason: c.requiresReason })),
       checkReasons: Object.fromEntries(cautions.filter((c) => c.reason).map((c) => [c.id, c.reason])),
+      // 승인 요청 때 고정된 지급 근거 목록(A2b): 파일 id·이름·형식·크기·SHA-256과 메모의 길이·SHA-256만. 승인 대상 지문에는 넣지 않는다.
+      paymentEvidence: evidenceSnapshot(db, id),
     });
     return getRequest(db, cfg, auth, id);
   });

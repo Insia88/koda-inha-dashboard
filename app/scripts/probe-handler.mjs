@@ -27,8 +27,42 @@ try {
     throw new Error(`healthz 응답이 예상과 다릅니다: ${res.status} ${JSON.stringify(body)}`);
   }
   console.log(`핸들러 점검 통과: /api/healthz ${res.status}, mode=${body.mode}`);
+  await probeAttachments(port);
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }
+/**
+ * 지급 근거 파일(A2b): 묶은 핸들러와 http → 핸들러 경로가 바이너리 본문을 그대로 넘기는지 본다.
+ * 개발용 로그인(한지수) → 67바이트 PNG를 wr-6에 올림 → 내려받아 바이트·머리글 비교 → 삭제 → 2MiB+1바이트는 413.
+ * Vercel 플랫폼 자체(본문 한도 4.5MB 등)는 미리보기 배포에서만 확인할 수 있다.
+ */
+async function probeAttachments(port) {
+  const base = `http://127.0.0.1:${port}`;
+  const login = await fetch(`${base}/api/auth/dev-login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ userId: 'u-a-han' }) });
+  if (login.status !== 200) throw new Error(`개발용 로그인 실패: ${login.status}`);
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const me = await (await fetch(`${base}/api/me`, { headers: { cookie } })).json();
+  const h = { cookie, 'x-csrf-token': me.csrfToken };
+  const png = Buffer.from('89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4890000000A49444154789C63000100000500010D0A2DB40000000049454E44AE426082', 'hex');
+  const up = await fetch(`${base}/api/requests/wr-6/attachments`, { method: 'POST', headers: { ...h, 'content-type': 'application/octet-stream', 'x-attachment-name': encodeURIComponent('점검.png') }, body: png });
+  const upBody = await up.json();
+  if (up.status !== 201) throw new Error(`지급 근거 올리기 실패: ${up.status} ${JSON.stringify(upBody)}`);
+  const x = upBody.paymentEvidence.attachments.at(-1);
+  const dl = await fetch(`${base}${x.contentUrl}`, { headers: { cookie } });
+  const got = Buffer.from(await dl.arrayBuffer());
+  const expected = { 'content-type': 'image/png', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store' };
+  for (const [k, v] of Object.entries(expected)) if (dl.headers.get(k) !== v) throw new Error(`내려받기 머리글 ${k}가 다릅니다: ${dl.headers.get(k)}`);
+  if (!String(dl.headers.get('content-disposition')).startsWith('attachment; ')) throw new Error('내려받기가 첨부(attachment)가 아닙니다.');
+  if (dl.status !== 200 || !got.equals(png)) throw new Error(`내려받은 바이트가 올린 파일과 다릅니다(${dl.status}, ${got.length}바이트).`);
+  const del = await fetch(`${base}/api/requests/wr-6/attachments/${x.id}`, { method: 'DELETE', headers: h });
+  if (del.status !== 200) throw new Error(`지급 근거 삭제 실패: ${del.status}`);
+  const big = Buffer.alloc(2 * 1024 * 1024 + 1, 0x20);
+  big.write('%PDF-1.4', 0, 'latin1');
+  const tooBig = await fetch(`${base}/api/requests/wr-6/attachments`, { method: 'POST', headers: { ...h, 'content-type': 'application/octet-stream' }, body: big });
+  const tooBigBody = await tooBig.json();
+  if (tooBig.status !== 413 || tooBigBody.error?.code !== 'ATTACHMENT_TOO_LARGE') throw new Error(`2MiB 초과 파일이 413으로 거부되지 않았습니다: ${tooBig.status}`);
+  console.log(`핸들러 점검 통과: 지급 근거 올리기 201(${png.length}바이트) · 내려받기 바이트·머리글 일치 · 삭제 200 · 2MiB 초과 413`);
+}
+
 // 런타임이 남긴 타이머가 있어도 기다리지 않고 끝낸다(Windows에서 process.exit 직후 libuv 경고 방지).
 setTimeout(() => process.exit(0), 50).unref();

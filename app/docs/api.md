@@ -1,6 +1,6 @@
 # API 계약 (요약)
 
-모든 경로는 `/api` 아래, JSON. 인증은 `koda_sid` HttpOnly 쿠키(공개 데모에서는 Secure 추가). 변경 요청(POST/PUT/PATCH)은 `X-CSRF-Token` 헤더(`GET /api/me`의 `csrfToken`) 필수. 다른 조직의 리소스는 존재 여부를 숨기기 위해 404. `/api` 응답은 모두 `Cache-Control: no-store`.
+모든 경로는 `/api` 아래, JSON. 인증은 `koda_sid` HttpOnly 쿠키(공개 데모에서는 Secure 추가). 변경 요청(POST/PUT/PATCH/DELETE)은 `X-CSRF-Token` 헤더(`GET /api/me`의 `csrfToken`) 필수(본문을 읽기 전에 확인한다). 요청 본문은 JSON이고 한도는 64KB다. 예외는 지급 근거 파일 올리기(`POST /requests/:id/attachments`) 하나로, 이 경로만 원본 바이트(`application/octet-stream`)를 받고 한도가 2MiB다(아래 'A2b: 지급 근거'). 다른 조직의 리소스는 존재 여부를 숨기기 위해 404. `/api` 응답은 모두 `Cache-Control: no-store`.
 
 ## 오류 형식
 ```json
@@ -50,6 +50,26 @@
 | `INTENT_TAMPERED` | 409 | 승인할 때와 커스터디로 넘기기 직전에 저장된 행으로 지문을 다시 계산했더니 제출 때 지문과 다르거나, 정족수에 든 승인 표 중 같은 지문을 승인하지 않은 표가 있음. 승인 트랜잭션을 되돌려 처리 중으로 넘기지 않고 커스터디를 부르지 않는다. 별도 트랜잭션으로 감사 기록 `request.intent_tampered`(수행자 '시스템(승인 대상 지문 재확인)', 상세: `stage`(`approve`·`handoff`), `storedHash`, `recomputedHash`(저장된 수량을 정수로 읽을 수 없어 다시 계산하지 못하면 null), `mismatchedApproverIds`, `attemptedBy`, 끝자리만 담은 `current`(`amount`는 읽을 수 없으면 null, `amountUnits`는 저장된 글자 그대로), `custodyCalled: false`)를 남긴다(행동 이름 '승인 대상 지문 불일치로 중단'). 조회 응답도 지문을 다시 계산해 `blockedReason: 'INTENT_TAMPERED'`로 알리고 `approve`를 내보이지 않는다. 저장된 수량을 정수로 읽을 수 없는 요청(예: `'0.5'`, `'abc'`)도 같고, 상세·목록·홈은 그대로 응답한다(`amount: null`). 반려·취소는 막지 않으며 승인 요청 때 예약한 수량을 푼다 | — | — |
 | `VALIDATION` | 422 | 승인·반려 본문에 `intentHash`가 없음 | `intentHash` | — |
 
+### 오류 코드 (A2b: 지급 근거)
+
+지급 근거 파일은 형식을 **파일 앞부분(매직 바이트)으로만** 정한다(보낸 쪽의 `Content-Type`·파일 이름은 보지 않는다). 올리기 경로는 본문을 읽기 전에 로그인·CSRF → 기능 켜짐 → 요청 조회 권한 → 요청(다른 조직 404) → 작성자 → 상태 → 본문 형식 → 선언한 크기 → 파일 수 → 공개 데모 한도 순으로 보고, 저장 트랜잭션 안에서 같은 검사를 다시 한다.
+
+| 코드 | 상태 | 언제 | `fields[].field` | 추가 필드 |
+| --- | --- | --- | --- | --- |
+| `ATTACHMENTS_DISABLED` | 403 | `REQUEST_ATTACHMENTS=off`인 환경의 올리기. 목록·내려받기·삭제·메모는 그대로 된다 | — | — |
+| `NOT_REQUEST_OWNER` | 403 | 요청 작성자가 아닌 사람의 올리기·삭제·메모 저장(요청 작성 권한이 없으면 `FORBIDDEN`) | — | — |
+| `EVIDENCE_LOCKED` | 409 | 작성 중·검토 중이 아닌 요청(승인 요청 뒤, 취소·반려·처리 뒤)에 올리기·삭제·메모 저장. 승인 요청 때 근거 묶음이 고정된다. 저장 계층 트리거도 같은 규칙(`REQUEST_EVIDENCE_LOCKED`) | — | `status` |
+| `ATTACHMENT_UPLOAD_FORMAT` | 415 | 올리기 본문 형식이 `application/octet-stream`이 아님(`multipart/form-data`·`application/pdf`·`image/svg+xml`·`text/html` 등). 다른 경로에 `application/octet-stream`을 보내면 415 `BAD_REQUEST` | — | — |
+| `ATTACHMENT_TOO_LARGE` | 413 | 파일이 2MiB(2,097,152바이트)를 넘음. 선언한 `Content-Length`로 본문을 읽기 전에, 길이를 알리지 않은 본문은 경로 본문 한도에서 끊는다. 아무것도 저장하지 않는다 | — | — |
+| `ATTACHMENT_LIMIT` | 422 | 요청 한 건에 이미 5개가 있음 | — | `maxFiles` |
+| `ATTACHMENT_EMPTY` | 422 | 빈 본문 | — | — |
+| `ATTACHMENT_TYPE_NOT_ALLOWED` | 422 | 앞부분이 PDF(`%PDF-`)·PNG(8바이트 서명 + 12~15번째 `IHDR`)·JPEG(`FF D8 FF`)가 아님. SVG·XML·HTML·GIF·WebP, 앞에 BOM·공백이 붙은 PDF, 잘린 서명 모두 거부 | — | `allowed`(`['PDF','PNG','JPEG']`) |
+| `ATTACHMENT_DUPLICATE` | 409 | 같은 요청에 같은 내용(SHA-256)의 파일이 이미 있음(다시 보내기가 두 번 저장되지 않는다) | — | `attachmentId` |
+| `VALIDATION` | 422 | `X-Attachment-Name`을 퍼센트 디코딩할 수 없거나 깨진 문자가 있음 / 지급 근거 메모가 300자를 넘음 | `fileName` / `note` | — |
+| `DEMO_LIMIT` | 422 | 공개 데모에서만. 인스턴스당 올리기 횟수(지운 파일 포함)가 `DEMO_LIMIT` 건수에 도달했거나, 인스턴스에 저장된 파일 총량에 이번 파일을 더하면 32MiB를 넘음 | — | — |
+| `RATE_LIMITED` | 429 | 올리기 경로의 IP당 1분 한도(기본 30회, `ATTACHMENT_UPLOAD_RATE_LIMIT_MAX`) 초과 | — | — |
+| `NOT_FOUND` | 404 | 다른 조직의 요청, 또는 그 요청에 없는 파일 id(다른 요청의 파일 id 포함) | — | — |
+
 ## 멱등성
 `Idempotency-Key`(8~80자 영숫자·`_-`). `POST /api/requests`는 필수, 요청 행동(`/review`, `/submit`, `/approve`, `/reject`, `/cancel`, `/back-to-draft`)은 선택. 같은 사용자·경로·키 + 같은 본문이면 처음 응답을 재전송(`Idempotent-Replayed: true`), 다른 본문이면 422 `IDEMPOTENCY_KEY_REUSED`.
 
@@ -84,7 +104,36 @@
 | `intentHashDisplay` | 화면 표시용 지문: 앞 16자를 대문자 4자 묶음으로(예 `7F3A 91C2 0B4E 55D1`). 없으면 null |
 | `approvals[].intentHash`, `approvals[].intentHashDisplay` | 그 사람이 승인·반려할 때 본 지문. 이 기능 도입 전 표는 null |
 | `checks` | 상세 응답에만. 출금 전 점검 `{evaluatedAt, stored, items[]}`. 작성·검토 중이면 볼 때마다 다시 계산(`stored: false`), 승인 요청 뒤에는 제출 때 저장한 결과와 요청자 사유(`stored: true`). 점검 기록 전에 제출된 요청은 null |
+| `paymentEvidence` | (A2b) 상세·행동 응답에만(목록 응답에는 없다). 아래 '지급 근거 응답'. 승인 대상 지문(`intentHash`)에는 넣지 않는다 |
 | `checks.items[]` | `{id, label, outcome, detail, basis, requiresReason, reason?}`. `id`: `first_use`·`amount_history`·`balance_share`·`recent_burst`·`price`(이 순서). `outcome`: `pass`(기준 이내)·`caution`(주의)·`unknown`(확인 불가, 기준 이내로 보이지 않음). `requiresReason`은 주의이면서 진행 사유가 필요한 항목. `first_use`·`amount_history`는 이 대시보드에서 처리 완료된 출금 요청만 세며(자산 활동 내역의 출금 행은 받는 주소가 없어 제외), 문구에 그 범위를 함께 쓴다(A-27). `reason`은 제출 때 저장한 사유(제출 전·사유 없음은 null). 기준값은 `GET /org/policy`의 `withdrawalChecks`(설계 가정 A-27) |
+
+## 지급 근거 (A2b, DEC-005, 설계 가정 A-38·A-39)
+
+요청 상세·행동 응답의 `paymentEvidence`와 `GET /requests/:id/attachments`가 같은 모양이다. 메타데이터만 담고 파일 내용은 내려받기 경로로만 준다.
+
+```json
+{ "note": { "text": "인보이스 INV-2026-1043", "updatedBy": { "name": "한지수" }, "updatedAt": "ISO" },
+  "attachments": [{ "id": "uuid", "fileName": "인보이스.pdf", "contentType": "application/pdf", "typeLabel": "PDF", "sizeBytes": 186368,
+    "sha256": "64자 16진수", "addedBy": { "name": "한지수" }, "addedAt": "ISO", "previewable": false,
+    "contentUrl": "/api/requests/<id>/attachments/<attachmentId>/content" }],
+  "hasAny": true, "locked": false, "canEdit": true, "uploadsEnabled": true,
+  "limits": { "maxFiles": 5, "maxFileBytes": 2097152, "noteMaxLength": 300, "types": ["PDF", "PNG", "JPEG"] }, "isDesignAssumption": true }
+```
+
+| 필드 | 뜻 |
+| --- | --- |
+| `note` | 지급 근거 메모(문서 번호·정산 건 등, 300자, 설계 가정). 없으면 null |
+| `attachments[]` | 붙인 순서. `contentType`은 서버가 앞부분으로 판정한 형식, `fileName`은 서버가 정리한 이름(경로·제어 문자·방향 제어 문자 제거, `<>:"\|?*` → `_`, 판정한 형식의 확장자가 없으면 붙임, 100글자까지), `previewable`은 PNG·JPEG만 true |
+| `hasAny` | 파일이나 메모가 하나라도 있는지. false이면 화면은 '근거 기록 없음' |
+| `locked` | 작성 중·검토 중이 아님(승인 요청 뒤 고정) |
+| `canEdit` | 조회자가 작성자이고 요청 작성 권한이 있으며 잠기지 않음. `allowedActions`는 바뀌지 않았다 |
+| `uploadsEnabled` | 이 환경에서 올리기가 켜져 있는지(`REQUEST_ATTACHMENTS=off`이면 false) |
+
+**올리기 형식(파일 하나에 요청 하나).** 본문은 파일 바이트 그대로(`Content-Type: application/octet-stream`), 이름은 머리글 `X-Attachment-Name: <encodeURIComponent(UTF-8 이름)>`(없으면 '지급근거-<SHA-256 앞 8자>.<확장자>'). 이름을 쿼리 문자열에 두지 않는 것은 요청 주소가 로그에 남기 때문이다(이 머리글은 로그에서 가린다). `multipart/form-data`와 base64 JSON은 받지 않는다. `Idempotency-Key`는 쓰지 않는다(같은 내용을 다시 보내면 409 `ATTACHMENT_DUPLICATE`). 성공하면 201과 요청 상세 응답(요청 `version`이 1 오른다)을 돌려준다. 파일 붙이기·지우기·메모 저장은 모두 요청 버전을 올려, 그 전에 연 승인 요청 화면의 제출은 409 `VERSION_CONFLICT`로 다시 불러오게 한다(메모가 바뀌지 않았으면 아무것도 쓰지 않는다).
+
+**내려받기 머리글.** `Content-Type`은 저장된 형식(`application/pdf`·`image/png`·`image/jpeg`, charset 없음), `Content-Disposition: attachment; filename="<ASCII 대체 이름>"; filename*=UTF-8''<RFC 5987 인코딩>`(대체 이름에 읽을 영문·숫자가 없으면 `attachment.<확장자>`), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`(머리글 하나), `Cache-Control: no-store`, `Cross-Origin-Resource-Policy: same-origin`(같은 출처의 `<img>` 미리 보기는 된다), `Content-Length`. 공개 경로·서명 주소는 없다.
+
+**감사 기록.** `request.attachment_added`·`request.attachment_removed`(상세 `{attachmentId, fileName, contentType, sizeBytes, sha256}`), `request.evidence_note_updated`(상세 `{before, after}`, 각각 `{length, sha256}` 또는 null — 메모 글은 남기지 않는다). `request.submitted` 상세에 그때의 근거 목록 `paymentEvidence: {note: {length, sha256}|null, attachments: [{id, fileName, contentType, sizeBytes, sha256}]}`가 붙는다. 파일 내용은 감사 기록·로그 어디에도 남기지 않는다.
 
 ## 결정 근거 (`DecisionEvidence`, A2-3)
 
@@ -193,6 +242,11 @@ UTF-8(BOM) CSV, 줄바꿈 CRLF. 목록과 같은 필터(`action`, `actor`, `q`, 
 | POST /requests, PUT /requests/:id | request.create | 초안 작성·수정. 작성에는 `Idempotency-Key`가 필요하다(없으면 400 `IDEMPOTENCY_KEY_REQUIRED`). 요청 번호는 조직 안 번호. 수정은 작성자만(403 `NOT_REQUEST_OWNER`). 공개 데모는 `DEMO_LIMIT`(작성) |
 | POST /requests/checks-preview `{assetCode, networkCode, addressId, amount, requestId?}` | request.create | 작성 화면의 출금 전 점검 미리 보기 `{evaluatedAt, items}`(저장 안 함). 초안과 같은 입력 검증(`ADDRESS_NOT_ACTIVE` 등). `requestId`는 고치는 중인 초안을 과거 기록·건수에서 뺀다 |
 | POST /requests/:id/review \| back-to-draft \| submit \| cancel | request.create(작성자) | 상태 전이. 검토 이동·제출은 저장된 수량을 읽을 수 없으면 422 `AMOUNT_UNREADABLE`(되돌리기·취소는 된다). submit 본문 `{version, confirmTail, ackIrreversible, checkReasons?}`: `checkReasons`는 점검 id → 진행 사유(300자 이내, 알 수 없는 id는 422). 서버가 제출 시점 기준으로 점검을 다시 계산하고, 사유가 필요한 주의 항목에 글자·숫자 5자 이상 사유가 없으면 `CHECK_REASON_REQUIRED`(저장하는 사유에서는 보이지 않는 서식 문자를 지운다). 통과하면 지문(`intentHash`)과 점검 결과·사유, 실제로 예약한 지갑·자산·수량을 바꿀 수 없는 기록으로 저장하고 감사 기록 `request.submitted`에 지문·점검 결과·사유를 남긴다. 승인 가능 인원 부족 시 `APPROVERS_INSUFFICIENT` |
+| GET /requests/:id/attachments | request.read(같은 조직) | 지급 근거(위 '지급 근거' 형식). 다른 조직 404 |
+| GET /requests/:id/attachments/:attachmentId/content | request.read(같은 조직) | 파일 내려받기(위 '내려받기 머리글'). 그 요청에 없는 파일 id·다른 조직 404 |
+| POST /requests/:id/attachments (본문 `application/octet-stream`, 머리글 `X-Attachment-Name`) | request.create(작성자, 작성 중·검토 중) | 파일 하나 붙이기 → 201 + 요청 상세. **이 경로만 본문 한도 2MiB**(그 밖은 64KB). IP당 1분 30회(`ATTACHMENT_UPLOAD_RATE_LIMIT_MAX`). 공개 데모는 `DEMO_LIMIT`(올리기 횟수·인스턴스 총 32MiB) |
+| DELETE /requests/:id/attachments/:attachmentId | request.create(작성자, 작성 중·검토 중) | 파일 하나 지우기 → 요청 상세. 무엇을 지웠는지(이름·크기·SHA-256)는 감사 기록에 남는다 |
+| PUT /requests/:id/evidence-note `{note}` | request.create(작성자, 작성 중·검토 중) | 지급 근거 메모 저장(300자, 빈 값은 지움, 보이지 않는 서식 문자 제거) → 요청 상세 |
 | POST /requests/:id/approve `{version, intentHash}` \| reject `{version, reason, intentHash}` | request.approve(작성자 제외) | 승인 / 반려(`reason` 500자 이내, 필수 사유 규칙, 채우지 못하면 422 `VALIDATION`). `intentHash`는 요청 응답의 값을 그대로 보낸다(없으면 422, 다르면 409 `INTENT_CHANGED`, 지문 없는 이전 요청의 승인은 409 `INTENT_MISSING`, 반려는 `null`). 검사 순서: 권한 → 요청(404) → 자기 승인 → 이미 결정 → 상태·버전 → 지문 → 저장 내용 재계산(`INTENT_TAMPERED`) → 받는 주소(`ADDRESS_NOT_ACTIVE`). 승인 표마다 지문을 남기고, 정족수가 차면 커스터디로 넘기기 직전에 다시 계산·대조한 뒤 지문과 함께 넘긴다. 반려·취소(승인 대기)는 지금 행의 수량이 아니라 승인 요청 때 예약 기록으로 예약을 풀고, 감사 기록 상세에 `released`(푼 수량)·`releasedAssetCode`와 지문이 있는 요청이면 `contentMatchesIntent`(지금 내용이 지문과 같은지)를 남긴다 |
 | GET /org/members, GET /org/policy | org.read | 구성원·정책(`approval`, `addressBook`, `withdrawalChecks`, `isDesignAssumption: true`) |
 | PUT /org/members/:id/roles `{roles, rolesVersion}` | org.manage | 역할 변경(감사 기록). 본인 관리자 해제·마지막 관리자 해제·본인에게 승인자/자산 담당자 부여 금지 |

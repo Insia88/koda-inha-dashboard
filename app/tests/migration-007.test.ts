@@ -58,7 +58,7 @@ describe('마이그레이션 007', () => {
       const before = JSON.stringify(db.prepare('SELECT * FROM withdrawal_requests ORDER BY id').all());
       const related = JSON.stringify(['approvals', 'approval_intents', 'request_intents', 'transactions'].map((t) => db.prepare(`SELECT * FROM ${t}`).all()));
 
-      expect(migrate(db)).toEqual(['007_ref_no_per_org.sql']);
+      expect(migrate(db)).toEqual(['007_ref_no_per_org.sql', '008_request_attachments.sql']);
       expect(JSON.stringify(db.prepare('SELECT * FROM withdrawal_requests ORDER BY id').all())).toBe(before); // 열 이름·순서·값이 그대로
       expect(JSON.stringify(['approvals', 'approval_intents', 'request_intents', 'transactions'].map((t) => db.prepare(`SELECT * FROM ${t}`).all()))).toBe(related);
       expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);

@@ -4,7 +4,7 @@ import { readFileSync, rmSync } from 'node:fs';
 import { inspect } from 'node:util';
 import os from 'node:os';
 import path from 'node:path';
-import { api, key, login, makeApp } from './helpers.ts';
+import { api, key, login, makeApp, upload } from './helpers.ts';
 import { APP_ROOT, loadConfig, type AppConfig } from '../server/config.ts';
 import { createRuntime, type Runtime } from '../server/runtime.ts';
 import { migrate, openDb } from '../server/db.ts';
@@ -16,6 +16,7 @@ import { MockCustodyAdapter, type CustodyAdapter } from '../server/adapters/cust
 const ENV_KEYS = [
   'NODE_ENV', 'VERCEL', 'DEMO_PUBLIC', 'HOST', 'DEV_ALLOW_LAN', 'DB_PATH', 'SESSION_TTL_MINUTES', 'AUTH_MODE', 'MOCK_PRICE_FEED',
   'LOG_LEVEL', 'PORT', 'RATE_LIMIT_MAX', 'LOGIN_RATE_LIMIT_MAX', 'MOCK_CUSTODY_PROCESSING_MS', 'DEMO_SESSION_SECRET',
+  'REQUEST_ATTACHMENTS', 'ATTACHMENT_UPLOAD_RATE_LIMIT_MAX',
 ] as const;
 let savedEnv: Record<string, string | undefined> = {};
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -195,6 +196,14 @@ describe('설정 잠금(loadConfig)', () => {
     }
   });
 
+  it('reads REQUEST_ATTACHMENTS=off and ATTACHMENT_UPLOAD_RATE_LIMIT_MAX, and keeps uploads on with a 32 MiB demo total by default', () => {
+    const d = loadConfig();
+    expect({ on: d.attachmentsEnabled, rate: d.attachmentUploadRateLimitMax, total: d.demoAttachmentTotalBytes }).toEqual({ on: true, rate: 30, total: 32 * 1024 * 1024 });
+    setEnv({ REQUEST_ATTACHMENTS: 'off', ATTACHMENT_UPLOAD_RATE_LIMIT_MAX: '5' });
+    const off = loadConfig();
+    expect({ on: off.attachmentsEnabled, rate: off.attachmentUploadRateLimitMax }).toEqual({ on: false, rate: 5 });
+  });
+
   it('reads MOCK_PRICE_FEED=off', () => {
     setEnv({ MOCK_PRICE_FEED: 'off' });
     expect(loadConfig().mockPriceFeed).toBe(false);
@@ -329,6 +338,37 @@ describe('공개 데모 앱', () => {
     const lop = api(local.app, await login(local.app, 'u-k-op'));
     expect((await lop.post('/api/insights', ins)).status).toBe(201);
     expect((await lop.post('/api/insights', ins)).status).toBe(201);
+  });
+
+  it('counts evidence uploads toward DEMO_LIMIT (even after a delete) and caps the instance total bytes (demo only)', async () => {
+    // 메모리에서 만든 PDF(앞부분 '%PDF-')
+    const pdf = (size: number, fill = 0x20) => { const b = Buffer.alloc(size, fill); b.write('%PDF-1.4 ', 0, 'latin1'); return b; };
+    const rt = await demoRuntime({ demoCreateLimit: 1 });
+    const hs = await login(rt.app, 'u-a-han');
+    const first = await upload(rt.app, hs, 'wr-6', pdf(300), 'a.pdf');
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    const second = await upload(rt.app, hs, 'wr-6', pdf(300, 0x21), 'b.pdf');
+    expect(second.status).toBe(422);
+    expect(second.body.error.code).toBe('DEMO_LIMIT');
+    expect(second.body.error.message).toContain('지급 근거 파일 올리기');
+    // 지워도 올린 횟수는 줄지 않는다
+    const del = await api(rt.app, hs).del(`/api/requests/wr-6/attachments/${first.body.paymentEvidence.attachments[0].id}`);
+    expect(del.status).toBe(200);
+    expect((await upload(rt.app, hs, 'wr-6', pdf(300, 0x22), 'c.pdf')).body.error.code).toBe('DEMO_LIMIT');
+
+    const bytes = await demoRuntime({ demoAttachmentTotalBytes: 1000 });
+    const bs = await login(bytes.app, 'u-a-han');
+    expect((await upload(bytes.app, bs, 'wr-6', pdf(600), 'a.pdf')).status).toBe(201);
+    const over = await upload(bytes.app, bs, 'wr-6', pdf(600, 0x21), 'b.pdf');
+    expect(over.status).toBe(422);
+    expect(over.body.error.code).toBe('DEMO_LIMIT');
+    expect(over.body.error.message).toContain('용량');
+    expect(over.body.error.action).toBeTruthy();
+
+    // 로컬에는 두 한도가 없다
+    const local = await localApp({ demoCreateLimit: 1, demoAttachmentTotalBytes: 1000 });
+    const ls = await login(local.app, 'u-a-han');
+    for (const [i, fill] of [0x20, 0x21, 0x22].entries()) expect((await upload(local.app, ls, 'wr-6', pdf(600, fill), `l${i}.pdf`)).status).toBe(201);
   });
 });
 

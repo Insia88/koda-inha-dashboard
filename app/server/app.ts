@@ -20,12 +20,15 @@ import {
   recordIntentMismatch, recordIntentTampered, rejectRequest, submitForApproval, updateDraft,
 } from './domain/requests.ts';
 import { checkThresholds } from './domain/checks.ts';
+import { addAttachment, listPaymentEvidence, preflightAttachmentUpload, readAttachmentContent, removeAttachment, saveEvidenceNote, tooLarge, uploadFormat, type AttachmentDemoCaps } from './domain/attachments.ts';
+import { totalAttachmentBytes } from './domain/attachment-store.ts';
 import { readIdemKey, withIdempotency } from './domain/idempotency.ts';
 import * as rm from './domain/readmodels.ts';
 import {
   addressCheckSchema, addressCreateSchema, addressReviewSchema, addressStopSchema, insightCreateSchema, insightStatusSchema, pageQuery,
-  requestApproveSchema, requestChecksPreviewSchema, requestDraftSchema, requestRejectSchema, requestSubmitSchema, requestUpdateSchema, roleUpdateSchema, versionSchema,
+  evidenceNoteSchema, requestApproveSchema, requestChecksPreviewSchema, requestDraftSchema, requestRejectSchema, requestSubmitSchema, requestUpdateSchema, roleUpdateSchema, versionSchema,
 } from '../shared/schemas.ts';
+import { ATTACHMENT_MAX_FILE_BYTES, contentDisposition } from '../shared/attachments.ts';
 import { actionLabel, AUDIT_EXPORT_TEXT, ROLE_LABEL } from '../shared/terms.ts';
 
 function parse<T>(schema: z.ZodType<T>, data: unknown): T {
@@ -34,6 +37,9 @@ function parse<T>(schema: z.ZodType<T>, data: unknown): T {
 
 const str = z.string().max(200).optional();
 const idParam = z.object({ id: z.string().min(1).max(64) });
+const attachmentParam = z.object({ id: z.string().min(1).max(64), attachmentId: z.string().uuid() });
+/** 지급 근거 파일 올리기 경로(A2b). 이 경로에만 원본 바이트 본문 해석기와 2MiB 본문 한도를 둔다. */
+const UPLOAD_ROUTE = '/api/requests/:id/attachments';
 
 /** 서버 인스턴스 정보(runtime.ts). 없으면 buildApp이 instanceId만 새로 만든다. */
 export interface RuntimeInfo { instanceId: string; seededAt: string | null; tick?: () => void }
@@ -56,8 +62,18 @@ function assertWhitelisted(cfg: AppConfig, p: { name: string; is_whitelisted: nu
   }
 }
 
-const DEMO_CAP_TABLE = { addresses: 'address_book', requests: 'withdrawal_requests', insights: 'insights' } as const;
-const DEMO_CAP_LABEL: Record<keyof typeof DEMO_CAP_TABLE, string> = { addresses: '주소 등록', requests: '출금 요청', insights: '인사이트 게시' };
+/**
+ * 공개 데모에서 인스턴스마다 세는 사용자 생성 건수(종류별). 기동 시점의 값을 기준으로 그 뒤 늘어난 수만 센다.
+ * 지급 근거 파일(attachments)은 지금 남은 파일이 아니라 올린 횟수(감사 기록 request.attachment_added)를 센다. 지운 파일도 한도에 들어간다.
+ */
+const DEMO_CAP_SQL = {
+  addresses: 'SELECT COUNT(*) c FROM address_book',
+  requests: 'SELECT COUNT(*) c FROM withdrawal_requests',
+  insights: 'SELECT COUNT(*) c FROM insights',
+  attachments: "SELECT COUNT(*) c FROM audit_log WHERE action = 'request.attachment_added'",
+} as const;
+type DemoCapKind = keyof typeof DEMO_CAP_SQL;
+const DEMO_CAP_LABEL: Record<DemoCapKind, string> = { addresses: '주소 등록', requests: '출금 요청', insights: '인사이트 게시', attachments: '지급 근거 파일 올리기' };
 
 export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<FastifyInstance> {
   const demo = cfg.deployment === 'public-demo';
@@ -72,7 +88,8 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
     logger: cfg.logLevel === 'silent' ? false : {
       level: cfg.logLevel,
       // 세션 쿠키·CSRF 값·요청 본문은 로그에 남기지 않는다.
-      redact: { paths: ['req.headers.cookie', 'req.headers["x-csrf-token"]', 'req.headers.authorization', 'res.headers["set-cookie"]'], censor: '[가림]' },
+      // 지급 근거 파일 이름(X-Attachment-Name)도 가린다. 파일 내용(본문)은 로그에 남기지 않는다.
+      redact: { paths: ['req.headers.cookie', 'req.headers["x-csrf-token"]', 'req.headers.authorization', 'res.headers["set-cookie"]', 'req.headers["x-attachment-name"]'], censor: '[가림]' },
     },
     genReqId: () => randomUUID(),
     bodyLimit: 64 * 1024,
@@ -81,14 +98,22 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
   });
 
   // 공개 데모: 인스턴스마다 사용자가 새로 만든 행 수를 종류별로 제한한다(기동 시점의 모의 데이터는 세지 않는다).
-  const count = (t: string) => (db.prepare(`SELECT COUNT(*) c FROM ${t}`).get() as { c: number }).c;
-  const demoBaseline = demo ? Object.fromEntries(Object.entries(DEMO_CAP_TABLE).map(([k, t]) => [k, count(t)])) as Record<keyof typeof DEMO_CAP_TABLE, number> : null;
-  const assertDemoCapacity = (kind: keyof typeof DEMO_CAP_TABLE) => {
+  const count = (kind: DemoCapKind) => (db.prepare(DEMO_CAP_SQL[kind]).get() as { c: number }).c;
+  const demoBaseline = demo ? Object.fromEntries((Object.keys(DEMO_CAP_SQL) as DemoCapKind[]).map((k) => [k, count(k)])) as Record<DemoCapKind, number> : null;
+  const assertDemoCapacity = (kind: DemoCapKind) => {
     if (!demoBaseline) return;
-    if (count(DEMO_CAP_TABLE[kind]) - demoBaseline[kind] >= cfg.demoCreateLimit) {
+    if (count(kind) - demoBaseline[kind] >= cfg.demoCreateLimit) {
       throw new AppError(422, 'DEMO_LIMIT', `공개 데모에서 새로 만들 수 있는 ${DEMO_CAP_LABEL[kind]} 건수(${cfg.demoCreateLimit}건)를 모두 사용했습니다.`, '이미 만들어진 항목으로 계속 확인하세요. 데모 데이터가 처음 상태로 돌아가면 다시 만들 수 있습니다.');
     }
   };
+  // 공개 데모: 인스턴스 하나에 저장된 지급 근거 파일의 총 바이트 한도(기본 32MiB, A-39). 로컬에서는 적용하지 않는다.
+  const assertDemoAttachmentBytes = (incoming: number) => {
+    if (!demo) return;
+    if (totalAttachmentBytes(db) + incoming > cfg.demoAttachmentTotalBytes) {
+      throw new AppError(422, 'DEMO_LIMIT', `공개 데모 서버 한 대에 올릴 수 있는 지급 근거 파일 용량(${Math.round(cfg.demoAttachmentTotalBytes / (1024 * 1024))}MB)을 모두 사용했습니다.`, '필요 없는 파일을 지우거나, 데모 데이터가 처음 상태로 돌아간 뒤 다시 올리세요.');
+    }
+  };
+  const attachmentCaps: AttachmentDemoCaps = { assertCount: () => assertDemoCapacity('attachments'), assertBytes: assertDemoAttachmentBytes };
 
   await app.register(helmet, {
     contentSecurityPolicy: {
@@ -141,6 +166,9 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
       const fields = err.issues.map((i) => ({ field: i.path.join('.'), message: i.message }));
       return reply.status(422).send({ error: { code: 'VALIDATION', message: fields[0]?.message ?? '입력값을 확인하세요.', action: '표시된 항목을 고친 뒤 다시 시도하세요.', fields }, requestId: req.id });
     }
+    // 업로드 경로의 본문 한도·형식 오류는 그 경로의 말로 바꾼다(다른 경로는 아래 일반 400대 처리 그대로).
+    if (req.routeOptions?.url === UPLOAD_ROUTE && err?.code === 'FST_ERR_CTP_BODY_TOO_LARGE') err = tooLarge();
+    if (req.routeOptions?.url === UPLOAD_ROUTE && err?.code === 'FST_ERR_CTP_INVALID_MEDIA_TYPE') err = uploadFormat();
     if (err instanceof AppError) {
       return reply.status(err.status).send({ error: { code: err.code, message: err.message, action: err.action, fields: err.fields, ...err.extra }, requestId: req.id });
     }
@@ -300,6 +328,52 @@ export async function buildApp({ cfg, db, custody, runtime }: AppDeps): Promise<
   // 승인·반려 본문에는 요청 응답의 intentHash(승인 대상 지문)를 함께 보낸다. 없으면 422, 다르면 409 INTENT_CHANGED.
   action('approve', (a, id, b) => approveRequest(db, cfg, a, custody, id, parse(requestApproveSchema, b)), 'request.approve');
   action('reject', (a, id, b) => rejectRequest(db, cfg, a, id, parse(requestRejectSchema, b)), 'request.approve');
+
+  // ---------- 지급 근거(A2b, DEC-005, 설계 가정 A-38·A-39) ----------
+  // 목록·내려받기: 같은 조직의 요청 조회 권한(request.read). 올리기·삭제·메모: 요청 작성자(request.create)만, 작성 중·검토 중에만.
+  // CSRF는 위 전역 onRequest가 모든 변경 요청(POST·PUT·DELETE)에 대해 본문을 읽기 전에 확인한다.
+  app.get('/api/requests/:id/attachments', async (req) => listPaymentEvidence(db, cfg, requirePerm(req, 'request.read', '지급 근거 조회'), parse(idParam, req.params).id));
+  // 내려받기: 로그인한 같은 조직 사용자만. 항상 첨부(attachment)로 내려보내 이 출처에서 열리지 않게 하고,
+  // 형식은 저장한(내용으로 판정한) 값만, 내용 추측 금지(nosniff), 문서 자체에는 아무 권한도 주지 않는 CSP(sandbox), 저장 안 함(no-store, 아래 onSend).
+  // 이 경로가 직접 정한 CSP 머리글이 helmet의 기본 CSP를 대신한다(응답에는 CSP 머리글이 하나만 나간다).
+  app.get('/api/requests/:id/attachments/:attachmentId/content', async (req, reply) => {
+    const a = requirePerm(req, 'request.read', '지급 근거 내려받기');
+    const { id, attachmentId } = parse(attachmentParam, req.params);
+    const f = readAttachmentContent(db, a, id, attachmentId);
+    reply
+      .header('Content-Type', f.contentType)
+      .header('Content-Disposition', contentDisposition(f.fileName, f.contentType))
+      .header('X-Content-Type-Options', 'nosniff')
+      .header('Content-Security-Policy', "default-src 'none'; sandbox")
+      .header('Content-Length', String(f.sizeBytes));
+    return reply.send(Buffer.from(f.content.buffer, f.content.byteOffset, f.content.byteLength));
+  });
+  // 올리기: 파일 하나를 원본 바이트(application/octet-stream) 본문으로, 이름은 X-Attachment-Name(encodeURIComponent) 머리글로 받는다.
+  // 이 경로만 바이트 해석기와 2MiB 본문 한도를 가진다(다른 경로는 전역 64KB와 JSON만). 본문을 읽기 전에 권한·상태·크기·개수·데모 한도를 먼저 본다.
+  // 멱등 키는 쓰지 않는다(2MiB 본문을 멱등 기록에 해시해 두지 않는다). 같은 내용을 다시 보내면 409 ATTACHMENT_DUPLICATE라 재시도해도 두 번 저장되지 않는다.
+  await app.register(async (scope) => {
+    scope.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: ATTACHMENT_MAX_FILE_BYTES }, (_req, body, done) => done(null, body));
+    scope.post(UPLOAD_ROUTE, {
+      bodyLimit: ATTACHMENT_MAX_FILE_BYTES,
+      config: { rateLimit: { max: cfg.attachmentUploadRateLimitMax, timeWindow: '1 minute' } },
+      onRequest: async (req) => {
+        preflightAttachmentUpload(db, cfg, requireAuth(req), parse(idParam, req.params).id, { contentType: req.headers['content-type'], contentLength: req.headers['content-length'] }, attachmentCaps);
+      },
+    }, async (req, reply) => {
+      const a = requireAuth(req);
+      const { id } = parse(idParam, req.params);
+      if (!Buffer.isBuffer(req.body)) throw uploadFormat();
+      const out = addAttachment(db, cfg, a, id, req.body, req.headers['x-attachment-name'], attachmentCaps);
+      reply.status(201);
+      return out;
+    });
+  });
+  app.delete('/api/requests/:id/attachments/:attachmentId', async (req) => {
+    const a = requireAuth(req);
+    const { id, attachmentId } = parse(attachmentParam, req.params);
+    return removeAttachment(db, cfg, a, id, attachmentId);
+  });
+  app.put('/api/requests/:id/evidence-note', async (req) => saveEvidenceNote(db, cfg, requireAuth(req), parse(idParam, req.params).id, parse(evidenceNoteSchema, req.body)));
 
   // ---------- 조직 ----------
   app.get('/api/org/members', async (req) => rm.members(db, requirePerm(req, 'org.read', '조직 조회')));

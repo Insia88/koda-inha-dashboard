@@ -1,28 +1,10 @@
 import { z } from 'zod';
 import { RECEIVED_VIA_VALUES, VERIFIED_VIA_VALUES } from './terms.ts';
-import { cleanText, reasonError } from './text.ts';
-
-/**
- * 짝이 맞지 않는 UTF-16 서로게이트(잘린 이모지 등)가 없는 올바른 문자열인지 판정한다.
- * String.prototype.isWellFormed와 같은 결과다. tsconfig의 ES2023 lib에는 그 타입이 없어 직접 센다.
- * 이런 값은 저장소(UTF-8)에 들어가면서 U+FFFD로 바뀌므로, 업무 테이블에 닿기 전에 입력 검증에서 막는다.
- */
-export function isWellFormedText(s: string): boolean {
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c < 0xd800 || c > 0xdfff) continue;
-    // 상위 서로게이트 바로 뒤에 하위 서로게이트가 오면 한 글자(쌍)로 보고 건너뛴다. 그 밖의 서로게이트는 짝이 없다.
-    if (c <= 0xdbff) {
-      const next = s.charCodeAt(i + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) { i++; continue; }
-    }
-    return false;
-  }
-  return true;
-}
+import { cleanText, isWellFormedText, reasonError } from './text.ts';
 
 // 사유·메모·이름의 보이지 않는 문자 제거와 필수 사유 점검은 화면도 같이 쓰므로 zod를 쓰지 않는 shared/text.ts에 둔다.
-export { cleanText, letterDigitCount, REASON_MIN_LETTERS, reasonError, stripFormatChars } from './text.ts';
+// 깨진 문자 판정(isWellFormedText)은 화면도 쓰므로(지급 근거 파일 이름 정리, shared/attachments.ts) 같은 파일에 두고 여기서 다시 내보낸다.
+export { cleanText, isWellFormedText, letterDigitCount, REASON_MIN_LETTERS, reasonError, stripFormatChars } from './text.ts';
 
 /** 깨진 문자(짝 없는 서로게이트)가 든 입력에 붙이는 항목 오류 문구 */
 export const brokenTextMessage = (label: string) => `${label}에 깨진 문자(잘린 이모지 등)가 들어 있습니다. 그 부분을 지우고 다시 입력하세요.`;
@@ -168,4 +150,12 @@ export const insightStatusSchema = z.object({ status: z.enum(['published', 'hidd
 export const pageQuery = z.object({
   page: z.coerce.number().int().min(1).max(10000).default(1),
   pageSize: z.coerce.number().int().refine((n) => [10, 25, 50, 100].includes(n), '페이지 크기는 10·25·50·100 중 하나입니다.').default(25),
+});
+
+/**
+ * 지급 근거 메모(A2b, 설계 가정 A-38): 문서 번호·정산 건처럼 승인자가 근거를 찾을 수 있는 짧은 글. 작성 중·검토 중에만 고칠 수 있다.
+ * 깨진 문자는 거절하고, 보이지 않는 서식 문자를 지운 값(앞뒤 공백 제거)을 저장한다. 빈 값은 메모를 지운다.
+ */
+export const evidenceNoteSchema = z.object({
+  note: cleanedOptional(300, '지급 근거 메모', '지급 근거 메모는 300자 이내로 입력하세요.'),
 });

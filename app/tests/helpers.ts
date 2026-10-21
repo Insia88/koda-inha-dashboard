@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { loadConfig } from '../server/config.ts';
+import { loadConfig, type AppConfig } from '../server/config.ts';
 import { migrate, openDb, type DB } from '../server/db.ts';
 import { buildApp } from '../server/app.ts';
 import { MockCustodyAdapter } from '../server/adapters/custody.ts';
@@ -10,9 +10,10 @@ export interface TestCtx { app: FastifyInstance; db: DB; custody: MockCustodyAda
 /**
  * cooldownHours: 주소 확인 뒤 사용 대기 시간. 기존 흐름(확인 즉시 사용 가능)을 그대로 검사하도록 기본 0으로 둔다.
  * 사용 대기를 검사할 때만 값을 준다(tests/address-lifecycle.test.ts).
+ * config: 그 밖의 설정 덮어쓰기(예: 지급 근거 올리기 끄기·업로드 한도, tests/attachments.test.ts).
  */
-export async function makeApp(opts: { processingMs?: number; rateLimitMax?: number; loginRateLimitMax?: number; holdingRelated?: boolean; cooldownHours?: number } = {}): Promise<TestCtx> {
-  const cfg = loadConfig({ dbPath: ':memory:', logLevel: 'silent', serveClient: false, rateLimitMax: opts.rateLimitMax ?? 10000, ...(opts.loginRateLimitMax ? { loginRateLimitMax: opts.loginRateLimitMax } : {}) });
+export async function makeApp(opts: { processingMs?: number; rateLimitMax?: number; loginRateLimitMax?: number; holdingRelated?: boolean; cooldownHours?: number; config?: Partial<AppConfig> } = {}): Promise<TestCtx> {
+  const cfg = loadConfig({ dbPath: ':memory:', logLevel: 'silent', serveClient: false, rateLimitMax: opts.rateLimitMax ?? 10000, attachmentUploadRateLimitMax: 10000, ...(opts.loginRateLimitMax ? { loginRateLimitMax: opts.loginRateLimitMax } : {}), ...opts.config });
   cfg.policy.mockCustodyProcessingMs = opts.processingMs ?? 0;
   cfg.policy.addressBook.cooldownHours = opts.cooldownHours ?? 0;
   cfg.insightPolicy.experiments.holdingRelatedFilter = opts.holdingRelated ?? false;
@@ -36,7 +37,7 @@ export async function login(app: FastifyInstance, userId: string): Promise<Sessi
 }
 
 export function api(app: FastifyInstance, s: Session | null) {
-  const call = async (method: 'GET' | 'POST' | 'PUT' | 'PATCH', url: string, payload?: unknown, headers: Record<string, string> = {}) => {
+  const call = async (method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', url: string, payload?: unknown, headers: Record<string, string> = {}) => {
     const h: Record<string, string> = { ...headers };
     if (s) { h.cookie = s.cookie; h['x-csrf-token'] = s.csrf; }
     const res = await app.inject({ method, url, payload: payload as any, headers: h });
@@ -49,7 +50,23 @@ export function api(app: FastifyInstance, s: Session | null) {
     post: (url: string, payload?: unknown, headers?: Record<string, string>) => call('POST', url, payload ?? {}, headers),
     put: (url: string, payload?: unknown) => call('PUT', url, payload ?? {}),
     patch: (url: string, payload?: unknown) => call('PATCH', url, payload ?? {}),
+    del: (url: string, headers?: Record<string, string>) => call('DELETE', url, undefined, headers),
   };
+}
+
+/**
+ * 지급 근거 파일 올리기(A2b): 원본 바이트 본문(application/octet-stream) + X-Attachment-Name(encodeURIComponent).
+ * name이 null이면 이름 머리글을 보내지 않는다. headers의 값이 null이면 그 머리글을 빼고(예: CSRF 없이), 문자열이면 덮어쓴다.
+ */
+export async function upload(app: FastifyInstance, s: Session | null, id: string, bytes: Buffer, name: string | null = 'evidence.pdf', headers: Record<string, string | null> = {}) {
+  const h: Record<string, string> = { 'content-type': 'application/octet-stream' };
+  if (name !== null) h['x-attachment-name'] = encodeURIComponent(name);
+  if (s) { h.cookie = s.cookie; h['x-csrf-token'] = s.csrf; }
+  for (const [k, v] of Object.entries(headers)) { if (v === null) delete h[k]; else h[k] = v; }
+  const res = await app.inject({ method: 'POST', url: `/api/requests/${id}/attachments`, payload: bytes, headers: h });
+  let body: any = null;
+  try { body = res.json(); } catch { body = res.body; }
+  return { status: res.statusCode, body, headers: res.headers };
 }
 
 export const key = () => `test-${Math.random().toString(36).slice(2)}${Date.now()}`;

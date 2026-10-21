@@ -35,3 +35,22 @@ export function reasonError(cleaned: string, opts: { label: string; short: strin
   if (letterDigitCount(cleaned) < min) return `${opts.label}에 글자·숫자를 ${min}자 이상 넣어 주세요.`;
   return null;
 }
+
+/**
+ * 짝이 맞지 않는 UTF-16 서로게이트(잘린 이모지 등)가 없는 올바른 문자열인지 판정한다.
+ * String.prototype.isWellFormed와 같은 결과다. tsconfig의 ES2023 lib에는 그 타입이 없어 직접 센다.
+ * 이런 값은 저장소(UTF-8)에 들어가면서 U+FFFD로 바뀌므로, 업무 테이블에 닿기 전에 입력 검증에서 막는다.
+ */
+export function isWellFormedText(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0xd800 || c > 0xdfff) continue;
+    // 상위 서로게이트 바로 뒤에 하위 서로게이트가 오면 한 글자(쌍)로 보고 건너뛴다. 그 밖의 서로게이트는 짝이 없다.
+    if (c <= 0xdbff) {
+      const next = s.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) { i++; continue; }
+    }
+    return false;
+  }
+  return true;
+}
