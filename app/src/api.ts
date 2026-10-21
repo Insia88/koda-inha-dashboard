@@ -31,6 +31,8 @@ const seenDemoInstances = new Set<string>();
 let hasWrittenInTab = false;
 let demoSwitchPending = false;
 function trackDemoInstance(res: Response) {
+  // A8: 공유 상태(Blob)가 켜진 공개 데모는 인스턴스가 바뀌어도 데이터가 같으므로 전환 안내를 띄우지 않는다.
+  if (res.headers.get('X-Demo-Shared') === '1') return;
   const id = res.headers.get('X-Demo-Instance');
   if (!id) return;
   const previous = demoInstance;

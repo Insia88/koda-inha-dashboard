@@ -406,7 +406,20 @@ export function RequestDetailPage() {
 
       {/* A7: 승인자가 결정 카드(아래)까지 스크롤하는 수고를 줄인다. 카드가 있는 승인 대기 화면에서만 보인다. */}
       {decideCard && (
-        <p className="decision-jump"><a href="#decision-card">결정 카드로 바로 가기 ↓</a></p>
+        <p className="decision-jump">
+          <a
+            href="#decision-card"
+            onClick={(e) => {
+              e.preventDefault();
+              const el = document.getElementById('decision-card');
+              if (!el) return;
+              el.scrollIntoView();
+              el.focus({ preventScroll: true });
+            }}
+          >
+            결정 카드로 바로 가기 ↓
+          </a>
+        </p>
       )}
       <section ref={nextRef} tabIndex={-1} className="next-action" aria-labelledby="next-h">
         <h2 id="next-h">다음 할 일</h2>
@@ -601,7 +614,7 @@ export function RequestDetailPage() {
       )}
 
       {decideCard && (
-        <section id="decision-card" className="card card-action" aria-labelledby="approve-h">
+        <section id="decision-card" tabIndex={-1} className="card card-action" aria-labelledby="approve-h">
           <h2 id="approve-h">{can('approve') ? '승인 또는 반려' : '반려'}</h2>
           {/* 무엇을 결정하는지 한 줄 요약(A1): 누가·어디로·얼마·왜·몇 명 중 몇 명. 평가액은 제출 때 저장한 값이다.
               받는 곳 이름이 이미 괄호로 끝나면(예: '정산 파트너 B (Kaia USDC)') 괄호를 겹치지 않고 가운뎃점으로 상대를 잇는다. */}

@@ -110,7 +110,7 @@ export function AddressStrip({ address, memo, memoLabel, compact, verify }: { ad
   const mid = verify && !compact ? middleSegment(address) : null;
   return (
     <span className={`addr ${compact ? 'addr-compact' : ''} ${mid ? 'addr-verifying' : ''}`}>
-      <span className="addr-code" aria-label={`주소 ${address}`}>
+      <span className="addr-code" role="group" aria-label={`주소 ${address}`}>
         {prefix && <span className="addr-prefix">{prefix}</span>}
         {body.map((c, i) => {
           if (compact) return <span key={i} className={i < 1 || i >= body.length - 1 ? 'addr-key' : 'addr-mid'}>{c}</span>;

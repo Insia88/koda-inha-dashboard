@@ -65,7 +65,7 @@ export function LifecycleSteps({ hours, current }: { hours: number | undefined; 
   ];
   const at = steps.findIndex((s) => s.key === current);
   return (
-    <ol className="lc-steps" aria-label="주소 등록 뒤 진행 순서">
+    <ol className="lc-steps">
       {steps.map((s, i) => (
         <li key={s.key} className={at > i ? 'lc-done' : undefined} aria-current={i === at ? 'step' : undefined}>
           <span className="lc-step">{s.label}{i === at && <span className="sr-only"> (현재 단계)</span>}</span>

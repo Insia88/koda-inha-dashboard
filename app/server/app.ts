@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { z, ZodError } from 'zod';
 import { APP_ROOT, MIN_SESSION_SECRET_BYTES, type AppConfig } from './config.ts';
 import { type DB, tx } from './db.ts';
+import { createDemoSharedState } from './demo-shared-state.ts';
 import { AppError, Errors } from './errors.ts';
 import { checkCsrf, clearSessionCookie, dbSessionStore, requireAuth, requirePerm, SESSION_COOKIE, setSessionCookie, statelessSessionStore } from './auth.ts';
 import { writeAudit, verifyChain } from './audit.ts';
@@ -99,6 +100,20 @@ export async function buildApp({ cfg, db, custody, runtime, logStream }: AppDeps
     // 공개 데모(Vercel)는 플랫폼이 X-Forwarded-For를 덮어쓰므로 그 값을 접속 IP로 쓴다. 로컬에서는 무시한다.
     trustProxy: cfg.trustProxy,
   });
+
+  // A8: 공개 데모는 인스턴스가 여러 개라 데이터가 갈라진다. Vercel Blob 공유 스냅샷으로 요청 전에 당기고, 변경 뒤에 올린다.
+  const shared = demo ? createDemoSharedState(db) : null;
+  if (shared?.enabled) {
+    app.addHook('onRequest', async (req, reply) => {
+      reply.header('X-Demo-Shared', '1');
+      if (req.url.startsWith('/api/')) await shared.pull();
+    });
+    app.addHook('onSend', async (req, reply, payload) => {
+      reply.header('X-Demo-Shared', '1');
+      if (req.method !== 'GET' && req.method !== 'HEAD' && reply.statusCode < 400) await shared.push();
+      return payload;
+    });
+  }
 
   // 공개 데모: 인스턴스마다 사용자가 새로 만든 행 수를 종류별로 제한한다(기동 시점의 모의 데이터는 세지 않는다).
   const count = (kind: DemoCapKind) => (db.prepare(DEMO_CAP_SQL[kind]).get() as { c: number }).c;

@@ -21,7 +21,7 @@ function PoisonSender({ address }: { address: string }) {
   const [prefix, ...body] = chunks[0]?.startsWith('MOCK') ? chunks : ['', ...chunks];
   return (
     <span className="addr lc-poison-addr">
-      <span className="addr-code" aria-label={`보낸 주소 ${address}`}>
+      <span className="addr-code" role="group" aria-label={`보낸 주소 ${address}`}>
         {prefix && <span className="addr-prefix">{prefix}</span>}
         {body.map((c, i) => <span key={i} className="addr-chunk">{c}</span>)}
       </span>
