@@ -65,8 +65,9 @@ function LoginTrailer() {
   }, [motion, asset]);
   return (
     <aside className="login-stage" aria-label="KODA 브랜드 필름">
-      <div className="login-stage-frame">
-        <img className="login-stage-poster" src={poster} alt="" width={1280} height={720} />
+      <div className="login-stage-inner">
+        <div className="login-stage-frame">
+          <img className="login-stage-poster" src={poster} alt="" width={1280} height={720} />
       <video
         key={asset}
         ref={videoRef}
@@ -89,7 +90,8 @@ function LoginTrailer() {
         onCanPlay={() => setReady(true)}
       />
       <div className="login-stage-scrim" />
-      <p className="login-stage-copy">확인이 쌓여, 신뢰가 됩니다.<span>KODA 브랜드 필름 · 15초 · 무음</span></p>
+        </div>
+        <p className="login-stage-copy">확인이 쌓여, 신뢰가 됩니다.<span>KODA 브랜드 필름 · 15초 · 무음</span></p>
       </div>
     </aside>
   );

@@ -63,7 +63,8 @@ test.describe('로그인 브랜드 트레일러 390px', () => {
     expect(cardBox!.y).toBeGreaterThanOrEqual(stageBox!.height - 1);
     const src = await page.locator('.login-stage video').evaluate((node) => (node as HTMLVideoElement).currentSrc);
     expect(src).toContain('/brand/koda-trailer-15s-4x5.mp4');
-    await expect(page.locator('.login-stage-copy')).toBeInViewport();
+    // 좁은 화면 띠에서는 영상 아래 문구를 두지 않는다(영상 하단 띠·로그인 제목과 겹치지 않게).
+    await expect(page.locator('.login-stage-copy')).toBeHidden();
     await expect(page.getByRole('heading', { name: '법인 대시보드 로그인' })).toBeVisible();
   });
 });
