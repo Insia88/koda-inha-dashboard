@@ -72,10 +72,11 @@ function viteCore(): Pkg & { text: string } {
 describe('화면 번들의 제3자 라이선스 고지 (public/THIRD_PARTY_LICENSES.txt)', () => {
   let pkgs: Pkg[] = [];
   let notice = '';
+  // 화면 코드 전체를 한 번 묶는다(한가할 때 약 3초). 다른 테스트 파일·E2E와 함께 돌면 기본 훅 제한(10초)을 넘을 수 있어 넉넉히 둔다.
   beforeAll(async () => {
     pkgs = await bundledPackages();
     notice = fs.existsSync(NOTICE_FILE) ? fs.readFileSync(NOTICE_FILE, 'utf8') : '';
-  });
+  }, 60_000);
 
   it('finds the runtime packages the browser bundle is made of', () => {
     const names = pkgs.map((p) => p.name);
