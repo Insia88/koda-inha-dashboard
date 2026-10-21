@@ -4,20 +4,20 @@
 .pe-block { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
 .pe-decide { padding: var(--s3) var(--s4); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: #fbfcfc; }
 .pe-title { margin: 0; }
-h3.pe-title { font-size: 15px; }
-.pe-subtitle { margin: 0; font-size: 15px; }
-.pe-source { margin: 0; font-size: 14px; color: var(--ink-2); }
-.pe-state { margin: 0; font-size: 13px; color: var(--ink-2); }
+h3.pe-title { font-size: var(--fs-base); line-height: var(--lh-h3); }
+.pe-subtitle { margin: 0; font-size: var(--fs-base); line-height: var(--lh-h3); }
+.pe-source { margin: 0; font-size: var(--fs-md); line-height: var(--lh-md); color: var(--ink-2); }
+.pe-state { margin: 0; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-2); }
 .pe-intro { margin: 0; color: var(--ink-2); }
 
 /* 근거 기록 없음: 중립(굵은 글 + 설명). 경고·성공 색이 아니다. */
 .pe-none { padding: var(--s2) var(--s3); border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); background: var(--paper); }
 .pe-none-title { display: block; color: var(--ink); }
-.pe-none p { margin: 2px 0 0; font-size: 14px; color: var(--ink-2); }
+.pe-none p { margin: 2px 0 0; font-size: var(--fs-md); line-height: var(--lh-md); color: var(--ink-2); }
 
 /* 메모 */
 .pe-note { padding: var(--s2) var(--s3); border-left: 3px solid var(--line-strong); background: var(--paper); min-width: 0; }
-.pe-note-label { margin: 0; font-size: 12px; font-weight: 700; color: var(--ink-2); }
+.pe-note-label { margin: 0; font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: 600; letter-spacing: var(--ls-caption); color: var(--ink-2); }
 .pe-note-text { margin: 2px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* 파일 목록: 미리 보기(72px) · 이름과 정보 · 버튼. 좁은 폭에서는 버튼이 아래 줄로 내려간다. */
@@ -25,29 +25,29 @@ h3.pe-title { font-size: 15px; }
 .pe-item { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; gap: var(--s2) var(--s3); align-items: center; padding: var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); min-width: 0; }
 .pe-thumb { width: 72px; height: 72px; object-fit: contain; border: 1px solid var(--line); border-radius: 4px; background: repeating-conic-gradient(var(--neutral-soft) 0 25%, var(--surface) 0 50%) 0 0 / 12px 12px; }
 .pe-icon { width: 72px; height: 72px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 4px; color: var(--ink-2); background: var(--paper); }
-.pe-preview-failed { margin: 0; width: 72px; font-size: 11px; line-height: 1.35; color: var(--ink-2); overflow-wrap: anywhere; }
+.pe-preview-failed { margin: 0; width: 72px; font-size: var(--fs-xs); line-height: var(--lh-xs); color: var(--ink-2); overflow-wrap: anywhere; }
 .pe-item-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.pe-name { margin: 0; font-weight: 700; overflow-wrap: anywhere; word-break: break-word; }
-.pe-meta { margin: 0; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
-.pe-sha { font-family: var(--mono); letter-spacing: 0.02em; white-space: nowrap; }
-.pe-item-error { margin: 2px 0 0; font-size: 13px; color: var(--danger); }
+.pe-name { margin: 0; font-weight: 600; overflow-wrap: anywhere; word-break: break-word; }
+.pe-meta { margin: 0; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-2); overflow-wrap: anywhere; }
+.pe-sha { font-family: var(--mono); letter-spacing: var(--ls-code); white-space: nowrap; }
+.pe-item-error { margin: 2px 0 0; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--danger); }
 .pe-actions { display: flex; flex-wrap: wrap; gap: var(--s2); justify-content: flex-end; }
 
 /* 편집 카드 */
 .pe-note-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--s3); margin-top: calc(-1 * var(--s2)); }
-.pe-counter { font-size: 13px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.pe-counter { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-3); }
 .pe-files-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--s3); margin-top: var(--s2); }
-.pe-limits { font-size: 13px; color: var(--ink-2); }
-.pe-empty { margin: 0; font-size: 14px; color: var(--ink-2); }
+.pe-limits { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-2); }
+.pe-empty { margin: 0; font-size: var(--fs-md); line-height: var(--lh-md); color: var(--ink-2); }
 .pe-add { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); }
-.pe-add-why { font-size: 13px; color: var(--ink-2); }
+.pe-add-why { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-2); }
 .pe-add-why:empty { display: none; }
-.pe-progress { margin: 0; font-size: 14px; color: var(--ink-2); min-height: 0; }
+.pe-progress { margin: 0; font-size: var(--fs-md); line-height: var(--lh-md); color: var(--ink-2); min-height: 0; }
 .pe-problems { margin: 4px 0 0; padding-left: 18px; overflow-wrap: anywhere; }
 
 /* 승인 요청 카드의 한 줄(지급 근거가 승인자에게 보이는지) */
-.pe-submit-line { margin: 0; font-size: 14px; color: var(--ink-2); }
-.pe-submit-warn { margin: 0; font-size: 14px; font-weight: 700; color: var(--warning); }
+.pe-submit-line { margin: 0; font-size: var(--fs-md); line-height: var(--lh-md); color: var(--ink-2); }
+.pe-submit-warn { margin: 0; font-size: var(--fs-md); line-height: var(--lh-md); font-weight: 700; color: var(--warning); }
 
 @media (max-width: 560px) {
   .pe-item { grid-template-columns: 72px minmax(0, 1fr); }

@@ -3,7 +3,7 @@ import { Link, useLocation, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, newIdemKey } from '../api.ts';
 import { useMe, type Me } from '../auth.tsx';
-import { AddressStrip, ApiErrorNotice, Badge, DataStamp, ErrorState, Field, Loading, Notice, PageHeader, StatusRail, TextareaAuto, WaitedTime } from '../components/ui.tsx';
+import { AddressStrip, AmountText, ApiErrorNotice, Badge, DataStamp, ErrorState, Field, Loading, Notice, PageHeader, StatusRail, TextareaAuto, WaitedTime } from '../components/ui.tsx';
 import { DecisionEvidenceLine } from '../components/DecisionEvidence.tsx';
 import { ConfirmDialog } from '../components/Dialog.tsx';
 import { useFocusFirstError } from '../lib/forms.ts';
@@ -396,7 +396,8 @@ export function RequestDetailPage() {
   return (
     <div className="page page-narrow">
       <PageHeader title={`출금 요청 ${r.refNo}`} eyebrow={<Link to={back}>← 결재 및 요청</Link>} description={<><Badge tone={st.tone}>{st.label}</Badge> <span className="muted">{st.description}</span></>} />
-      <StatusRail step={st.step} status={r.status} />
+      {/* key: 다른 요청으로 옮겨 가면 레일을 새로 그려, 두 요청 사이를 진행선 채움으로 잇지 않는다(A4) */}
+      <StatusRail key={r.id} step={st.step} status={r.status} />
       {/* 레일 마지막 칸이 무엇인지(A1). 단계 이름(DASH-004)은 그대로 두고 설명만 붙인다. */}
       {(r.status === 'PENDING_APPROVAL' || r.status === 'PROCESSING') && (
         <p className="muted small rail-caption">마지막 칸 '처리 결과'는 필요한 승인이 모두 모인 뒤 수탁사가 처리한 결과(처리 완료·처리 실패)입니다.</p>
@@ -489,7 +490,7 @@ export function RequestDetailPage() {
           <dl className="dl dl-wide">
             <dt>보내는 수량</dt>
             <dd>
-              <div className="big-amount">{amount(r.amount, r.assetCode)}</div>
+              <div className="big-amount"><AmountText text={amount(r.amount, r.assetCode)} /></div>
               <Valuation r={r} preSubmit={preSubmit} currentKrw={currentKrw} price={price} assetPrice={assetPrice} balancesError={!!bal.error} />
             </dd>
             <dt>네트워크</dt><dd>{r.networkName} <span className="muted small">· 출금 지갑: {r.walletName}</span></dd>
@@ -600,7 +601,7 @@ export function RequestDetailPage() {
           {/* 무엇을 결정하는지 한 줄 요약(A1): 누가·어디로·얼마·왜·몇 명 중 몇 명. 평가액은 제출 때 저장한 값이다.
               받는 곳 이름이 이미 괄호로 끝나면(예: '정산 파트너 B (Kaia USDC)') 괄호를 겹치지 않고 가운뎃점으로 상대를 잇는다. */}
           <p className="rc-decide-summary">
-            {r.createdBy.name}님의 출금 요청: {r.address.label}{r.address.label.endsWith(')') ? ` · ${r.address.counterparty}` : `(${r.address.counterparty})`}에 {amount(r.amount, r.assetCode)}{r.krwValueAtSubmit ? ` (${krwShort(r.krwValueAtSubmit)})` : ''} · 목적: {r.purpose} · 승인 {r.approvedCount}/{r.requiredApprovals}명
+            {r.createdBy.name}님의 출금 요청: {r.address.label}{r.address.label.endsWith(')') ? ` · ${r.address.counterparty}` : `(${r.address.counterparty})`}에 <span className="rc-decide-amt">{amount(r.amount, r.assetCode)}</span>{r.krwValueAtSubmit ? ` (${krwShort(r.krwValueAtSubmit)})` : ''} · 목적: {r.purpose} · 승인 {r.approvedCount}/{r.requiredApprovals}명
           </p>
           {/* 받는 주소의 주소록 기록 두 줄(A2-2, 사람이 남긴 기록이지 증명이 아니다, A-32): 등록자·받은 경로 → 등록자가 다시 확인한 경로 / 확인자·지금 상태.
               다시 확인한 경로는 등록자가 남긴 값이라 '등록자가'를 붙인다(다음 줄의 확인자가 그 경로로 확인했다고 읽히지 않게). 확인자의 연락 경로는 저장하지 않으므로 쓰지 않는다.
@@ -751,7 +752,7 @@ function Valuation({ r, preSubmit, currentKrw, price, assetPrice, balancesError 
     if (!r.krwValueAtSubmit) {
       return (
         <div className="small" style={{ marginTop: 4 }}>
-          <span className="warn-text" style={{ fontWeight: 600 }}>평가액 없음 · 제출 시 시세를 확인할 수 없었습니다</span>
+          <span className="warn-text semibold">평가액 없음 · 제출 시 시세를 확인할 수 없었습니다</span>
           <div><DataStamp label="제출 시각" asOf={r.submittedAt} state="unavailable" /></div>
         </div>
       );
@@ -765,13 +766,13 @@ function Valuation({ r, preSubmit, currentKrw, price, assetPrice, balancesError 
   }
   if (!preSubmit) return <div className="muted small" style={{ marginTop: 4 }}>승인 요청 전에 끝난 요청이라 평가액을 기록하지 않았습니다.</div>;
   // 저장된 수량을 읽을 수 없으면 시세가 있어도 평가액을 계산할 수 없다(시세가 없다고 말하지 않는다).
-  if (r.amount === null) return <div className="small" style={{ marginTop: 4 }}><span className="warn-text" style={{ fontWeight: 600 }}>수량을 읽을 수 없어 평가액을 계산하지 않습니다</span></div>;
+  if (r.amount === null) return <div className="small" style={{ marginTop: 4 }}><span className="warn-text semibold">수량을 읽을 수 없어 평가액을 계산하지 않습니다</span></div>;
   if (balancesError) return <div className="muted small" style={{ marginTop: 4 }}>지금 시세를 불러오지 못해 평가액을 표시하지 않습니다.</div>;
   if (!price) return <div className="muted small" style={{ marginTop: 4 }}>시세를 불러오는 중…</div>;
   if (currentKrw === null) {
     return (
       <div className="small" style={{ marginTop: 4 }}>
-        <span className="warn-text" style={{ fontWeight: 600 }}>{assetPrice ? '시세가 없어' : '이 자산의 시세가 없어'} 지금 평가액을 계산할 수 없습니다</span>
+        <span className="warn-text semibold">{assetPrice ? '시세가 없어' : '이 자산의 시세가 없어'} 지금 평가액을 계산할 수 없습니다</span>
         <div><DataStamp label="시세 기준" asOf={price.asOf} state="unavailable" source={price.source} /></div>
       </div>
     );

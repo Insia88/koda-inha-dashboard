@@ -75,7 +75,7 @@ export function InsightsPage() {
                   {i.assetTags.length > 0 && (
                     <div className="insight-meta">
                       <span className="sr-only">관련 자산</span>
-                      {i.assetTags.map((t: string) => <span key={t} className="badge badge-neutral" style={{ fontWeight: 600 }}>{t}</span>)}
+                      {i.assetTags.map((t: string) => <span key={t} className="badge badge-neutral">{t}</span>)}
                     </div>
                   )}
                   <div className="insight-meta">

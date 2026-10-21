@@ -5,9 +5,9 @@
 .rc-block { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
 .rc-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--s3); }
 .rc-head h2, .rc-head h3 { margin: 0; }
-.rc-head h3 { font-size: 15px; }
-.rc-summary { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.rc-intro { margin: 0; font-size: 14px; color: var(--ink-2); }
+.rc-head h3 { font-size: var(--fs-base); line-height: var(--lh-h3); }
+.rc-summary { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-2); }
+.rc-intro { margin: 0; font-size: var(--fs-md); line-height: var(--lh-md); color: var(--ink-2); }
 
 .rc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
 .rc-item { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: var(--s2); padding: var(--s3); border: 1px solid var(--line); border-left-width: 4px; border-radius: var(--radius-sm); background: var(--surface); min-width: 0; }
@@ -20,37 +20,40 @@
 
 .rc-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .rc-line { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--s2); }
-.rc-outcome { flex: none; font-size: 12px; font-weight: 700; padding: 0 8px; border-radius: 999px; line-height: 20px; white-space: nowrap; }
+.rc-outcome { flex: none; font-size: var(--fs-xs); font-weight: 600; letter-spacing: var(--ls-caption); padding: 0 6px; border-radius: 999px; line-height: var(--lh-xs); white-space: nowrap; }
 .rc-pass .rc-outcome { background: var(--neutral-soft); color: var(--neutral); }
 .rc-caution .rc-outcome, .rc-unknown .rc-outcome { background: var(--warning-soft); color: var(--warning); border: 1px solid #efd29b; }
-.rc-label { font-weight: 700; min-width: 0; }
-.rc-detail { margin: 0; font-size: 14px; color: var(--ink-2); }
-.rc-basis { margin: 0; font-size: 12px; color: var(--ink-3); }
-.rc-reason { margin: 2px 0 0; padding: var(--s2) var(--s3); border-left: 3px solid var(--line-strong); background: var(--paper); font-size: 14px; }
-.rc-reason b { display: block; font-size: 12px; color: var(--ink-2); }
+.rc-label { font-weight: 600; min-width: 0; }
+.rc-detail { margin: 0; font-size: var(--fs-md); line-height: var(--lh-md); color: var(--ink-2); text-wrap: pretty; }
+.rc-basis { margin: 0; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-3); }
+.rc-reason { margin: 2px 0 0; padding: var(--s2) var(--s3); border-left: 3px solid var(--line-strong); background: var(--paper); font-size: var(--fs-md); line-height: var(--lh-md); }
+.rc-reason b { display: block; font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: 600; letter-spacing: var(--ls-caption); color: var(--ink-2); }
 .rc-reason p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .rc-body .field { margin-top: 4px; }
 
 /* 작성 화면의 미리 보기: 입력과 구분선으로 나누고, 기준 이내 항목은 한 줄로 줄인다 */
 .rc-compact { border-top: 1px solid var(--line); padding-top: var(--s4); margin-top: var(--s2); }
 .rc-compact .rc-item { padding: var(--s2) var(--s3); }
-.rc-compact .rc-line { font-size: 14px; }
-.rc-footnote { margin: 0; font-size: 12px; color: var(--ink-3); }
+.rc-compact .rc-line { font-size: var(--fs-md); line-height: var(--lh-md); }
+/* 기준 각주('설계 가정 / 보증하지 않음')는 12px → 13px(A4): 가장 작은 크기는 한 줄짜리 표시에만 쓴다 */
+.rc-footnote { margin: 0; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-3); }
 
 /* 승인 대상 지문 */
 .rc-intent { display: flex; flex-direction: column; gap: 4px; padding: var(--s3) var(--s4); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: #fbfcfc; min-width: 0; }
-.rc-intent-label { font-size: 13px; font-weight: 700; color: var(--ink-2); }
-.rc-intent-value { font-family: var(--mono); font-size: 20px; font-weight: 700; letter-spacing: 0.04em; color: var(--ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.rc-intent-label { font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: 600; color: var(--ink-2); }
+/* 지문은 고정폭(Source Code Pro) 20/28 600. 어떤 움직임도 붙이지 않는다 */
+.rc-intent-value { font-family: var(--mono); font-size: var(--fs-xl); line-height: var(--lh-xl); font-weight: 600; letter-spacing: var(--ls-code); color: var(--ink); overflow-wrap: anywhere; }
 .rc-intent-missing { font-weight: 700; color: var(--warning); }
-.rc-intent-note { margin: 0; font-size: 13px; color: var(--ink-2); }
+.rc-intent-note { margin: 0; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-2); }
 /* 정의 목록 안의 지문(결정 카드가 없는 화면) */
-.rc-intent-inline { font-family: var(--mono); font-weight: 700; letter-spacing: 0.03em; white-space: nowrap; }
+.rc-intent-inline { font-family: var(--mono); font-weight: 600; letter-spacing: var(--ls-code); white-space: nowrap; }
 
 /* 결정 카드 안의 되돌릴 수 없음 안내 */
 .rc-irreversible { margin: 0; }
 
 /* 결정 카드 첫 줄 요약(A1): 누가·어디로·얼마·왜·몇 명 중 몇 명 */
-.rc-decide-summary { margin: 0; font-size: 16px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; }
+/* 요약 문장은 본문 크기 500, 그 안의 보내는 수량(.rc-decide-amt)만 700(A4: 숫자가 둘레 글자보다 한 단계 굵게) */
+.rc-decide-summary { margin: 0; font-size: var(--fs-base); line-height: var(--lh-base); font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
 /* 받는 주소의 주소록 기록(사람이 남긴 기록) */
 .rc-addr-record { margin: -4px 0 0; color: var(--ink-2); overflow-wrap: anywhere; }
 /* 주소록 기록 두 줄(A2-2): 등록자·받은 경로 → 다시 확인한 경로 / 확인자·지금 상태. 비슷한 주소 경고가 있었으면 경고 색 한 줄 */
@@ -62,7 +65,7 @@
 /* 이번 승인이 마지막인지·몇 번째인지 */
 .rc-approve-effect { margin: 0; padding: var(--s2) var(--s3); border-left: 4px solid var(--ink); background: var(--paper); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 /* 승인 전 확인 안의 보조 문장과, 주소 대조 체크 바로 위의 전체 주소 */
-.rc-check-hint { margin: -4px 0 0 26px; font-size: 13px; color: var(--ink-2); }
+.rc-check-hint { margin: -4px 0 0 26px; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-2); }
 .rc-check-address { margin: 4px 0 0 26px; }
 .rc-after-approve { margin: 0; }
 @media (max-width: 560px) {
@@ -72,19 +75,19 @@
 /* 출금 전 점검의 '기준 이내' 묶음(A1): 주의·확인 불가 아래에 접어 둔다. 중립 색(녹색 아님), 중요 고지가 아니다.
    요약 줄('주의 n건 · 확인 불가 n건 · 기준 이내 n건')과 기준 각주는 접히지 않는다. */
 .rc-pass-group { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--paper); }
-.rc-pass-group > summary { cursor: pointer; padding: 9px var(--s3); font-size: 14px; color: var(--ink-2); font-weight: 600; }
+.rc-pass-group > summary { cursor: pointer; padding: 9px var(--s3); font-size: var(--fs-md); line-height: var(--lh-md); color: var(--ink-2); font-weight: 600; }
 .rc-pass-group[open] > summary { border-bottom: 1px solid var(--line); }
 .rc-pass-group > .rc-list { padding: var(--s2); }
-.rc-none { margin: 0; font-size: 14px; color: var(--ink-2); }
+.rc-none { margin: 0; font-size: var(--fs-md); line-height: var(--lh-md); color: var(--ink-2); }
 /* '확인 불가' 항목: 자료가 부족했다는 뜻이지 문제가 없다는 뜻이 아니다 */
-.rc-unknown-note { margin: 0; font-size: 13px; color: var(--ink-2); }
+.rc-unknown-note { margin: 0; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-2); }
 
 /* 「사유 필요」 표시: 사유가 필요한 주의 항목(작성 미리 보기·작성 중 상세). 결과 글자와 겹치지 않게 테두리만 둔다. */
-.rc-need { flex: none; font-size: 12px; font-weight: 700; padding: 0 6px; line-height: 18px; border: 1px solid var(--warning); border-radius: var(--radius-sm); color: var(--warning); background: var(--surface); white-space: nowrap; }
+.rc-need { flex: none; font-size: var(--fs-xs); font-weight: 600; letter-spacing: var(--ls-caption); padding: 0 6px; line-height: var(--lh-xs); border: 1px solid var(--warning); border-radius: var(--radius-sm); color: var(--warning); background: var(--surface); white-space: nowrap; }
 
 /* 지금 내용으로 다시 계산한 지문이 다를 때(blockedReason INTENT_TAMPERED) */
 .rc-intent-bad { border-color: var(--danger); border-left-width: 4px; }
-.rc-intent-mismatch { margin: 0; font-size: 14px; font-weight: 700; color: var(--danger); }
+.rc-intent-mismatch { margin: 0; font-size: var(--fs-md); line-height: var(--lh-md); font-weight: 700; color: var(--danger); }
 .rc-intent-mismatch svg { vertical-align: -3px; }
 
 /* 409 안내·승인 요청 완료 안내로 포커스를 옮길 때 쓰는 감싸개. 상단 고정 막대 아래로 숨지 않게 하는 여백은 전역 html { scroll-padding-top }(styles.css, A3)이 맡는다(요소마다 scroll-margin을 더하면 두 값이 더해져 머리글 아래로 두 배 내려간다). */
@@ -94,4 +97,4 @@
 .rc-waiting { list-style: none; margin: 4px 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .rc-waiting li { min-width: 0; overflow-wrap: anywhere; }
 .rc-waiting-label { font-weight: 700; color: var(--ink); }
-.rc-waiting-when { display: block; font-variant-numeric: tabular-nums; color: var(--ink); }
+.rc-waiting-when { display: block; color: var(--ink); }

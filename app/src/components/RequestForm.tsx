@@ -287,7 +287,7 @@ export function RequestForm({ value, onChange, error, requestId }: { value: Requ
               {waitingItems.map((a) => (
                 <li key={a.id}>
                   {/* 정지 버튼이 있는 주소 상세로 바로 간다(요청자도 주소 등록 권한으로 사용 대기 중 정지를 할 수 있다). */}
-                  <Link to={`/addresses/${a.id}`} style={{ fontWeight: 700 }}>{a.label}</Link> <span className="muted">· {a.counterparty}</span>
+                  <Link to={`/addresses/${a.id}`} className="semibold">{a.label}</Link> <span className="muted">· {a.counterparty}</span>
                   <span className="rc-waiting-when">{a.activeFrom ? `${dateTime(a.activeFrom)} KST부터 사용 가능` : '사용 대기 중'}</span>
                 </li>
               ))}
@@ -349,8 +349,8 @@ function AmountPreviewLine({ preview, unit, thresholdKrw, highN }: { preview: Ex
         : preview.priceState === 'loading'
           ? <>시세를 불러오는 중…</>
           : preview.priceState === 'load_error'
-            ? <span className="warn-text" style={{ fontWeight: 600 }}>시세를 불러오지 못해 평가액을 확인할 수 없습니다</span>
-            : <span className="warn-text" style={{ fontWeight: 600 }}>{preview.priceState === 'stale' ? '시세가 지연되어' : '시세가 없어'} 평가액을 확인할 수 없습니다</span>}
+            ? <span className="warn-text semibold">시세를 불러오지 못해 평가액을 확인할 수 없습니다</span>
+            : <span className="warn-text semibold">{preview.priceState === 'stale' ? '시세가 지연되어' : '시세가 없어'} 평가액을 확인할 수 없습니다</span>}
       {' · '}
       {notLoaded
         ? <>{threshold} 이상이면 서로 다른 승인자 {highN}명 필요</>

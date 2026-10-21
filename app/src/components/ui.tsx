@@ -142,6 +142,28 @@ export function AddressStrip({ address, memo, memoLabel, compact, verify }: { ad
   );
 }
 
+const AMOUNT_PARTS = /^(약 )?(-?[\d,]+(?:\.\d+)?)(.*)$/;
+/**
+ * 금액·수량 표시(A4): amount()·krw()·krwShort()가 만든 문자열을 그대로 받아 숫자(.amt-n)와 '약'·단위(.amt-u)를 나눠 그린다.
+ * 숫자가 먼저 읽히도록 단위만 작고 가볍게 보이는 표시용 분리다. 띄어쓰기는 늘 글자 노드로 남겨 textContent가 원래 문자열과 똑같다.
+ * 형식이 맞지 않는 값('—' 등)은 그대로 글자로 둔다.
+ */
+export function AmountText({ text }: { text: string }) {
+  const m = AMOUNT_PARTS.exec(text);
+  if (!m) return <>{text}</>;
+  const [, approx, figure, rest = ''] = m;
+  const lead = rest.startsWith(' ') ? ' ' : '';
+  const unit = rest.slice(lead.length);
+  return (
+    <>
+      {approx && <><span className="amt-u">약</span>{' '}</>}
+      <span className="amt-n">{figure}</span>
+      {lead}
+      {unit && <span className="amt-u">{unit}</span>}
+    </>
+  );
+}
+
 /** 기다린 시간('4시간째'). 기계가 읽을 시각(dateTime)과 KST 절대 시각(title)을 함께 둔다(A2-1). 지연 색은 쓰지 않는다. */
 export function WaitedTime({ iso }: { iso: string | null | undefined }) {
   if (!iso) return null;

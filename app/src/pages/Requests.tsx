@@ -5,7 +5,7 @@ import { IconX } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useMe, type Me } from '../auth.tsx';
 import { useUrlState } from '../hooks.ts';
-import { Badge, Empty, ErrorState, Loading, PageHeader, Pagination, StatusRail } from '../components/ui.tsx';
+import { AmountText, Badge, Empty, ErrorState, Loading, PageHeader, Pagination, StatusRail } from '../components/ui.tsx';
 import { SearchField } from '../components/SearchField.tsx';
 import { Faq } from '../components/Faq.tsx';
 import { krwThreshold } from '../components/RequestForm.tsx';
@@ -161,7 +161,7 @@ export function RequestsPage() {
                       {addrOff && <Badge tone="danger">{r.blockedReason === 'ADDRESS_NOT_ACTIVE' ? '승인 불가 · 주소 사용 중지' : '받는 주소 사용 중지'}</Badge>}
                       <span className="req-purpose" title={r.purpose}>{r.purpose}</span>
                     </div>
-                    <div className="req-amt num">{amount(r.amount, r.assetCode)}<div className="muted small">{r.networkName}</div></div>
+                    <div className="req-amt num"><AmountText text={amount(r.amount, r.assetCode)} /><div className="muted small">{r.networkName}</div></div>
                     <div className="req-meta small">
                       <span>{r.createdBy.name} → {r.address.label}</span>
                       <span className="muted">{dateTime(r.createdAt)}</span>

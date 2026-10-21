@@ -2,7 +2,7 @@
 
 이 앱은 아래 오픈소스 패키지를 정확한 버전으로 고정해 사용한다(`package.json`, `package-lock.json`). 배포물은 두 갈래이고, 고지 방식이 다르다.
 
-- **화면(`dist/`, Vercel이 정적 파일로 제공):** `node_modules` 없이 `dist/`만 배포된다. 화면 스크립트 `dist/assets/index-*.js`에는 React·React DOM(함께 묶이는 scheduler 포함), React Router, TanStack Query(함께 묶이는 `@tanstack/query-core` 포함), Tabler Icons(사용한 아이콘만)와 Vite가 넣는 모듈 미리 불러오기 보조 코드가 번들된다. 압축 과정에서 패키지의 저작권 주석이 빠지므로, 이 구성요소들의 저작권 표시와 MIT 라이선스 원문은 `public/THIRD_PARTY_LICENSES.txt`에 모아 두었고 빌드 때 **`dist/THIRD_PARTY_LICENSES.txt`**로 함께 배포된다. 번들 구성이 바뀌거나 버전을 올려 원문이 달라지면 `tests/third-party-licenses.test.ts`가 실패하므로 이 파일을 새 원문으로 고친다. Pretendard 글꼴 파일(가변 글꼴 동적 서브셋 woff2)과 그 라이선스 원문(`dist/fonts/PRETENDARD-LICENSE.txt`)도 함께 들어간다(아래).
+- **화면(`dist/`, Vercel이 정적 파일로 제공):** `node_modules` 없이 `dist/`만 배포된다. 화면 스크립트 `dist/assets/index-*.js`에는 React·React DOM(함께 묶이는 scheduler 포함), React Router, TanStack Query(함께 묶이는 `@tanstack/query-core` 포함), Tabler Icons(사용한 아이콘만)와 Vite가 넣는 모듈 미리 불러오기 보조 코드가 번들된다. 압축 과정에서 패키지의 저작권 주석이 빠지므로, 이 구성요소들의 저작권 표시와 MIT 라이선스 원문은 `public/THIRD_PARTY_LICENSES.txt`에 모아 두었고 빌드 때 **`dist/THIRD_PARTY_LICENSES.txt`**로 함께 배포된다. 번들 구성이 바뀌거나 버전을 올려 원문이 달라지면 `tests/third-party-licenses.test.ts`가 실패하므로 이 파일을 새 원문으로 고친다. Pretendard 글꼴 파일(가변 글꼴 동적 서브셋 woff2)과 그 라이선스 원문(`dist/fonts/PRETENDARD-LICENSE.txt`), 식별자 전용 글꼴 Source Code Pro(Adobe 원본 woff2 1개)와 그 라이선스 원문(`dist/fonts/SOURCE-CODE-PRO-LICENSE.txt`)도 함께 들어간다(아래). 두 글꼴의 고지는 `dist/THIRD_PARTY_LICENSES.txt` 머리말에서도 가리킨다.
 - **서버 함수(`.vercel-server/handler.mjs`):** 앱 서버 코드만 묶고 패키지는 묶지 않는다(`build:api`의 `--packages=external`). Fastify·Zod 등은 실행 때 `node_modules`에서 불러오며, 각 패키지의 저작권·라이선스 원문은 그 패키지의 `node_modules/<패키지>/` LICENSE 파일에 있다. 서버 코드는 이용자 브라우저로 전달되지 않는다. Zod는 서버 입력 검증에만 쓰여 화면 번들에는 들어가지 않는다.
 
 | 패키지 | 버전 | 라이선스 | 도입 이유 |
@@ -26,9 +26,12 @@
 | fast-check | 4.10.2 | MIT | 수량 파싱 속성 기반 테스트(개발 도구, 배포물에 포함하지 않음) |
 | @fast-check/vitest | 0.5.0 | MIT | fast-check를 Vitest 테스트로 실행(개발 도구, 배포물에 포함하지 않음) |
 | esbuild | 0.28.2 | MIT | 서버 코드 번들(`build:api`, 빌드 도구). tsx가 잠근 버전과 같은 버전으로 고정 |
+| Source Code Pro (Adobe Originals, npm 패키지 아님) | 2.042R-u/1.062R-i/1.026R-vf (가변 글꼴 1.026) | OFL-1.1 | 식별자 전용 고정폭(A4): 주소 대조 띠·주소 재입력 칸·승인 대상 지문·해시. Adobe GitHub 원본 `WOFF2/VF/SourceCodeVF-Upright.ttf.woff2`(90,124 B, git blob `fa87db30cd176c10c945754a50f9b1353eb1a122`, sha256 `d95dc751b4d82141259f5c00c9838addaadd3b4eac30dd7db4a0da4921d77792`)를 **고치지 않고**(서브셋·변환·이름 바꾸기 없음) `src/assets/fonts/`에 두고 `src/fonts.css`가 같은 출처로 선언한다. 빌드 때 `dist/assets/`에 해시가 붙은 이름으로 들어가며, 고정폭 글자가 있는 화면에서만 내려받는다(홈·요청 목록은 받지 않음) |
 | pretendard | 1.3.9 | OFL-1.1 | 화면 서체(Pretendard Variable). `src/main.tsx`가 `pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css`를 불러오고, 빌드 때 그 CSS가 가리키는 woff2 파일(92개)이 `dist/assets/`에 번들된다. 화면은 같은 출처에서만 글꼴을 내려받고 외부 CDN을 쓰지 않는다 |
 
 Pretendard는 SIL Open Font License 1.1로 배포된다(Copyright (c) 2021, Kil Hyung-jin, Reserved Font Name Pretendard). 라이선스 원문은 `node_modules/pretendard/dist/LICENSE.txt`에 있고, 같은 파일을 `public/fonts/PRETENDARD-LICENSE.txt`로 복사해 두어 빌드 결과물에는 `dist/fonts/PRETENDARD-LICENSE.txt`로 글꼴 파일과 함께 들어간다(OFL 1.1 제2조). 번들된 CSS는 압축 과정에서 원본 CSS 머리말의 저작권 주석이 빠지므로, 이 별도 파일이 고지 역할을 한다. 패키지 버전을 바꾸면 이 파일도 새 버전의 원문으로 다시 복사한다. 글꼴 파일만 따로 판매하지 않고, 글꼴을 수정해 배포할 때는 예약된 글꼴 이름 "Pretendard"를 쓰지 않는다.
+
+Source Code Pro는 SIL Open Font License 1.1로 배포된다. 저작권 표시(LICENSE.md 첫 줄 그대로): "© 2023 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'. All Rights Reserved. Source is a trademark of Adobe in the United States and/or other countries." 출처는 https://github.com/adobe-fonts/source-code-pro 릴리스 2.042R-u/1.062R-i/1.026R-vf(2023-04-12)이고, 글꼴 파일과 `LICENSE.md`(git blob `70288a864f8dfd1314aa0315748eece0cf80fdda`, 4,566 B)를 GitHub API에서 blob 단위로 받아 `git hash-object`로 같은 파일임을 확인했다(2026-10-21). 라이선스 원문은 `public/fonts/SOURCE-CODE-PRO-LICENSE.txt`(줄 끝까지 원본 그대로, `app/.gitattributes`)로 두어 빌드 결과물에는 `dist/fonts/SOURCE-CODE-PRO-LICENSE.txt`로 글꼴 파일과 함께 들어간다. 글꼴 파일은 수정하지 않았다(unmodified). 서브셋·변환 등으로 수정한 판을 배포하게 되면 예약된 글꼴 이름 "Source"를 쓸 수 없으므로 그 전에 결정을 다시 받는다(`docs/oss-tracking.md`). 글꼴 파일만 따로 판매하지 않는다.
 
 fast-check(Copyright (c) 2017 Nicolas DUBIEN), @fast-check/vitest(Copyright (c) 2020 Nicolas DUBIEN), esbuild(Copyright (c) 2020 Evan Wallace)는 테스트·빌드에만 쓰며 배포물에 포함하지 않는다.
 

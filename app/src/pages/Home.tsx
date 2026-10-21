@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { IconArrowRight } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useMe } from '../auth.tsx';
-import { Badge, DataStamp, Empty, ErrorState, Loading, PageHeader, StatusRail, Term, WaitedTime } from '../components/ui.tsx';
+import { AmountText, Badge, DataStamp, Empty, ErrorState, Loading, PageHeader, StatusRail, Term, WaitedTime } from '../components/ui.tsx';
 import { AllocationBar } from '../components/AllocationBar.tsx';
 import { amount, dateTime, krw, krwShort, relative } from '../format.ts';
 import { APPROVAL_WAIT_TEXT, approverNames, GLOSSARY, REQUEST_STATUS, TX_STATUS, TX_TYPE, type ApproverRef, type RequestStatus } from '../../shared/terms.ts';
@@ -257,7 +257,7 @@ function HoldingsCard({ h, className }: { h: any; className: string }) {
         </div>
         <div className="total">
           <div className="total-label"><Term label="총 평가액">{GLOSSARY.valuation}</Term></div>
-          <div className="total-value">{krwShort(h.totalKrw)}</div>
+          <div className="total-value"><AmountText text={krwShort(h.totalKrw)} /></div>
           <div className="total-exact muted">{krw(h.totalKrw)}</div>
           {/* 총 평가액을 보는 자리에서 스테이킹이 들어가는지 묻게 되므로 합계 바로 아래에 짧게 쓴다(긴 설명은 잔고 화면 아래). */}
           <p className="muted small total-staking-note">스테이킹 현황의 맡긴 수량·보상은 이 합계에 넣지 않았습니다(모의 데이터).</p>
@@ -274,9 +274,9 @@ function HoldingsCard({ h, className }: { h: any; className: string }) {
                 {h.assets.map((a: any) => (
                   <tr key={a.assetCode}>
                     <th scope="row"><span className="asset-code">{a.assetCode}</span> <span className="muted small">{a.name}</span></th>
-                    <td className="num" data-label="보유 수량">{amount(a.total, a.assetCode)}</td>
+                    <td className="num qty" data-label="보유 수량"><AmountText text={amount(a.total, a.assetCode)} /></td>
                     {/* '예약'은 예약 이체로 읽히기 쉬워 무엇에 묶였는지 쓴다(A1). 승인 대기와 처리 중 모두 묶여 있으므로(처리가 끝날 때 풀림) 두 경우에 맞는 말을 쓴다. 뜻은 잔고 화면의 '묶인 수량(예약)' 설명과 같다. */}
-                    <td className="num" data-label="사용 가능">{amount(a.available, a.assetCode)}{a.reserved !== '0' && <div className="muted small">출금 요청에 묶임 {amount(a.reserved)}</div>}</td>
+                    <td className="num qty" data-label="사용 가능"><AmountText text={amount(a.available, a.assetCode)} />{a.reserved !== '0' && <div className="muted small">출금 요청에 묶임 {amount(a.reserved)}</div>}</td>
                     <td className="num" data-label="평가액">{krwShort(a.krwValue)}</td>
                   </tr>
                 ))}
