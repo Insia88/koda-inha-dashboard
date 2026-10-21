@@ -315,16 +315,17 @@ export function RequestDetailPage() {
   const guard = useUnsavedGuard(editDirty || reasonDirty || checkReasonDirty || noteDirty || evidenceBusy);
 
   // #decision-card로 바로 들어온 경우(북마크·앵커 공유)에도 로딩 뒤 카드로 포커스·스크롤한다(A8 접근성).
+  // 카드가 아직 렌더되지 않은 첫 렌더에서는 완료 표시를 하지 않고, 데이터가 온 뒤 다시 시도한다.
   const hashFocusDone = useRef(false);
   useEffect(() => {
     if (hashFocusDone.current || typeof location === 'undefined' || location.hash !== '#decision-card') return;
+    const el = document.getElementById('decision-card');
+    if (!el) return;
     hashFocusDone.current = true;
     const t = setTimeout(() => {
-      const el = document.getElementById('decision-card');
-      if (!el) return;
       el.scrollIntoView();
       el.focus({ preventScroll: true });
-    }, 80);
+    }, 50);
     return () => clearTimeout(t);
   }, [q.data?.id]);
 
