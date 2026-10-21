@@ -6,7 +6,7 @@ import type { AuthContext } from '../auth.ts';
 import type { AppConfig } from '../config.ts';
 import { formatUnits, krwValue } from '../../shared/decimal.ts';
 import { actionLabel, AUDIT_EXPORT_TEXT, AUDIT_INTEGRITY_TEXT, decisionEvidenceText, ROLE_LABEL, type DecisionEvidence, type Role } from '../../shared/terms.ts';
-import { kstDateTime } from '../csv.ts';
+import { FORMULA_START, kstDateTime } from '../csv.ts';
 import { activateDueAddresses, canStopCooling, likePattern, poisonFlags } from './addresses.ts';
 import { DECISION_ACTIONS, decisionEvidence, displayAmount, validApprovals, waitingForMap } from './requests.ts';
 
@@ -284,11 +284,11 @@ const grouped = (n: number) => n.toLocaleString('en-US');
 
 /**
  * 표지에 넣는 사용자 입력(필터 값): 줄바꿈·탭을 공백으로 바꿔 표지 줄 수가 늘지 않게 하고(머리글을 찾는 규칙이 흔들리지 않게),
- * 수식 문자(=,+,-,@)로 시작하면 앞에 작은따옴표를 붙인다. 셀 전체도 CSV 쓰기(csvCell)에서 다시 무력화한다.
+ * 수식 문자(csvCell과 같은 FORMULA_START: =,+,-,@와 전각 ＝＋－＠)로 시작하면 앞에 작은따옴표를 붙인다. 셀 전체도 CSV 쓰기(csvCell)에서 다시 무력화한다.
  */
 function coverInput(value: string): string {
   const s = value.replace(/[\r\n\t]+/g, ' ');
-  return /^[=+\-@]/.test(s) ? `'${s}` : s;
+  return FORMULA_START.test(s) ? `'${s}` : s;
 }
 
 export interface AuditCsvCoverInput {

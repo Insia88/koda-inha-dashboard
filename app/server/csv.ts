@@ -1,7 +1,16 @@
-/** CSV 셀 보호: 스프레드시트에서 수식으로 실행될 수 있는 값(=,+,-,@,탭,CR로 시작)에 작은따옴표를 붙인다. */
+/**
+ * 스프레드시트가 수식으로 읽을 수 있는 첫 글자(A3): = + - @, 탭, CR, LF, 그리고 전각 ＝ ＋ － ＠(U+FF1D·FF0B·FF0D·FF20).
+ * 전각 기호는 일부 스프레드시트·입력기가 반각으로 바꿔 수식으로 읽는다. LF로 시작하는 값은 셀 안 첫 줄이 비고 둘째 줄이 수식처럼 보일 수 있다.
+ */
+export const FORMULA_START = /^[=+\-@\t\r\n\uFF1D\uFF0B\uFF0D\uFF20]/u;
+
+/**
+ * CSV 셀 보호: 수식으로 실행될 수 있는 값(FORMULA_START로 시작)에 작은따옴표를 붙이고, 따옴표·쉼표·줄바꿈이 있거나 작은따옴표로 시작하면 큰따옴표로 감싼다.
+ * 내보낼 때의 글자 표현만 바꾼다. 저장된 값(감사 기록 행·해시)은 그대로다.
+ */
 export function csvCell(value: unknown): string {
   let s = value === null || value === undefined ? '' : String(value);
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  if (FORMULA_START.test(s)) s = `'${s}`;
   if (/[",\r\n]/.test(s) || s.startsWith("'")) s = `"${s.replace(/"/g, '""')}"`;
   return s;
 }
