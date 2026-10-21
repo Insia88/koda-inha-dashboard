@@ -88,7 +88,7 @@ function LoginTrailer() {
       />
       <div className="login-stage-scrim" />
         </div>
-        <p className="login-stage-copy">확인이 쌓여, 신뢰가 됩니다.<span>KODA 브랜드 필름 · 15초 · 무음</span></p>
+        <p className="login-stage-copy">확인이 쌓여, 신뢰가 됩니다.<span>KODA 브랜드 필름 · 42초 · 무음</span></p>
       </div>
     </aside>
   );
