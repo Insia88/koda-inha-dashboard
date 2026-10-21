@@ -71,7 +71,9 @@
 | --- | --- |
 | `requiredApprovals` | 제출 때 정한 필요 승인 수 |
 | `approvedCount` | 정족수에 들어간 승인 수. 승인 대기 중에는 지금 유효한 표(같은 조직 활성 사용자, 지금 승인 권한 있음, 작성자 아님)만 센다. 결정이 끝난 요청은 결정 당시 저장한 목록 기준(목록이 없는 이전 요청은 당시 승인 표 전체) |
-| `approvals[]` | `{userId, name, decision('approved'\|'rejected'), reason, createdAt, counted}`. `counted`는 이 표가 정족수에 들어갔는지이며 반려 표는 항상 false |
+| `approvals[]` | `{userId, name, decision('approved'\|'rejected'), reason, createdAt, counted, matchesRequestIntent, rolesAtDecision, rolesSource, approveRoleAtDecision}`. `counted`는 이 표가 정족수에 들어갔는지이며 반려 표는 항상 false. 뒤의 네 필드는 아래 '결정 근거'(A2-3)와 같은 값이다 |
+| `approvalWait` | (A2-1) 승인 대기 요청을 지금 누가 승인할 수 있는지 `{candidates: [{id, name}], remaining, shortfall}`. 상태가 승인 대기이고 승인할 수 있는 요청(`blockedReason` 없음, 지문 있음)일 때만 값이 있고, 그 밖과 **목록 응답에서는 null**. `candidates`는 같은 조직의 활성 사용자 가운데 지금 역할에 `request.approve`가 있는 사람에서 작성자와 이 요청에 이미 결정(승인·반려)을 남긴 사람을 뺀 목록(이름순, 항목의 키는 `id`·`name`뿐, 이메일·직함 없음). 제출 때 승인 가능 인원 검사(`APPROVERS_INSUFFICIENT`)와 같은 판정 함수를 쓴다. `remaining` = `requiredApprovals` − `approvedCount`(0 이상), `shortfall` = 후보 수 < `remaining`. 표시용이며 정족수·승인 가능 여부는 승인 처리가 다시 정한다. 대기 시작 시각은 `submittedAt` |
+| `timeline[]` | 상세·행동 응답의 처리 기록 `{action, actorName, summary, createdAt}`. `request.approved`·`request.rejected` 행에만 `evidence`(그 수행자의 결정 근거, 표를 찾지 못하면 null)가 붙는다. 수행자 id는 넣지 않는다 |
 | `approvalBasis` | 필요 승인 수의 근거: `value_below_threshold`, `value_at_or_above_threshold`, `price_missing`(시세 없음), `price_stale`(30분 초과·읽을 수 없음·5분 넘게 미래). 뒤의 둘은 고액 기준 적용. 제출 전이거나 이 필드 도입 전 요청은 null |
 | `priceAsOfAtSubmit` | 제출 때 쓴 시세 기준 시각(ISO). 시세가 없었으면 null |
 | `krwValueAtSubmit` | 제출 때 원화 평가액(원 단위 정수 문자열) 또는 null |
@@ -83,6 +85,26 @@
 | `approvals[].intentHash`, `approvals[].intentHashDisplay` | 그 사람이 승인·반려할 때 본 지문. 이 기능 도입 전 표는 null |
 | `checks` | 상세 응답에만. 출금 전 점검 `{evaluatedAt, stored, items[]}`. 작성·검토 중이면 볼 때마다 다시 계산(`stored: false`), 승인 요청 뒤에는 제출 때 저장한 결과와 요청자 사유(`stored: true`). 점검 기록 전에 제출된 요청은 null |
 | `checks.items[]` | `{id, label, outcome, detail, basis, requiresReason, reason?}`. `id`: `first_use`·`amount_history`·`balance_share`·`recent_burst`·`price`(이 순서). `outcome`: `pass`(기준 이내)·`caution`(주의)·`unknown`(확인 불가, 기준 이내로 보이지 않음). `requiresReason`은 주의이면서 진행 사유가 필요한 항목. `first_use`·`amount_history`는 이 대시보드에서 처리 완료된 출금 요청만 세며(자산 활동 내역의 출금 행은 받는 주소가 없어 제외), 문구에 그 범위를 함께 쓴다(A-27). `reason`은 제출 때 저장한 사유(제출 전·사유 없음은 null). 기준값은 `GET /org/policy`의 `withdrawalChecks`(설계 가정 A-27) |
+
+## 결정 근거 (`DecisionEvidence`, A2-3)
+
+요청 상세의 `approvals[]`·`timeline[].evidence`, 감사 기록 목록 항목의 `evidence`, 감사 CSV의 '결정 근거(내보낼 때 계산)' 열이 같은 값을 쓴다. **읽을 때 계산하는 값**이며 승인 표·지문 기록·감사 기록에 새로 쓰지 않는다(해시 대상 아님, 마이그레이션 없음).
+
+```json
+{ "userId": "u-a-oh", "name": "오민재", "decision": "approved", "decidedAt": "ISO", "intentHashDisplay": "17B9 C2A0 9F3E 11D4",
+  "matchesRequestIntent": true, "counted": true, "rolesAtDecision": ["approver"], "rolesSource": "role_history", "approveRoleAtDecision": true }
+```
+
+| 필드 | 뜻 |
+| --- | --- |
+| `intentHashDisplay` | 그 사람이 결정할 때 본 지문(`approval_intents`, 수정·삭제 금지). 이 기능 도입 전 표는 null |
+| `matchesRequestIntent` | 표의 지문이 요청 지문(`intentHash`)과 같은지. 표 지문이 없으면 null |
+| `counted` | 정족수에 들어갔는지(승인 대기 중에는 지금 역할로 다시 판단, 결정이 끝난 요청은 결정 당시 목록 `counted_approver_ids`). 반려 표는 false |
+| `rolesAtDecision` | 결정 당시 역할: 같은 조직 감사 기록의 `member.roles_changed`(대상 사용자 = 결정자) 가운데 `created_at` ≤ 결정 시각이고 그 결정의 감사 기록(`request.approved`·`request.rejected`)보다 앞선 마지막 행의 `detail.after`. 알려진 역할 코드의 배열이 아니거나 기록이 없으면 null. **감사 기록 조회 권한(`audit.read`: 감사 담당자·조직 관리자)이 있는 조회자에게만 채우고, 그 밖에는 늘 null**이다(역할 변경 기록은 지금도 `audit.read`로만 보인다) |
+| `rolesSource` | `rolesAtDecision`이 있으면 `'role_history'`(역할 변경 기록 기준), 없으면 null |
+| `approveRoleAtDecision` | `rolesAtDecision`에 출금 승인 권한이 있는지(역할→권한 표는 코드라 지금 권한표 기준, A-01). `rolesAtDecision`이 null이면 null. false이면 화면·CSV가 '역할 변경 기록상 이때 승인 권한이 없습니다 — 기록을 확인하세요'를 쓴다 |
+
+문구(`shared/terms.ts` `decisionEvidenceText`): '결정 당시 역할: 승인자(역할 변경 기록 기준) · 정족수 포함 · 결정한 지문 17B9 C2A0 9F3E 11D4(요청 지문과 같음)'. 역할 조각은 `audit.read`가 있을 때만 쓰고, 반려 표에는 정족수 조각이 없으며, 지문이 다르면 '(요청 지문과 다름)', 없으면 '지문 기록 없음(이 기능 도입 전 결정)'이다. 이메일·직함은 넣지 않는다.
 
 ## 주소 응답 (`GET /addresses`, `GET /addresses/:id`)
 
@@ -115,14 +137,31 @@
 - 체인 중간의 수정·삭제는 찾지만 **가장 최근 기록을 지운 경우는 `ok:true`로 나온다**. 감사 담당자가 `headHash`·`count`를 앱 밖에 보관해 두고 다음 검증 결과와 대조해야 알 수 있다.
 - 새 기록은 해시 v2(수행자 이름 포함)로 쓴다. 기존 v1 기록은 v1으로 검증하며, v2 뒤의 v1 기록과 알 수 없는 방식은 어긋남으로 본다(A-24).
 - `GET /audit` 목록 항목에는 `orgSeq`(필터 적용 전 조직 안 순번, 1부터)가 있다. 전체 공용 순번 `seq`는 조직마다 빈 번호가 생기고 다른 조직의 기록량을 드러내므로 싣지 않는다. 항목은 `id`로 구분한다.
+- (A2-3) `request.approved`·`request.rejected` 항목에만 `evidence`(위 '결정 근거', 요청마다 한 번 계산. 표를 찾지 못하면 null)가 붙는다. 다른 행동 항목에는 이 키가 없다. 모든 조회는 조회자 조직으로 거른다.
 
 ## 감사 기록 CSV (`GET /audit/export.csv`)
 
-UTF-8(BOM) CSV, 줄바꿈 CRLF. 목록과 같은 필터(`action`, `actor`, `q`, `from`, `to`)를 받고 최대 50,000행, 오래된 순. 열:
+UTF-8(BOM) CSV, 줄바꿈 CRLF. 목록과 같은 필터(`action`, `actor`, `q`, `from`, `to`)를 받고 최대 50,000행, 오래된 순. 파일 이름은 `koda-audit-YYYY-MM-DD.csv`(**한국 시간 날짜**).
 
-`순번`(목록의 `orgSeq`·화면의 '번호'·검증 결과의 `brokenAtNo`와 같은 조직 안 순번. 필터를 걸기 전에 매기므로 필터를 걸어도 같은 기록은 같은 순번이고, 필터 없이 내보내면 1부터 빈 번호 없이 이어진다), `시각(한국 시간)`(`YYYY-MM-DD HH:mm:ss`, KST), `수행자`, `행동`(화면과 같은 한국어 이름, `shared/terms.ts` `ACTION_LABEL`, 없는 코드는 코드 그대로), `행동 코드`(원래 코드, 예 `request.approved`), `대상 종류`, `대상 ID`, `내용`, `해시`.
+**맨 위 표지(A2-4).** BOM 다음에 표지 행 묶음이 오고, 빈 줄 하나 뒤에 표가 온다. 표지는 내보낼 때 만든 설명이며 저장하지 않고 해시 대상이 아니다. 첫 줄은 한 칸 'KODA 감사 기록 내보내기 표지 — 내보낼 때 만든 설명이며 감사 기록이 아닙니다(해시 대상 아님)', 둘째 줄은 `항목,값`, 그다음은 두 열:
 
-`=`·`+`·`-`·`@`·탭·CR로 시작하는 값은 앞에 작은따옴표를 붙여 스프레드시트에서 수식으로 실행되지 않게 한다. 내보내기 자체도 감사 기록(`audit.exported`)에 남는다.
+| 항목 | 값 |
+| --- | --- |
+| 기간 | `2026-09-01 ~ 2026-09-30 (한국 시간 날짜)`(한쪽만 있으면 '처음'·'지금'). 형식(`YYYY-MM-DD`)에 맞지 않아 걸리지 않은 값은 쓰지 않는다. 없으면 '전체 기간' |
+| 조건 | `행동: 승인(request.approved) · 수행자: 오민재 · 내용 검색: WR-000001`. 없으면 '조건 없음'. 사용자가 넣은 값은 줄바꿈·탭을 공백으로 바꾸고, `=`·`+`·`-`·`@`로 시작하면 앞에 작은따옴표를 붙인다(예: `수행자: '=HYPERLINK(…)`) |
+| 내보낸 행 | `11건 · 조건에 맞는 기록 11건`. 상한을 넘으면 `50,000건까지만 내보냈습니다 · 조건에 맞는 기록 n건` |
+| 내보낸 사람 | `이름 (역할 이름, …)` |
+| 내보낸 시각 | `YYYY-MM-DD HH:mm:ss (한국 시간)`(아래 `audit.exported` 기록 시각과 같다) |
+| 해시 연결 확인(조직 전체) | 감사 기록 화면과 같은 A1 문장: '기록 n건이 각각 바로 앞 기록과 끊김 없이 이어져 있습니다(해시 연결 확인).' 또는 'n번 기록에서 해시가 맞지 않습니다. 보안 담당자에게 알리세요.'(조직 안 번호) |
+| 보관용 값 | `기록 n건 · 마지막 기록 해시 …`(체인이 맞을 때만) |
+| 확인 범위 | A1의 한계 문장(체인이 맞을 때만) |
+| 안내 | '표지와 결정 근거 열은 내보낼 때 계산한 값입니다. 아래 표의 각 행과 해시 열은 저장된 기록 그대로입니다.' |
+
+표지의 건수·마지막 해시는 행 조회·조건에 맞는 건수(COUNT)와 함께 `audit.exported`를 쓰기 전에 같은 트랜잭션에서 계산한다. 그래서 내보내기 직전 `GET /audit/verify`의 `count`·`headHash`와 같다. **프로그램으로 읽을 때: 머리글은 표지 다음 빈 줄 뒤, `순번`으로 시작하는 첫 줄이다.** 빈 줄이 표 범위를 나누므로 스프레드시트의 정렬·필터는 표에만 걸린다.
+
+**표 열(10개):** `순번`(목록의 `orgSeq`·화면의 '번호'·검증 결과의 `brokenAtNo`와 같은 조직 안 순번. 필터를 걸기 전에 매기므로 필터를 걸어도 같은 기록은 같은 순번이고, 필터 없이 내보내면 1부터 빈 번호 없이 이어진다), `시각(한국 시간)`(`YYYY-MM-DD HH:mm:ss`, KST), `수행자`, `행동`(화면과 같은 한국어 이름, `shared/terms.ts` `ACTION_LABEL`, 없는 코드는 코드 그대로), `행동 코드`(원래 코드, 예 `request.approved`), `대상 종류`, `대상 ID`, `내용`, `결정 근거(내보낼 때 계산)`(A2-3, 승인·반려 행에만 `decisionEvidenceText`, 다른 행은 빈칸), `해시`(마지막 열, 저장된 값 그대로).
+
+표지와 표의 모든 셀에서 `=`·`+`·`-`·`@`·탭·CR로 시작하는 값은 앞에 작은따옴표를 붙여 스프레드시트에서 수식으로 실행되지 않게 한다. 내보내기 자체도 감사 기록(`audit.exported`)에 남으며, 상세는 `{filters, rowCount, matchedCount, truncated, chain: {ok, count, brokenAtNo, headHash}}`다(이 형식은 A2 뒤의 새 기록에만, 전체 공용 순번 `brokenAtSeq`는 쓰지 않는다). 감사 기록 행이 늘어나는 것은 이 한 건뿐이다.
 
 ## 공개 데모 세션
 
@@ -141,7 +180,7 @@ UTF-8(BOM) CSV, 줄바꿈 CRLF. 목록과 같은 필터(`action`, `actor`, `q`, 
 | GET /healthz | 공개 | 상태(위 형식) |
 | GET /auth/dev-users, POST /auth/dev-login, POST /auth/logout | 개발 모드 | 모의 로그인 |
 | GET /me | 로그인 | 사용자·조직·역할·권한·CSRF·환경·정책 |
-| GET /dashboard | dashboard.read | 보유 자산, 할 일, 진행 요청, 최근 활동. 할 일 `kind`: `approve_requests`(받는 주소가 사용 가능한 요청만), `blocked_requests`(승인자, 받는 주소가 사용 중지되어 승인할 수 없는 요청), `review_addresses`, `cooling_addresses`(사용 대기 중인 주소, 주소 등록·확인·사용 중지 권한자에게 경고), `my_drafts`, `my_rejected`, `my_blocked_requests`(요청자 본인), `my_pending_addresses`, `audit_recent`. 진행 중 요청의 `approved`는 승인 대기면 지금 유효한 표 수, `amount`는 저장 값을 읽을 수 없으면 null. 최근 활동 행에는 `poison`(위 거래 내역 응답) |
+| GET /dashboard | dashboard.read | 보유 자산, 할 일, 진행 요청, 최근 활동. 할 일 `kind`: `approve_requests`(받는 주소가 사용 가능한 요청만), `blocked_requests`(승인자, 받는 주소가 사용 중지되어 승인할 수 없는 요청), `review_addresses`, `cooling_addresses`(사용 대기 중인 주소, 주소 등록·확인·사용 중지 권한자에게 경고), `my_drafts`, `my_rejected`, `my_blocked_requests`(요청자 본인), `my_pending_addresses`, `audit_recent`. 진행 중 요청의 `approved`는 승인 대기면 지금 유효한 표 수, `amount`는 저장 값을 읽을 수 없으면 null. (A2-1) 진행 중 요청에는 `submittedAt`(승인 요청 시각, 제출 전이면 null)과 `waitingFor`(승인 대기이고 승인할 수 있는 요청이면 요청 상세 `approvalWait.candidates`와 같은 `[{id, name}]`, 그 밖에는 null)가 있다. `waitingFor`는 조회자에게 `request.read`가 있을 때만 채우고, 조직의 승인 후보는 한 번만 읽으며, 계산할 수 없는 요청(저장 수량을 읽을 수 없는 요청 등)은 null로 두어 홈이 실패하지 않는다. 최근 활동 행에는 `poison`(위 거래 내역 응답) |
 | GET /balances, /wallets, /staking, /catalog | 각 read | 잔고·지갑·스테이킹·지원 자산 |
 | GET /activity?type&assetCode&status&q&from&to&order&page&pageSize | activity.read | 거래 내역(페이지 10/25/50/100) |
 | GET /addresses?status&assetCode&networkCode&q&sort, GET /addresses/:id | address.read | 주소록, 상세+이력(위 주소 응답) |
@@ -150,13 +189,13 @@ UTF-8(BOM) CSV, 줄바꿈 CRLF. 목록과 같은 필터(`action`, `actor`, `q`, 
 | POST /addresses/:id/review `{decision, note, version, confirmTail, confirmMiddle}` | address.review(등록자 제외) | 확인/거절. 확인은 끝자리·가운데 대조, 유사 주소가 있으면 `note`(필수 사유 규칙, 채우지 못하면 `NOTE_REQUIRED`), 재점검 결과 새 유사 주소가 있으면 409 `LOOKALIKE_UPDATED`, 소액 입금을 보낸 주소와 같아졌으면 422 `ADDRESS_POISON_SUSPECTED`(찾은 결과를 `findings`에 저장하고 `version`을 올리고 `address.findings_updated`를 남긴 뒤 거부한다. 다시 결정하려면 주소를 다시 불러와 새 `version`을 보낸다. 위 오류 코드 표). 거절은 `note`(필수 사유 규칙, 채우지 못하면 422 `VALIDATION`). 확인하면 `COOLING_DOWN`(`activeFrom` = 확인 시각 + 대기 시간), 대기 시간 0이면 바로 `ACTIVE` |
 | POST /addresses/:id/disable `{version}` | address.disable | 사용 중지(사용 가능·확인 대기). 사용 대기 중이면 409 `USE_COOLDOWN_STOP`. 이 주소를 쓰는 승인 대기 요청은 승인할 수 없게 되며(`blockedReason`), 반려·취소 때까지 예약 유지 |
 | POST /addresses/:id/stop `{version, reason}` | address.create·address.review·address.disable 중 하나 | 사용 대기 중 정지: 사용 대기 주소를 바로 `DISABLED`로 바꾸고 사유(300자 이내, 필수 사유 규칙, 채우지 못하면 422 `VALIDATION`)를 남긴다(감사 기록 `address.cooldown_stopped`). 사용 대기가 아니면 409 `NOT_COOLING_DOWN` |
-| GET /requests?view(mine\|to_approve\|blocked)&status(csv)&q&order&page&pageSize, GET /requests/:id | request.read | 목록(상태별 건수 `counts`는 보기·검색 조건을 따르고 상태 필터만 무시), 상세(허용 행동·처리 기록·사용 가능 수량). `to_approve`는 받는 주소가 사용 가능한 요청만, `blocked`는 받는 주소가 사용 가능하지 않은 승인 대기 요청(조직 전체) |
+| GET /requests?view(mine\|to_approve\|blocked)&status(csv)&q&order&page&pageSize, GET /requests/:id | request.read | 목록(상태별 건수 `counts`는 보기·검색 조건을 따르고 상태 필터만 무시), 상세(허용 행동·처리 기록·사용 가능 수량, A2의 `approvalWait`와 표마다 결정 근거). 다른 조직 요청은 404, `request.read`가 없으면 403. `to_approve`는 받는 주소가 사용 가능한 요청만, `blocked`는 받는 주소가 사용 가능하지 않은 승인 대기 요청(조직 전체) |
 | POST /requests, PUT /requests/:id | request.create | 초안 작성·수정. 작성에는 `Idempotency-Key`가 필요하다(없으면 400 `IDEMPOTENCY_KEY_REQUIRED`). 요청 번호는 조직 안 번호. 수정은 작성자만(403 `NOT_REQUEST_OWNER`). 공개 데모는 `DEMO_LIMIT`(작성) |
 | POST /requests/checks-preview `{assetCode, networkCode, addressId, amount, requestId?}` | request.create | 작성 화면의 출금 전 점검 미리 보기 `{evaluatedAt, items}`(저장 안 함). 초안과 같은 입력 검증(`ADDRESS_NOT_ACTIVE` 등). `requestId`는 고치는 중인 초안을 과거 기록·건수에서 뺀다 |
 | POST /requests/:id/review \| back-to-draft \| submit \| cancel | request.create(작성자) | 상태 전이. 검토 이동·제출은 저장된 수량을 읽을 수 없으면 422 `AMOUNT_UNREADABLE`(되돌리기·취소는 된다). submit 본문 `{version, confirmTail, ackIrreversible, checkReasons?}`: `checkReasons`는 점검 id → 진행 사유(300자 이내, 알 수 없는 id는 422). 서버가 제출 시점 기준으로 점검을 다시 계산하고, 사유가 필요한 주의 항목에 글자·숫자 5자 이상 사유가 없으면 `CHECK_REASON_REQUIRED`(저장하는 사유에서는 보이지 않는 서식 문자를 지운다). 통과하면 지문(`intentHash`)과 점검 결과·사유, 실제로 예약한 지갑·자산·수량을 바꿀 수 없는 기록으로 저장하고 감사 기록 `request.submitted`에 지문·점검 결과·사유를 남긴다. 승인 가능 인원 부족 시 `APPROVERS_INSUFFICIENT` |
 | POST /requests/:id/approve `{version, intentHash}` \| reject `{version, reason, intentHash}` | request.approve(작성자 제외) | 승인 / 반려(`reason` 500자 이내, 필수 사유 규칙, 채우지 못하면 422 `VALIDATION`). `intentHash`는 요청 응답의 값을 그대로 보낸다(없으면 422, 다르면 409 `INTENT_CHANGED`, 지문 없는 이전 요청의 승인은 409 `INTENT_MISSING`, 반려는 `null`). 검사 순서: 권한 → 요청(404) → 자기 승인 → 이미 결정 → 상태·버전 → 지문 → 저장 내용 재계산(`INTENT_TAMPERED`) → 받는 주소(`ADDRESS_NOT_ACTIVE`). 승인 표마다 지문을 남기고, 정족수가 차면 커스터디로 넘기기 직전에 다시 계산·대조한 뒤 지문과 함께 넘긴다. 반려·취소(승인 대기)는 지금 행의 수량이 아니라 승인 요청 때 예약 기록으로 예약을 풀고, 감사 기록 상세에 `released`(푼 수량)·`releasedAssetCode`와 지문이 있는 요청이면 `contentMatchesIntent`(지금 내용이 지문과 같은지)를 남긴다 |
 | GET /org/members, GET /org/policy | org.read | 구성원·정책(`approval`, `addressBook`, `withdrawalChecks`, `isDesignAssumption: true`) |
 | PUT /org/members/:id/roles `{roles, rolesVersion}` | org.manage | 역할 변경(감사 기록). 본인 관리자 해제·마지막 관리자 해제·본인에게 승인자/자산 담당자 부여 금지 |
-| GET /audit, GET /audit/verify, GET /audit/export.csv | audit.read / audit.export | 감사 기록(`orgSeq`), 해시 체인 검증(위 형식), CSV |
+| GET /audit, GET /audit/verify, GET /audit/export.csv | audit.read / audit.export | 감사 기록(`orgSeq`, 승인·반려 항목의 `evidence`), 해시 체인 검증(위 형식), CSV(맨 위 표지 + 10열, 위 형식) |
 | GET /insights?provider&q&offset&limit&related&includeHidden, GET /insights/providers | insight.read | 인사이트(고객: 게시+화이트리스트만). `limit` 1~50(기본 12), 응답 `{total, offset, limit, items}`. `includeHidden=1`은 insight.manage만 숨김·화이트리스트 밖 자료 포함 |
 | POST /insights, PATCH /insights/:id `{status}` | insight.manage | 운영자 게시·숨김. 게시와 다시 게시 모두 화이트리스트·기관 도메인 확인. 공개 데모는 `DEMO_LIMIT`(게시) |
