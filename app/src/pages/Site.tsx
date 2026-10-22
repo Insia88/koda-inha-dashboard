@@ -318,7 +318,7 @@ export function SitePage() {
                     </div>
                   );
                 })}
-                <p className="site-note">세 단계 모두 이 데모에서 직접 확인할 수 있습니다. 화면 오른쪽은 실제 대시보드 화면을 옮긴 이미지입니다.</p>
+                <p className="site-note">세 단계 모두 이 데모에서 직접 확인할 수 있습니다. 감사 기록은 <b>문태호</b> 데모 사용자로 로그인하면 바로 확인할 수 있습니다. 화면 오른쪽은 실제 대시보드 화면을 옮긴 이미지입니다.</p>
               </div>
               <div className="site-change-visual" data-rv>
                 <div className="site-browser">
@@ -359,7 +359,17 @@ export function SitePage() {
                 <a className="site-text-link site-text-link-light" href="/brand/koda-brand-film-16x9.mp4" download>MP4 내려받기 <IconDownload size={15} aria-hidden="true" /></a>
               </div>
             </div>
-            <ol className="site-chapters" data-rv>
+            <ol
+              className="site-chapters"
+              data-rv
+              tabIndex={0}
+              aria-label="브랜드 필름 장면 6개"
+              onKeyDown={(e) => {
+                if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+                e.preventDefault();
+                e.currentTarget.scrollBy({ left: (e.key === 'ArrowRight' ? 1 : -1) * e.currentTarget.clientWidth * 0.8, behavior: reduced ? 'auto' : 'smooth' });
+              }}
+            >
               {CHAPTERS.map((c) => (
                 <li key={c.k} className="site-chapter">
                   <img src={c.img} alt="" width={1600} height={900} loading="lazy" />

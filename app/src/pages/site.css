@@ -74,7 +74,7 @@ html:has(.site), body:has(.site) { background: #08120e; }
 .site-nav-links > a:not(.site-nav-dash):hover { color: var(--site-ink); }
 .site-nav-links > a:not(.site-nav-dash)::after { content: ''; position: absolute; left: 0; right: 0; bottom: 2px; height: 2px; background: var(--site-mint-deep); border-radius: 2px; transform: scaleX(0); transform-origin: left; transition: transform .22s cubic-bezier(.2, .7, .2, 1); }
 .site-nav-links > a[aria-current='true']::after { transform: scaleX(1); }
-.site-motion-toggle { border: 0; background: none; color: var(--site-muted); font-size: 13px; font-weight: 600; padding: 9px 0; cursor: pointer; white-space: nowrap; }
+.site-motion-toggle { display: inline-flex; align-items: center; min-height: 44px; border: 0; background: none; color: var(--site-muted); font-size: 13px; font-weight: 600; padding: 9px 0; cursor: pointer; white-space: nowrap; }
 .site-motion-toggle:hover { color: var(--site-ink); }
 .site-nav-links .site-nav-dash {
   display: inline-flex; align-items: center; gap: 6px;
@@ -303,9 +303,10 @@ html:has(.site), body:has(.site) { background: #08120e; }
 .site-screen-copy { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px 18px; }
 .site-screen-tag { font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 10.5px; letter-spacing: .06em; color: var(--site-mint-deep); font-weight: 600; }
 .site-screen-caption { font-size: 13.5px; line-height: 1.55; color: var(--site-ink-2); }
-.site-carousel-dots { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 2px; }
-.site-carousel-dots button { width: 26px; height: 4px; padding: 0; border: 0; border-radius: 999px; background: var(--site-line-strong); opacity: .55; cursor: pointer; transition: width .24s ease, opacity .24s ease, background .24s ease; }
-.site-carousel-dots button.is-active { width: 46px; opacity: 1; background: var(--site-mint-deep); }
+.site-carousel-dots { display: flex; align-items: center; justify-content: center; gap: 2px; margin-top: 0; }
+.site-carousel-dots button { position: relative; width: 48px; height: 44px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.site-carousel-dots button::before { content: ''; position: absolute; left: 50%; top: 50%; width: 24px; height: 4px; border-radius: 999px; background: var(--site-line-strong); opacity: .55; transform: translate(-50%, -50%); transition: width .24s ease, opacity .24s ease, background .24s ease; }
+.site-carousel-dots button.is-active::before { width: 40px; opacity: 1; background: var(--site-mint-deep); }
 .site-screens-cta { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: clamp(26px, 4vw, 40px); }
 
 /* ── 자료 3종 ──────────────────────────────────────────────── */
@@ -400,7 +401,7 @@ html:has(.site), body:has(.site) { background: #08120e; }
   .site-nav.is-open .site-nav-links { display: flex; }
   .site-nav-links > a { padding: 15px 0; border-bottom: 1px solid var(--site-line); font-size: 16px; }
   .site-nav-links > a[aria-current='true']::after { display: none; }
-  .site-motion-toggle { border: 0; background: none; color: var(--site-muted); font-size: 13px; font-weight: 600; padding: 9px 0; cursor: pointer; white-space: nowrap; }
+  .site-motion-toggle { display: inline-flex; align-items: center; min-height: 44px; border: 0; background: none; color: var(--site-muted); font-size: 13px; font-weight: 600; padding: 9px 0; cursor: pointer; white-space: nowrap; }
 .site-motion-toggle:hover { color: var(--site-ink); }
 .site-nav-links .site-nav-dash { margin-top: 16px; justify-content: center; border-bottom: 0; padding: 14px 18px; font-size: 15px; }
   .site-nav-toggle { display: inline-flex; }

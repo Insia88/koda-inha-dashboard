@@ -400,6 +400,8 @@ export function Layout() {
             </div>
           );
         })}
+        {/* 서랍에서도 공개 사이트로 돌아갈 수 있게 하되, 서랍을 열었을 때 첫 포커스는 기존처럼 홈 링크로 간다. */}
+        <a className="nav-user-site" href="/site">KODA 브랜드 사이트 <span aria-hidden="true">→</span></a>
       </nav>
       <div className="nav-scrim" onClick={() => closeNav(true)} aria-hidden="true" />
       <main id="main" className="main">

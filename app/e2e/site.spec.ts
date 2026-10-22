@@ -126,6 +126,21 @@ test.describe('KODA 공개 사이트', () => {
     expect(allVisible).toBe(true);
   });
 
+  test('모바일 390·320: 가로 스냅 장면을 포함해 axe WCAG 2.1 AA 위반 0', async ({ page }) => {
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto('/site');
+      // 히어로 등장 애니메이션이 끝난 뒤(최대 .52s 지연 + .9s)에 검사한다. 애니메이션 중간의 투명도는 일시적인 상태다.
+      await page.waitForTimeout(1600);
+      const first = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
+      expect(first.violations.map((v) => `${width} ${v.id}: ${v.nodes.length}`)).toEqual([]);
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      await page.waitForTimeout(1000);
+      const scrolled = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
+      expect(scrolled.violations.map((v) => `${width} ${v.id}: ${v.nodes.length}`)).toEqual([]);
+    }
+  });
+
   test('없는 사이트 주소: 로그인 만료 화면이 아니라 사이트 첫 화면으로 돌아온다', async ({ page }) => {
     await page.goto('/site/nonexistent-xyz');
     await expect(page).toHaveURL(/\/site$/);

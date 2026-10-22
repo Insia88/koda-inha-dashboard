@@ -244,8 +244,11 @@ test.describe('공개 데모 메뉴 서랍(390px)', () => {
     await expect(page.locator('#sidenav').getByRole('link', { name: '홈', exact: true })).toBeFocused();
     expect(await page.locator('.demo-footer').evaluate((el) => !!el.closest('[inert]'))).toBe(true);
     expect(await page.evaluate(() => ['#main', '.skip-link', '.topbar-user'].map((s) => !!document.querySelector(s)?.closest('[inert]')))).toEqual([true, true, true]);
-    const links = await page.locator('#sidenav a').count();
-    for (let i = 0; i < links + 3; i++) {
+    // 서랍 안의 링크·버튼·요약과 바깥 토글까지가 Tab 순환 범위다(서랍에 KODA 소개 링크가 추가되어 개수를 세어 둔다).
+    const focusables = await page.locator('#sidenav a, #sidenav button, #sidenav summary, .topbar .nav-toggle').evaluateAll(
+      (els) => els.filter((el) => !el.closest('[inert]') && (el as HTMLElement).offsetParent !== null).length,
+    );
+    for (let i = 0; i < focusables - 1; i++) {
       await page.keyboard.press('Tab');
       const where = await page.evaluate(() => {
         const a = document.activeElement;
