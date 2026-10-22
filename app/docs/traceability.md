@@ -407,4 +407,4 @@ R5가 공개 데모에서 확인한 **위반 7건**을 화면(`src`)만 바꿔 �
 
 **판정:** 세 렌즈 모두 98 이상 — 사이트+대시보드 탭 구성의 상용 점수 목표(98) 달성. 대시보드 자체는 기존 98점 유지. 잔여는 비차단 폴리시(참조 대비 지표 편집 밀도, FCP≤1.5s, 실기기 확인, axe incomplete 문서화)뿐이다.
 
-**최종 E2E:** `npx playwright test`(186 tests, 로컬) 통과 기록은 `e2e-clean-final.log` 참조. `npm run typecheck`·`npm run build` 및 site/a3/a5 회귀도 통과.
+**최종 E2E:** `npx playwright test` **186 passed**(desktop 1440 + mobile 390, 작성 시점 빌드, 8.0분) — `_handoff/e2e-final-clean.log`. `npm run typecheck`·`npm run build`도 통과. `npm run typecheck`·`npm run build` 및 site/a3/a5 회귀도 통과.
