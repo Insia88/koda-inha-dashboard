@@ -343,6 +343,7 @@ export function Layout() {
           )}
           <span className="user-name">{me.user.name}</span>
           <span className="user-roles">{me.roleLabels.join(' · ')}</span>
+          {demo && <a className="topbar-site-link" href="/site">KODA 소개</a>}
           <button className="btn btn-ghost btn-logout" onClick={logout}><IconLogout size={16} aria-hidden="true" /><span className="btn-logout-text">로그아웃</span></button>
         </div>
         {/* 공개 데모에서만: 좁은 화면에서도 지금 누구로 보고 있는지 탑바 안 둘째 줄로 보인다(A8). */}

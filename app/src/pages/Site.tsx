@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
   IconArrowLeft, IconArrowRight, IconChevronDown, IconDownload, IconFileText, IconMenu2,
-  IconMovie, IconPlayerPause, IconPlayerPlay, IconVolume, IconVolumeOff, IconX,
+  IconMovie, IconPlayerPause, IconPlayerPlay, IconX,
 } from '@tabler/icons-react';
 import './site.css';
 
@@ -18,17 +18,17 @@ const CHANGES: ChangeItem[] = [
   {
     n: '01', title: '한 화면에서 확인한다',
     body: '지갑·주소·잔고·평가금액을 한 화면에 모읍니다. 확인 대기 주소, 사용 대기 주소, 내 승인 차례, 진행 중 요청을 홈에서 먼저 보여 주어 담당자가 무엇을 먼저 봐야 하는지 알 수 있습니다.',
-    linkLabel: '홈 화면 살펴보기', linkHref: '/login', image: '/site/screens/home.jpg', caption: '홈 · 확인 상태와 보유 자산 요약',
+    linkLabel: '홈 화면 살펴보기', linkHref: '/login?next=%2F', image: '/site/screens/home.jpg', caption: '홈 · 확인 상태와 보유 자산 요약',
   },
   {
     n: '02', title: '한 번 더 확인하고 승인한다',
     body: '승인자는 요청의 받는 주소·금액·승인 지문을 다시 확인합니다. 정족수와 고액 기준에 따라 필요한 승인 수가 달라지고, 같은 사람이 작성하고 승인할 수는 없습니다.',
-    linkLabel: '결정 카드 살펴보기', linkHref: '/login', image: '/site/screens/request-detail.jpg', caption: '요청 상세 · 결정 카드와 안전 확인',
+    linkLabel: '결정 카드 살펴보기', linkHref: '/login?next=%2Frequests%2Fwr-3', image: '/site/screens/request-detail.jpg', caption: '요청 상세 · 결정 카드와 안전 확인',
   },
   {
     n: '03', title: '모든 결정을 기록으로 남긴다',
     body: '승인·반려·주소·권한 변경은 추가 전용 감사 기록으로 남습니다. 기록은 해시 체인으로 이어져 중간에 바뀌지 않았는지 확인할 수 있고, 권한이 있는 사람은 CSV로 내보낼 수 있습니다.',
-    linkLabel: '감사 기록 살펴보기', linkHref: '/login', image: '/site/screens/audit.jpg', caption: '감사 기록 · 업무 기록 필터와 무결성 확인',
+    linkLabel: '감사 기록 살펴보기', linkHref: '/login?next=%2Faudit', image: '/site/screens/audit.jpg', caption: '감사 기록 · 업무 기록 필터와 무결성 확인',
   },
 ];
 
@@ -39,12 +39,12 @@ const HERO_SLIDES = [
 ];
 
 const CHAPTERS = [
-  { img: '/site/plates/start.jpg', k: '장면 01 · 시작', t: '확인은 작은 점 하나에서 시작됩니다.', d: 'KODA는 자산을 확인하는 일을 한 화면에서 시작합니다.' },
-  { img: '/site/plates/address.jpg', k: '장면 02 · 주소', t: '받는 주소 한 줄도 다시 확인합니다.', d: '주소를 다시 대조하고, 모르는 주소는 사용 대기로 둡니다.' },
-  { img: '/site/plates/hero.jpg', k: '장면 03 · 지문', t: '승인 대상이 바뀌지 않았는지 지문으로 확인합니다.', d: '승인 지문으로 내용이 바뀌었는지 알아챕니다.' },
-  { img: '/site/plates/flow.jpg', k: '장면 04 · 흐름', t: '확인에서 승인, 보관까지 이어집니다.', d: '요청이 만들어지고 결정되고 처리되는 흐름을 한눈에 봅니다.' },
-  { img: '/site/plates/mark.jpg', k: '장면 05 · 약속', t: '확인이 쌓여 신뢰가 됩니다.', d: '작은 확인이 쌓여 법인 자산 관리의 신뢰가 됩니다.' },
-  { img: '/site/plates/final.jpg', k: '장면 06 · KODA', t: '법인·기관 투자자를 위한 디지털 자산 파트너.', d: 'KODA는 확인과 기록으로 신뢰를 만듭니다.' },
+  { img: '/site/plates/start.jpg', k: '장면 01 / 06 · 시작', t: '확인은 작은 점 하나에서 시작됩니다.', d: 'KODA는 자산을 확인하는 일을 한 화면에서 시작합니다. 작은 확인이 쌓일수록 판단은 빨라집니다.' },
+  { img: '/site/plates/address.jpg', k: '장면 02 / 06 · 주소', t: '받는 주소 한 줄도 다시 확인합니다.', d: '주소를 다시 대조하고, 모르는 주소는 사용 대기로 둡니다. 한 줄의 차이가 큰 사고를 막습니다.' },
+  { img: '/site/plates/hero.jpg', k: '장면 03 / 06 · 지문', t: '승인 대상이 바뀌지 않았는지 지문으로 확인합니다.', d: '승인 지문으로 내용이 바뀌었는지 알아챕니다. 승인 직전의 확인을 화면이 돕습니다.' },
+  { img: '/site/plates/flow.jpg', k: '장면 04 / 06 · 흐름', t: '확인에서 승인, 보관까지 이어집니다.', d: '요청이 만들어지고 결정되고 처리되는 흐름을 한눈에 봅니다. 확인·승인·보관이 한 줄로 이어집니다.' },
+  { img: '/site/plates/mark.jpg', k: '장면 05 / 06 · 약속', t: '확인이 쌓여 신뢰가 됩니다.', d: '작은 확인이 쌓여 법인 자산 관리의 신뢰가 됩니다. 기록은 그 신뢰의 증거가 됩니다.' },
+  { img: '/site/plates/final.jpg', k: '장면 06 / 06 · KODA', t: '법인·기관 투자자를 위한 디지털 자산 파트너.', d: 'KODA는 확인과 기록으로 신뢰를 만듭니다. 법인·기관의 자산 관리를 한 화면에서 돕습니다.' },
 ];
 
 interface ScreenItem { img: string; tag: string; title: string; caption: string }
@@ -58,7 +58,7 @@ const SCREENS: ScreenItem[] = [
 ];
 
 const RESOURCES = [
-  { href: '/site/koda-dashboard-brief.pdf', type: 'PDF', title: 'KODA 대시보드 소개서', desc: '기능과 신뢰 장치, 데모 화면 6장을 6쪽으로 정리했습니다.', meta: '6쪽 · 1.0MB', icon: 'file' },
+  { href: '/site/koda-dashboard-brief.pdf', type: 'PDF', title: 'KODA 대시보드 소개서', desc: '기능과 신뢰 장치, 데모 화면 6장을 6쪽으로 정리했습니다.', outline: '6쪽 목차: 한 화면 확인 → 승인 → 감사 → 화면 6장 → 3분 데모', meta: '6쪽 · 1.0MB', icon: 'file' },
   { href: '/site/koda-3min-demo-guide.pdf', type: 'PDF', title: '3분 데모 가이드', desc: '발표 30분 전 체크리스트와 3분 스크립트, 알려진 한계.', meta: '2쪽 · 120KB', icon: 'file' },
   { href: '/brand/koda-brand-film-16x9.mp4', type: 'MP4', title: 'KODA 브랜드 필름', desc: '확인·승인·보관의 흐름을 담은 42초 브랜드 필름.', meta: '42초 · 2.1MB', icon: 'movie' },
 ];
@@ -89,9 +89,9 @@ export function SitePage() {
   const [activeChange, setActiveChange] = useState(0);
   const [lightbox, setLightbox] = useState<ScreenItem | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [soundOn, setSoundOn] = useState(false);
+  const lightboxTrigger = useRef<HTMLButtonElement | null>(null);
   const [reduced, setReduced] = useState(false);
+  const [motionOff, setMotionOff] = useState(false);
 
   // 캐러셀: 히어로 미리보기 3장 + 화면 6장.
   const [heroIndex, setHeroIndex] = useState(0);
@@ -109,10 +109,10 @@ export function SitePage() {
 
   // 히어로 미리보기 자동 넘김. 마우스·포커스가 올라오거나 일시정지 버튼을 누르면 멈춘다.
   useEffect(() => {
-    if (heroPaused || reduced) return;
-    const t = window.setInterval(() => setHeroIndex((i) => (i + 1) % HERO_SLIDES.length), 5400);
+    if (heroPaused || reduced || motionOff) return;
+    const t = window.setInterval(() => setHeroIndex((i) => (i + 1) % HERO_SLIDES.length), 8000);
     return () => window.clearInterval(t);
-  }, [heroPaused, reduced]);
+  }, [heroPaused, reduced, motionOff]);
 
   // 스크롤에 맞춰 내비게이션 배경·진행선·현재 섹션을 표시한다.
   useEffect(() => {
@@ -164,24 +164,6 @@ export function SitePage() {
     if (!lightbox && d.open) d.close();
   }, [lightbox]);
 
-  // 영상: 축소 모션·절전 모드에서는 재생하지 않고 포스터를 남긴다.
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData === true;
-    if (reduce || saveData) { v.pause(); return; }
-    void v.play().catch(() => {});
-  }, []);
-
-  const toggleSound = async () => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (soundOn) { v.muted = true; setSoundOn(false); return; }
-    v.muted = false;
-    try { await v.play(); setSoundOn(true); } catch { v.muted = true; setSoundOn(false); }
-  };
-
   // 화면 캐러셀: 버튼·키보드·스와이프 어느 쪽이든 현재 카드를 가운데로 맞춘다.
   const goScreen = (next: number) => {
     const track = screenTrack.current;
@@ -215,7 +197,7 @@ export function SitePage() {
   const closeMenu = () => setMenuOpen(false);
 
   return (
-    <div className="site" id="top">
+    <div className={`site${motionOff ? ' is-motion-off' : ''}`} id="top">
       <a className="site-skip" href="#main">본문으로 건너뛰기</a>
 
       <header className={`site-nav${scrolled ? ' is-scrolled' : ''}${menuOpen ? ' is-open' : ''}`}>
@@ -230,7 +212,8 @@ export function SitePage() {
             {NAV.map((n) => (
               <a key={n.id} href={`#${n.id}`} aria-current={activeSection === n.id ? 'true' : undefined} onClick={closeMenu}>{n.label}</a>
             ))}
-            <a className="site-nav-dash" href="/login" onClick={closeMenu}>대시보드 <IconArrowRight size={15} aria-hidden="true" /></a>
+            <button className="site-motion-toggle" type="button" aria-pressed={motionOff} onClick={() => setMotionOff((v) => !v)}>{motionOff ? '모션 켜기' : '모션 끄기'}</button>
+            <a className="site-nav-dash" href="/login" onClick={closeMenu} title="로그인 화면에서 데모 사용자 1명을 선택하면 바로 시작합니다">대시보드 데모 <IconArrowRight size={15} aria-hidden="true" /></a>
           </nav>
           <button className="site-nav-toggle" type="button" aria-expanded={menuOpen} aria-controls="site-nav-links" aria-label={menuOpen ? '메뉴 닫기' : '메뉴 열기'} onClick={() => setMenuOpen((o) => !o)}>
             {menuOpen ? <IconX size={20} aria-hidden="true" /> : <IconMenu2 size={20} aria-hidden="true" />}
@@ -241,10 +224,8 @@ export function SitePage() {
       <main id="main">
         <section className="site-hero" aria-labelledby="site-hero-h">
           <div className="site-hero-media" aria-hidden="true">
-            <video ref={videoRef} autoPlay muted loop playsInline preload="metadata" poster="/site/plates/hero.jpg" tabIndex={-1}>
-              <source src="/brand/koda-brand-film-16x9.mp4" type="video/mp4" />
-            </video>
-            <img className="site-hero-poster" src="/site/plates/hero.jpg" alt="" width={1600} height={900} fetchPriority="high" />
+            {/* 히어로는 필름 속 자막이 제목과 겹치지 않는 정지 플레이트를 쓴다. 영상은 아래 브랜드 필름 섹션에서 재생한다. */}
+            <img className="site-hero-poster" src="/site/plates/hero-clean.jpg" alt="" width={1600} height={900} fetchPriority="high" />
           </div>
           <div className="site-hero-shade" aria-hidden="true" />
           <div className="site-hero-inner">
@@ -261,11 +242,13 @@ export function SitePage() {
               <a className="site-btn site-btn-primary" href="/login">대시보드 열기 <IconArrowRight size={18} aria-hidden="true" /></a>
               <a className="site-btn site-btn-ghost" href="#film">브랜드 필름 보기</a>
             </div>
+            <p className="site-hero-note">비밀번호 없이 데모 사용자 1명을 선택하면 바로 시작합니다 · 모의 데이터</p>
             <ul className="site-hero-meta" aria-label="데모 안내">
               <li>모의 데이터</li>
               <li>실제 자산 없음</li>
               <li>3분 데모</li>
             </ul>
+            <img className="site-hero-mobile-shot" src="/site/screens/home.jpg" alt="KODA 대시보드 홈 화면 미리보기" width={1440} height={900} loading="lazy" />
           </div>
 
           <div
@@ -295,6 +278,7 @@ export function SitePage() {
                 ))}
               </div>
             </div>
+            <p className="site-sr-only" aria-live="polite">{`${heroIndex + 1} / 3: ${HERO_SLIDES[heroIndex]!.title}`}</p>
             <div className="site-hero-preview-foot">
               <p className="site-caption"><b>{HERO_SLIDES[heroIndex]!.tag}</b> {HERO_SLIDES[heroIndex]!.title}</p>
               <div className="site-hero-dots" aria-label="미리보기 화면 선택">
@@ -306,10 +290,6 @@ export function SitePage() {
             <span className="site-hero-progress" aria-hidden="true"><i key={heroIndex} className={heroPaused || reduced ? 'is-paused' : ''} /></span>
           </div>
 
-          <button className="site-hero-sound" type="button" aria-pressed={soundOn} aria-label={soundOn ? '배경음 끄기' : '배경음 켜기'} onClick={() => void toggleSound()}>
-            {soundOn ? <IconVolumeOff size={17} aria-hidden="true" /> : <IconVolume size={17} aria-hidden="true" />}
-            {soundOn ? '배경음 끄기' : '배경음 켜기'}
-          </button>
           <a className="site-hero-scroll" href="#change" aria-label="스크롤 — 아래로 내려가 바뀌는 점 보기"><span aria-hidden="true">↓</span> 스크롤</a>
         </section>
 
@@ -391,6 +371,23 @@ export function SitePage() {
                 </li>
               ))}
             </ol>
+            <div className="site-timeline" data-rv aria-label="확인·승인·기록의 세 단계">
+              <div className="site-timeline-step">
+                <span className="site-timeline-k">01 · 확인</span>
+                <h3>주소·지문·점검을 다시 본다</h3>
+                <p>받는 주소와 금액, 승인 대상 지문을 확인하고 점검 결과를 살펴봅니다.</p>
+              </div>
+              <div className="site-timeline-step">
+                <span className="site-timeline-k">02 · 승인</span>
+                <h3>다른 사람이 결정을 확인한다</h3>
+                <p>작성자와 다른 승인자가 정족수와 고액 기준에 따라 순서대로 승인합니다.</p>
+              </div>
+              <div className="site-timeline-step">
+                <span className="site-timeline-k">03 · 기록</span>
+                <h3>결정을 감사 기록으로 남긴다</h3>
+                <p>추가 전용 감사 기록과 해시 체인으로 결정을 증명할 수 있습니다.</p>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -402,7 +399,7 @@ export function SitePage() {
               <p className="site-lead" data-rv>로그인 화면부터 승인 결정 카드, 감사 기록까지. 데모 사용자로 직접 열어 볼 수 있습니다. 옆으로 넘기거나 화면을 누르면 크게 볼 수 있습니다.</p>
             </div>
             <div className="site-carousel-head" data-rv>
-              <p className="site-carousel-count"><b>{String(screenIndex + 1).padStart(2, '0')}</b> / {String(SCREENS.length).padStart(2, '0')}</p>
+              <p className="site-carousel-count"><b>{String(screenIndex + 1).padStart(2, '0')}</b> / {String(SCREENS.length).padStart(2, '0')} <span className="site-carousel-hint">← → 키로 넘기기</span></p>
               <div className="site-carousel-controls">
                 <button type="button" onClick={() => goScreen(screenIndex - 1)} disabled={screenIndex === 0} aria-label="이전 화면"><IconArrowLeft size={18} aria-hidden="true" /></button>
                 <button type="button" onClick={() => goScreen(screenIndex + 1)} disabled={screenIndex === SCREENS.length - 1} aria-label="다음 화면"><IconArrowRight size={18} aria-hidden="true" /></button>
@@ -419,11 +416,12 @@ export function SitePage() {
             >
               <div className="site-screen-track" ref={screenTrack} onScroll={onScreenScroll}>
                 {SCREENS.map((s, i) => (
-                  <button key={s.tag} type="button" className={`site-screen${i === screenIndex ? ' is-current' : ''}`} onClick={() => setLightbox(s)} aria-label={`${s.title} 화면 크게 보기`}>
+                  <button key={s.tag} type="button" className={`site-screen${i === screenIndex ? ' is-current' : ''}`} onClick={(e) => { lightboxTrigger.current = e.currentTarget; setLightbox(s); }} >
                     <img src={s.img} alt={`${s.title} 화면`} width={1440} height={900} loading={i === 0 ? 'eager' : 'lazy'} />
                     <span className="site-screen-copy">
                       <span className="site-screen-tag">{s.tag} · {s.title}</span>
                       <span className="site-screen-caption">{s.caption}</span>
+                      <span className="site-sr-only">화면 크게 보기</span>
                     </span>
                   </button>
                 ))}
@@ -457,6 +455,7 @@ export function SitePage() {
                   </span>
                   <h3>{r.title}</h3>
                   <p>{r.desc}</p>
+                  {r.outline && <p className="site-res-outline">{r.outline}</p>}
                   <span className="site-res-foot"><span>{r.meta}</span><IconDownload size={18} aria-hidden="true" /></span>
                 </a>
               ))}
@@ -499,7 +498,7 @@ export function SitePage() {
         </div>
       </footer>
 
-      <dialog ref={dialogRef} className="site-lightbox" aria-label={lightbox ? `${lightbox.title} 화면` : '화면 확대'} onClose={() => setLightbox(null)} onClick={(e) => { if (e.target === dialogRef.current) setLightbox(null); }}>
+      <dialog ref={dialogRef} className="site-lightbox" aria-modal="true" aria-label={lightbox ? `${lightbox.title} 화면` : '화면 확대'} onClose={() => { setLightbox(null); requestAnimationFrame(() => lightboxTrigger.current?.focus()); }} onClick={(e) => { if (e.target === dialogRef.current) setLightbox(null); }}>
         {lightbox && (
           <div className="site-lightbox-in">
             <div className="site-lightbox-head">

@@ -371,3 +371,15 @@ R5가 공개 데모에서 확인한 **위반 7건**을 화면(`src`)만 바꿔 �
 | 모션 | 스크롤 진행선, 내비 밑줄, 히어로 패럴랙스+카피 역이동, 화면 크로스페이드, 등장 스태거, 캐러셀 이징. reduced motion에서 전부 정적 | site.spec reduced-motion 테스트, 라이브 콘솔 0·오버플로 0 |
 
 **재실행 (A9 보완):** `npm run typecheck`·`npm run build` pass, `e2e/site.spec.ts` 4 pass(axe 0 포함). 라이브: hero 3 slides·pause·dots, 화면 6장 01→02 넘김, 390에서 카드 폭 303/트랙 344(다음 카드 피크), 가로 오버플로 0, 콘솔 오류 0.
+
+### 사이트 품질 2차 — 품질 리뷰 P0 반영 (2026-10-22)
+
+| 리뷰 지적 | 반영 | 검증 |
+| --- | --- | --- |
+| 스크롤 상태 axe: color-contrast 5·label-content-name-mismatch 5 | 민트-딥 `#045c46`, muted `#4c574f`, 바닥글 `#a3b5a9`; 카드 글자 불투명 유지(이미지만 0.58); 화면 카드 aria-label 제거·가시 텍스트+`화면 크게 보기` sr-only | `e2e/site.spec.ts` 첫 화면 + **끝까지 스크롤** axe 0 |
+| `/site/*` 없는 주소가 로그인 만료 안내로 이동 | `/site/*` → `/site` 리다이렉트 | site.spec 없는 주소 테스트 |
+| 확대 보기 닫힘 뒤 포커스 BODY | `aria-modal`, 트리거 ref 보관, 닫힘 requestAnimationFrame 포커스 복귀 | site.spec 활성 요소가 `.site-screen`인지 확인 |
+| 히어로 영상 2.18MB·자막 겹침 | 자막 없는 정지 플레이트+켄번즈로 교체, 필름은 필름 섹션에서 재생. 모바일 첫 화면에 제품 정지 1장 | 라이브 전송량 확인, 390 스크린샷, axe |
+| 캐러셀 자동 넘김·작은 점·포커스 | 자동 8초·일시정지 44px·점 44×44 히트·`aria-live`·모션 끄기 토글·화면 트랙 ←→ | site.spec 모션·키보드·캐러셀 테스트 |
+
+**재실행:** `npm run typecheck`·`npm run build` pass, `e2e/site.spec.ts` 5 pass(첫 화면+스크롤 axe 0 포함), 로그인·a5·interaction 24 pass.

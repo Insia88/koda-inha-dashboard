@@ -30,16 +30,16 @@ test.describe('KODA 공개 사이트', () => {
 
     // 히어로 미리보기 캐러셀과 화면 캐러셀
     await expect(page.locator('.site-hero-dots button')).toHaveCount(3);
-    await expect(page.locator('.site-hero-preview [aria-roledescription="carousel"]')).toHaveCount(0);
+    await expect(page.getByRole('region', { name: '대시보드 화면 미리보기' })).toHaveCount(1);
     await expect(page.getByRole('button', { name: '자동 넘김 일시정지' })).toBeVisible();
     await expect(page.locator('.site-hero-slides img.is-active')).toHaveCount(1);
     await expect(page.getByRole('button', { name: '다음 화면' })).toBeVisible();
-    await expect(page.locator('.site-carousel-count')).toHaveText('01 / 06');
+    await expect(page.locator('.site-carousel-count b')).toHaveText('01');
     await page.getByRole('button', { name: '다음 화면' }).click();
-    await expect(page.locator('.site-carousel-count')).toHaveText('02 / 06');
+    await expect(page.locator('.site-carousel-count b')).toHaveText('02');
     await expect(page.locator('.site-carousel-dots button.is-active')).toHaveCount(1);
     await page.getByRole('button', { name: '이전 화면' }).click();
-    await expect(page.locator('.site-carousel-count')).toHaveText('01 / 06');
+    await expect(page.locator('.site-carousel-count b')).toHaveText('01');
 
     // 필름·장면 6·화면 6·자료 3
     await expect(page.locator('#film video')).toHaveCount(1);
@@ -54,6 +54,7 @@ test.describe('KODA 공개 사이트', () => {
     await expect(dialog.locator('img')).toHaveAttribute('src', '/site/screens/home.jpg');
     await page.getByRole('button', { name: '확대 화면 닫기' }).click();
     await expect(dialog).toBeHidden();
+    await expect.poll(() => page.evaluate(() => document.activeElement?.closest('.site-screen') !== null)).toBe(true);
 
     // 바닥글은 문서 마지막 contentinfo이고, 모의 환경 고지를 담는다.
     const footer = page.getByRole('contentinfo');
@@ -68,11 +69,25 @@ test.describe('KODA 공개 사이트', () => {
       expect(Number(res.headers()['content-length'] ?? 0), href).toBeGreaterThan(50_000);
     }
 
-    // 참조 영상: 소리는 기본 음소거(브라우저 정책)이지만 버튼으로 켤 수 있고, 켜면 상태가 바뀐다.
-    const sound = page.getByRole('button', { name: '배경음 켜기' });
-    await expect(sound).toBeVisible();
-    await sound.click();
-    await expect(page.getByRole('button', { name: '배경음 끄기' })).toHaveAttribute('aria-pressed', 'true');
+    // 히어로는 자막 겹침·무거운 초기 전송을 피하려고 정지 플레이트를 쓰고, 필름은 아래 섹션에서 재생한다.
+    await expect(page.locator('.site-hero-poster')).toBeVisible();
+    await expect(page.locator('.site-hero-media video')).toHaveCount(0);
+    await expect(page.locator('#film video')).toBeVisible();
+    // 바뀌는 것 3가지의 링크는 라벨에 맞는 착지(로그인 후 next)를 가진다.
+    for (const [button, href] of [
+      [/한 화면에서 확인한다/, '/login?next=%2F'],
+      [/한 번 더 확인하고 승인한다/, '/login?next=%2Frequests%2Fwr-3'],
+      [/모든 결정을 기록으로 남긴다/, '/login?next=%2Faudit'],
+    ] as const) {
+      await page.getByRole('button', { name: button }).click();
+      const link = page.locator('.site-change-body:not([hidden]) a.site-text-link');
+      await expect(link).toHaveAttribute('href', href);
+    }
+    // 모션 끄기 토글은 자동 캐러셀·패럴랙스를 멈춘다.
+    const motion = page.getByRole('button', { name: '모션 끄기' });
+    await expect(motion).toBeVisible();
+    await motion.click();
+    await expect(page.getByRole('button', { name: '모션 켜기' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('모바일 390: 메뉴·오버플로 없음·주요 섹션이 한 열로 쌓인다', async ({ page }) => {
@@ -89,9 +104,10 @@ test.describe('KODA 공개 사이트', () => {
     await expect(page.getByRole('heading', { name: '데모 전에 챙겨 볼 세 가지.' })).toBeVisible();
     await expect(page.getByRole('button', { name: '메뉴 열기' })).toBeVisible();
 
-    // 모바일에서는 영상 대신 포스터를 보여 주고, 계정·역할 줄 같은 앱 전용 요소는 없다.
-    await expect(page.locator('.site-hero-media video')).toBeHidden();
+    // 모바일에서도 자막 없는 정지 플레이트와 제품 화면 1장을 첫 화면에 보여 준다.
     await expect(page.locator('.site-hero-poster')).toBeVisible();
+    await expect(page.locator('.site-hero-mobile-shot')).toBeVisible();
+    await expect(page.locator('.site-hero-media video')).toHaveCount(0);
     const footer = page.getByRole('contentinfo');
     await footer.scrollIntoViewIfNeeded();
     await expect(footer).toBeVisible();
@@ -100,18 +116,30 @@ test.describe('KODA 공개 사이트', () => {
   test('줄인 움직임: 영상 재생·등장 애니메이션 없이 포스터와 정적 내용', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/site');
-    await expect(page.locator('.site-hero-media video')).toBeHidden();
+    await expect(page.locator('.site-hero-media video')).toHaveCount(0);
     await expect(page.locator('.site-hero-poster')).toBeVisible();
+    const posterAnimation = await page.locator('.site-hero-poster').evaluate((el) => getComputedStyle(el).animationName);
+    expect(posterAnimation).toBe('none');
     const reveals = page.locator('.site [data-rv]');
     expect(await reveals.count()).toBeGreaterThan(3);
     const allVisible = await reveals.evaluateAll((els) => els.every((el) => getComputedStyle(el).opacity === '1'));
     expect(allVisible).toBe(true);
   });
 
-  test('접근성: axe WCAG 2.1 AA 위반 0', async ({ page }) => {
+  test('없는 사이트 주소: 로그인 만료 화면이 아니라 사이트 첫 화면으로 돌아온다', async ({ page }) => {
+    await page.goto('/site/nonexistent-xyz');
+    await expect(page).toHaveURL(/\/site$/);
+    await expect(page.getByRole('heading', { level: 1, name: /확인이 쌓여/ })).toBeVisible();
+  });
+
+  test('접근성: axe WCAG 2.1 AA 위반 0 (첫 화면 + 끝까지 스크롤한 상태)', async ({ page }) => {
     await page.goto('/site');
     await page.waitForLoadState('networkidle');
-    const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
-    expect(results.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
+    const first = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
+    expect(first.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await page.waitForTimeout(700);
+    const scrolled = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
+    expect(scrolled.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
   });
 });

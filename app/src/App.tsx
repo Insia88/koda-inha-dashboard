@@ -65,6 +65,8 @@ const g = (perm: string, el: React.ReactNode) => <Guard perm={perm}>{el}</Guard>
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage />, errorElement: <RouteError /> },
   { path: '/site', element: <SitePage />, errorElement: <RouteError /> },
+  // 사이트 하위의 없는 주소는 로그인 만료 화면이 아니라 사이트 첫 화면으로 보낸다(로그인 게이트 밖).
+  { path: '/site/*', element: <Navigate to="/site" replace />, errorElement: <RouteError /> },
   {
     element: <AuthGate fallback={<SoloScreen><Loading label="로그인 상태 확인 중" /></SoloScreen>}><Outlet /></AuthGate>,
     errorElement: <RouteError />,
