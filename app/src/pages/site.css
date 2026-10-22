@@ -90,8 +90,8 @@
 .koda-icon-btn { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--koda-line); border-radius: 999px; background: #fff; color: var(--koda-ink-2); cursor: pointer; }
 .koda-icon-btn:hover { border-color: var(--koda-ink); color: var(--koda-ink); }
 .koda-stat-slides { position: relative; min-height: 206px; margin-top: 6px; }
-.koda-stat-slide { position: absolute; inset: 0; opacity: 0; transform: translateY(8px); transition: opacity .45s ease, transform .45s ease; pointer-events: none; }
-.koda-stat-slide.is-active { opacity: 1; transform: none; pointer-events: auto; }
+.koda-stat-slide { position: absolute; inset: 0; visibility: hidden; opacity: 1; transform: translateY(10px); transition: transform .45s cubic-bezier(.2, .7, .2, 1), visibility 0s .45s; pointer-events: none; }
+.koda-stat-slide.is-active { visibility: visible; transform: none; transition: transform .45s cubic-bezier(.2, .7, .2, 1), visibility 0s; pointer-events: auto; }
 .koda-stat-value { font-size: clamp(48px, 5.4vw, 64px); line-height: 1; letter-spacing: -0.05em; font-weight: 800; color: var(--koda-ink); font-variant-numeric: tabular-nums; }
 .koda-stat-name { margin-top: 10px !important; font-size: 15px; font-weight: 700; color: var(--koda-ink); }
 .koda-stat-note { margin-top: 7px !important; font-size: 12.5px; line-height: 1.6; color: var(--koda-ink-2); }
@@ -129,7 +129,7 @@
 .koda-about-grid { display: grid; grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr); gap: clamp(24px, 4vw, 56px); align-items: start; }
 .koda-facts { display: grid; gap: 12px; }
 .koda-fact { border: 1px solid var(--koda-line); border-radius: 12px; padding: 18px 20px; background: #fff; }
-.koda-fact-k { font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 10px; letter-spacing: .04em; color: var(--koda-mint-deep); text-transform: uppercase; }
+.koda-fact-k { font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 10px; letter-spacing: 0; color: var(--koda-mint-deep); text-transform: uppercase; }
 .koda-fact strong { display: block; margin-top: 6px; font-size: 20px; letter-spacing: -0.03em; }
 .koda-fact p { margin-top: 4px !important; font-size: 12.5px; line-height: 1.6; color: var(--koda-muted); }
 .koda-timeline { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--koda-line); }

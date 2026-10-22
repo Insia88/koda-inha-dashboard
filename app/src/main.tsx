@@ -12,6 +12,18 @@ import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
 import './fonts.css';
 import './styles.css';
 
+// 공개 사이트 진입: 비로그인 방문자가 루트(/)로 오면 KODA 공식 사이트로 바로 보낸다.
+// 로그인 사용자(표시 쿠키)와 로컬 E2E(localhost)에서는 기존 대시보드 흐름을 유지한다.
+try {
+  const host = location.hostname;
+  const local = host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+  if (!local && location.pathname === '/' && !document.cookie.includes('koda_logged_in=1')) {
+    location.replace('/site');
+  }
+} catch {
+  /* location을 쓸 수 없는 환경(테스트 러너의 초기화 등)은 무시한다. */
+}
+
 const qc = new QueryClient({
   defaultOptions: {
     queries: {

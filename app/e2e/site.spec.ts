@@ -23,7 +23,7 @@ test.describe('KODA 공개 사이트', () => {
 
     // 최신 공식 정보(자료·보도자료에서 확인한 값)
     await expect(page.getByText('86.6%', { exact: true }).first()).toBeVisible();
-    await expect(page.getByText('$40M', { exact: true }).first()).toBeVisible();
+    await expect(page.locator('.koda-trust-meta').filter({ hasText: '$40M' }).first()).toBeVisible();
     await expect(page.getByText(/2024년 하반기 수탁고 기준/)).toBeVisible();
     await expect(page.getByText(/금융위원회 2024년 하반기 가상자산사업자 실태조사/)).toBeVisible();
     await expect(page.getByText('SOC1 Type 2', { exact: false }).first()).toBeVisible();
