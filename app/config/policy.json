@@ -1,0 +1,23 @@
+{
+  "$comment": "설계 가정(변경 가능). 실제 KODA 승인 정책·한도가 아니다. docs/assumptions.md 참조.",
+  "approval": {
+    "defaultRequiredApprovals": 1,
+    "highValueThresholdKrw": "100000000",
+    "highValueRequiredApprovals": 2
+  },
+  "addressBook": {
+    "requireSecondPersonReview": true,
+    "confirmTailLength": 6,
+    "cooldownHours": 24
+  },
+  "withdrawalChecks": {
+    "$comment": "출금 전 점검 기준(설계 가정, KODA 정책 아님). docs/assumptions.md A-27·A-28. 기준을 넘으면 차단하지 않고 '주의'로 보이며, 사유가 필요한 항목은 요청자가 5자 이상 사유를 남겨야 승인 요청을 보낼 수 있다.",
+    "amountMedianMultiple": 5,
+    "amountMedianMinHistory": 3,
+    "balanceSharePercent": 50,
+    "burstWindowMinutes": 60,
+    "burstCount": 3
+  },
+  "priceStaleAfterMinutes": 30,
+  "mockCustodyProcessingMs": 4000
+}

@@ -1,0 +1,298 @@
+/* KODA 공개 사이트 — 공식 서비스 소개서/이용가이드·보도자료 기반.
+   공식 덱의 화이트·블랙·민트 톤과 정보 위계를 따르고, 캐러셀·모션은 정보를 방해하지 않는 선에서만 쓴다. */
+.koda {
+  --koda-ink: #0a1512;
+  --koda-ink-2: #35443d;
+  --koda-muted: #5d6b63;
+  --koda-paper: #ffffff;
+  --koda-soft: #f3f8f5;
+  --koda-soft-2: #eaf4ee;
+  --koda-line: #dfe8e2;
+  --koda-line-strong: #c7d5cc;
+  --koda-mint: #00d9a3;
+  --koda-mint-deep: #037a5b;
+  --koda-dark: #07130e;
+  --koda-dark-2: #0d2018;
+  --koda-radius: 16px;
+  --koda-max: 1240px;
+  background: var(--koda-paper);
+  color: var(--koda-ink);
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, 'Malgun Gothic', sans-serif;
+  line-height: 1.6;
+  word-break: keep-all;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+}
+.koda *, .koda *::before, .koda *::after { box-sizing: border-box; }
+.koda h1, .koda h2, .koda h3, .koda p, .koda ul, .koda ol, .koda figure { margin: 0; }
+.koda h1, .koda h2, .koda h3 { font-weight: 800; letter-spacing: -0.045em; line-height: 1.16; }
+.koda a:not(.koda-btn):not(.koda-nav-cta):not(.koda-press):not(.koda-text-link) { color: inherit; }
+.koda img { max-width: 100%; }
+.koda button { font: inherit; }
+.koda-skip { position: fixed; left: 12px; top: -60px; z-index: 200; background: var(--koda-ink); color: #fff; padding: 10px 16px; border-radius: 8px; text-decoration: none; font-weight: 700; transition: top .18s ease; }
+.koda-skip:focus { top: 12px; }
+.koda-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.koda-wrap { max-width: var(--koda-max); margin: 0 auto; padding: 0 clamp(20px, 4vw, 44px); }
+
+/* ── 상단 내비게이션 ─────────────────────────────────────── */
+.koda-nav { position: fixed; inset: 0 0 auto 0; z-index: 80; background: rgba(255, 255, 255, .94); border-bottom: 1px solid transparent; backdrop-filter: blur(14px); transition: border-color .2s ease, box-shadow .2s ease; }
+.koda-nav.is-scrolled { border-bottom-color: var(--koda-line); box-shadow: 0 10px 30px rgba(10, 21, 18, .05); }
+.koda-nav-progress { position: absolute; left: 0; bottom: -1px; width: 100%; height: 2px; background: var(--koda-mint); transform-origin: left; transform: scaleX(0); transition: transform .12s linear; }
+.koda-nav-in { max-width: var(--koda-max); margin: 0 auto; min-height: 72px; padding: 0 clamp(20px, 4vw, 44px); display: flex; align-items: center; gap: 20px; }
+.koda-brand { display: inline-flex; align-items: baseline; gap: 12px; text-decoration: none; }
+.koda-brand img { height: 21px; width: auto; display: block; }
+.koda-brand-sub { font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--koda-muted); }
+.koda-nav-links { display: flex; align-items: center; gap: clamp(10px, 2.2vw, 28px); margin-left: auto; }
+.koda-nav-links > a:not(.koda-nav-cta) { position: relative; font-size: 14px; font-weight: 600; color: var(--koda-ink-2); text-decoration: none; padding: 10px 0; white-space: nowrap; }
+.koda-nav-links > a:not(.koda-nav-cta)::after { content: ''; position: absolute; left: 0; right: 0; bottom: 2px; height: 2px; border-radius: 2px; background: var(--koda-mint-deep); transform: scaleX(0); transform-origin: left; transition: transform .22s cubic-bezier(.2, .7, .2, 1); }
+.koda-nav-links > a[aria-current='true'] { color: var(--koda-ink); }
+.koda-nav-links > a[aria-current='true']::after { transform: scaleX(1); }
+.koda-nav-cta { display: inline-flex; align-items: center; gap: 6px; background: var(--koda-ink); color: #fff; text-decoration: none; font-size: 13.5px; font-weight: 700; padding: 11px 17px; border-radius: 999px; transition: background .18s ease, transform .18s ease; }
+.koda-nav-cta:hover { background: #163128; transform: translateY(-1px); }
+.koda-nav-toggle { display: none; margin-left: auto; width: 44px; height: 44px; align-items: center; justify-content: center; border: 1px solid var(--koda-line-strong); border-radius: 999px; background: #fff; color: var(--koda-ink); cursor: pointer; }
+
+/* ── 버튼 ─────────────────────────────────────────────────── */
+.koda-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+.koda-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 50px; padding: 0 22px; border: 1px solid transparent; border-radius: 999px; font-size: 15px; font-weight: 700; text-decoration: none; cursor: pointer; transition: transform .16s ease, background .16s ease, border-color .16s ease, color .16s ease; }
+.koda-btn:hover { transform: translateY(-1px); }
+.koda-btn-primary { background: var(--koda-ink); color: #fff; }
+.koda-btn-primary:hover { background: #163128; }
+.koda-btn-line { border-color: var(--koda-line-strong); color: var(--koda-ink); background: #fff; }
+.koda-btn-line:hover { border-color: var(--koda-ink); }
+.koda-btn-ghost { border-color: rgba(255, 255, 255, .3); color: #f2f7f3; background: rgba(255, 255, 255, .06); }
+.koda-btn-ghost:hover { border-color: #fff; }
+
+/* ── 히어로 ───────────────────────────────────────────────── */
+.koda-hero { padding: calc(72px + clamp(44px, 7vw, 96px)) 0 0; background: linear-gradient(180deg, #f6fbf8 0%, #ffffff 84%); overflow: hidden; }
+.koda-hero-grid { display: grid; grid-template-columns: minmax(0, 1.02fr) minmax(0, .98fr); gap: clamp(28px, 5vw, 72px); align-items: center; min-height: min(78vh, 760px); padding-bottom: clamp(44px, 6vw, 76px); }
+.koda-kicker { font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 11.5px; font-weight: 500; letter-spacing: .16em; color: var(--koda-mint-deep); text-transform: uppercase; }
+.koda-hero-h { margin-top: 18px; font-size: clamp(30px, 6.1vw, 66px); font-weight: 800; line-height: 1.08; letter-spacing: -0.055em; }
+.koda-hero-h > span { display: block; white-space: nowrap; }
+.koda-hero-h > span:nth-child(2) { font-size: .94em; }
+.koda-hero-h em { font-style: normal; color: var(--koda-mint-deep); }
+.koda-hero-lead { max-width: 34em; margin-top: 24px; font-size: clamp(15.5px, 1.4vw, 18px); line-height: 1.75; color: var(--koda-ink-2); text-wrap: pretty; }
+.koda-hero-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; padding: 0; list-style: none; }
+.koda-hero-meta li { font-size: 11.5px; font-weight: 600; color: var(--koda-muted); border: 1px solid var(--koda-line); border-radius: 999px; padding: 6px 11px; background: #fff; }
+.koda-hero-copy > * { animation: koda-rise .8s cubic-bezier(.2, .7, .2, 1) both; }
+.koda-hero-copy > :nth-child(2) { animation-delay: .08s; }
+.koda-hero-copy > :nth-child(3) { animation-delay: .16s; }
+.koda-hero-copy > :nth-child(4) { animation-delay: .24s; }
+.koda-hero-copy > :nth-child(5) { animation-delay: .32s; }
+@keyframes koda-rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+
+.koda-hero-art { position: relative; min-height: 440px; display: flex; align-items: center; justify-content: flex-end; }
+.koda-hero-shape { position: absolute; pointer-events: none; }
+.koda-shape-band { top: -6%; right: -18%; width: 72%; aspect-ratio: 1; background: linear-gradient(135deg, #00e5ad, #00c996); transform: rotate(34deg) skewX(-12deg); border-radius: 8%; opacity: .95; }
+.koda-shape-circle { bottom: 2%; left: 4%; width: 190px; height: 190px; border-radius: 50%; background: #d9f7ec; box-shadow: inset 0 0 0 1px rgba(3, 122, 91, .1); }
+.koda-stat-card { position: relative; z-index: 1; width: min(400px, 88%); background: #fff; border: 1px solid var(--koda-line); border-radius: 18px; padding: 18px 20px 14px; box-shadow: 0 24px 70px rgba(10, 21, 18, .13); animation: koda-rise .9s cubic-bezier(.2, .7, .2, 1) .28s both; }
+.koda-stat-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.koda-stat-label { font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 9.5px; letter-spacing: .14em; color: var(--koda-muted); text-transform: uppercase; }
+.koda-icon-btn { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--koda-line); border-radius: 999px; background: #fff; color: var(--koda-ink-2); cursor: pointer; }
+.koda-icon-btn:hover { border-color: var(--koda-ink); color: var(--koda-ink); }
+.koda-stat-slides { position: relative; min-height: 206px; margin-top: 6px; }
+.koda-stat-slide { position: absolute; inset: 0; visibility: hidden; opacity: 1; transform: translateY(10px); transition: transform .45s cubic-bezier(.2, .7, .2, 1), visibility 0s .45s; pointer-events: none; }
+.koda-stat-slide.is-active { visibility: visible; transform: none; transition: transform .45s cubic-bezier(.2, .7, .2, 1), visibility 0s; pointer-events: auto; }
+.koda-stat-value { font-size: clamp(48px, 5.4vw, 64px); line-height: 1; letter-spacing: -0.05em; font-weight: 800; color: var(--koda-ink); font-variant-numeric: tabular-nums; }
+.koda-stat-name { margin-top: 10px !important; font-size: 15px; font-weight: 700; color: var(--koda-ink); }
+.koda-stat-note { margin-top: 7px !important; font-size: 12.5px; line-height: 1.6; color: var(--koda-ink-2); }
+.koda-stat-source { margin-top: 8px !important; font-size: 10.5px; line-height: 1.5; color: var(--koda-muted); }
+.koda-stat-foot { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.koda-stat-bars { display: flex; gap: 0; }
+.koda-stat-bars button { position: relative; width: 44px; height: 44px; border: 0; padding: 0; background: transparent; cursor: pointer; }
+.koda-stat-bars button::before { content: ''; position: absolute; left: 50%; top: 50%; width: 22px; height: 4px; border-radius: 999px; background: var(--koda-line-strong); transform: translate(-50%, -50%); transition: width .2s ease, background .2s ease; }
+.koda-stat-bars button.is-active::before { width: 40px; background: var(--koda-ink); }
+.koda-stat-progress { display: block; flex: 1; height: 3px; background: var(--koda-line); overflow: hidden; }
+.koda-stat-progress i { display: block; height: 100%; width: 100%; background: var(--koda-mint); transform-origin: left; animation: koda-progress 6s linear forwards; }
+.koda-stat-progress i.is-paused { animation-play-state: paused; }
+@keyframes koda-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.koda-hero-foot { border-top: 1px solid var(--koda-line); background: #fff; }
+.koda-hero-foot-in { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding-top: 16px; padding-bottom: 16px; font-size: 12px; color: var(--koda-muted); }
+
+/* ── 공통 섹션 ─────────────────────────────────────────────── */
+.koda-sec { padding: clamp(72px, 9vw, 124px) 0; }
+.koda-sec-soft { background: var(--koda-soft); }
+.koda-head { margin-bottom: clamp(32px, 5vw, 56px); }
+.koda-eyebrow { font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--koda-mint-deep); font-weight: 500; margin-bottom: 14px !important; }
+.koda-eyebrow-light { color: #79e7c2; }
+.koda-head-row { display: grid; grid-template-columns: minmax(0, 1.02fr) minmax(0, .98fr); gap: clamp(20px, 4vw, 64px); align-items: end; }
+.koda-h2 { font-size: clamp(30px, 4.2vw, 52px); line-height: 1.14; letter-spacing: -0.05em; text-wrap: balance; }
+.koda-h2-light { color: #f2f8f4; }
+.koda-head-copy { font-size: clamp(14.5px, 1.3vw, 16.5px); line-height: 1.8; color: var(--koda-ink-2); }
+.koda-head-copy p + p { margin-top: 12px; }
+.koda-text-link { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 700; color: var(--koda-mint-deep); text-decoration: none; border-bottom: 1px solid currentColor; padding-bottom: 2px; }
+.koda-text-link:hover { color: #02543f; }
+.koda-inline-links { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 16px; }
+.koda [data-rv] { opacity: 0; transform: translateY(16px); transition: opacity .7s cubic-bezier(.2, .7, .2, 1), transform .7s cubic-bezier(.2, .7, .2, 1); }
+.koda [data-rv].is-in { opacity: 1; transform: none; }
+
+/* ── 회사 소개 ─────────────────────────────────────────────── */
+.koda-about-grid { display: grid; grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr); gap: clamp(24px, 4vw, 56px); align-items: start; }
+.koda-facts { display: grid; gap: 12px; }
+.koda-fact { border: 1px solid var(--koda-line); border-radius: 12px; padding: 18px 20px; background: #fff; }
+.koda-fact-k { font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 10px; letter-spacing: 0; color: var(--koda-mint-deep); text-transform: uppercase; }
+.koda-fact strong { display: block; margin-top: 6px; font-size: 20px; letter-spacing: -0.03em; }
+.koda-fact p { margin-top: 4px !important; font-size: 12.5px; line-height: 1.6; color: var(--koda-muted); }
+.koda-timeline { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--koda-line); }
+.koda-timeline li { position: relative; padding: 16px 18px 16px 24px; border-bottom: 1px solid var(--koda-line); }
+.koda-timeline li::before { content: ''; position: absolute; left: 0; top: 24px; width: 8px; height: 8px; border-radius: 50%; background: var(--koda-mint); box-shadow: 0 0 0 4px #e6f9f1; }
+.koda-timeline-year { font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 10.5px; letter-spacing: .06em; color: var(--koda-mint-deep); font-weight: 600; }
+.koda-timeline li p { margin-top: 5px !important; font-size: 13.5px; line-height: 1.6; color: var(--koda-ink-2); }
+.koda-investors { margin-top: 34px; padding-top: 22px; border-top: 1px solid var(--koda-line); display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
+.koda-investors-k { font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 10px; letter-spacing: .12em; color: var(--koda-muted); text-transform: uppercase; }
+.koda-investors ul { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.koda-investors li { font-size: 12.5px; font-weight: 600; color: var(--koda-ink-2); border: 1px solid var(--koda-line); border-radius: 999px; padding: 6px 12px; background: #fff; }
+
+/* ── 캐러셀 공통 ───────────────────────────────────────────── */
+.koda-carousel-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.koda-count { font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 11px; letter-spacing: .08em; color: var(--koda-muted); }
+.koda-count b { color: var(--koda-ink); font-size: 15px; }
+.koda-hint { margin-left: 8px; color: var(--koda-muted); font-size: 10.5px; }
+.koda-arrows { display: flex; gap: 8px; }
+.koda-arrows button { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--koda-line-strong); border-radius: 999px; background: #fff; color: var(--koda-ink); cursor: pointer; transition: background .18s ease, border-color .18s ease, opacity .18s ease; }
+.koda-arrows button:hover:not(:disabled) { background: var(--koda-soft); border-color: var(--koda-ink); }
+.koda-arrows button:disabled { opacity: .32; cursor: default; }
+.koda-carousel { position: relative; outline-offset: 4px; overflow: hidden; }
+.koda-track { padding-inline: 2px; }
+.koda-track { display: flex; gap: 16px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 4px 0 12px; scrollbar-width: none; }
+.koda-track::-webkit-scrollbar { display: none; }
+.koda-card { flex: 0 0 clamp(280px, 31%, 380px); scroll-snap-align: center; background: #fff; border: 1px solid var(--koda-line); border-radius: 14px; padding: 22px; text-align: left; transition: border-color .3s ease, box-shadow .3s ease, transform .3s ease; }
+.koda-card.is-current { border-color: var(--koda-line-strong); box-shadow: 0 16px 40px rgba(10, 21, 18, .07); }
+.koda-dots { display: flex; align-items: center; justify-content: center; gap: 2px; margin-top: 2px; }
+.koda-dots button { position: relative; width: 44px; height: 44px; border: 0; background: transparent; padding: 0; cursor: pointer; }
+.koda-dots button::before { content: ''; position: absolute; left: 50%; top: 50%; width: 22px; height: 4px; border-radius: 999px; background: var(--koda-line-strong); opacity: .7; transform: translate(-50%, -50%); transition: width .22s ease, opacity .22s ease, background .22s ease; }
+.koda-dots button.is-active::before { width: 40px; opacity: 1; background: var(--koda-ink); }
+
+/* 서비스 */
+.koda-service-top { display: flex; align-items: center; justify-content: space-between; color: var(--koda-mint-deep); }
+.koda-num { font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 11px; letter-spacing: .1em; }
+.koda-card-en { margin-top: 18px !important; font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--koda-muted); }
+.koda-service h3 { margin-top: 6px !important; font-size: 21px; letter-spacing: -0.035em; }
+.koda-service > p:not(.koda-card-en) { margin-top: 11px !important; font-size: 13.5px; line-height: 1.7; color: var(--koda-ink-2); }
+.koda-service ul { list-style: none; padding: 0; margin-top: 16px !important; display: flex; flex-wrap: wrap; gap: 6px; }
+.koda-service li { font-size: 10.5px; font-weight: 600; color: var(--koda-mint-deep); background: #eafaf4; border: 1px solid #c8f0e1; border-radius: 999px; padding: 4px 9px; }
+
+/* ── 신뢰·보안 ─────────────────────────────────────────────── */
+.koda-trust-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.koda-trust-card { background: #fff; border: 1px solid var(--koda-line); border-radius: 14px; padding: 22px; transition: border-color .25s ease, transform .25s ease, box-shadow .25s ease; }
+.koda-trust-card:hover { border-color: var(--koda-line-strong); transform: translateY(-2px); box-shadow: 0 14px 34px rgba(10, 21, 18, .06); }
+.koda-trust-top { display: flex; align-items: center; justify-content: space-between; color: var(--koda-mint-deep); }
+.koda-trust-kicker { font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; }
+.koda-trust-card h3 { margin-top: 16px !important; font-size: 17px; letter-spacing: -0.03em; }
+.koda-trust-card p { margin-top: 9px !important; font-size: 13px; line-height: 1.7; color: var(--koda-ink-2); }
+.koda-trust-meta { display: block; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--koda-line); font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 10.5px; color: var(--koda-muted); }
+
+/* ── 보도자료 ─────────────────────────────────────────────── */
+.koda-press { display: flex; flex-direction: column; text-decoration: none; }
+.koda-press-meta { font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 10px; letter-spacing: .06em; color: var(--koda-mint-deep); }
+.koda-press h3 { margin-top: 12px !important; font-size: 17px; line-height: 1.42; letter-spacing: -0.03em; }
+.koda-press > p { margin-top: 9px !important; font-size: 12.5px; line-height: 1.65; color: var(--koda-ink-2); }
+.koda-press-more { display: inline-flex; align-items: center; gap: 4px; margin-top: auto; padding-top: 18px; font-size: 11.5px; font-weight: 700; color: var(--koda-muted); }
+.koda-press:hover h3 { color: var(--koda-mint-deep); }
+
+/* ── 대시보드 데모 ──────────────────────────────────────────── */
+.koda-dashboard { background: var(--koda-dark); color: #eef6f0; padding: clamp(72px, 9vw, 120px) 0; position: relative; overflow: hidden; }
+.koda-dashboard::before { content: ''; position: absolute; right: -8%; top: -18%; width: min(620px, 60vw); aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, rgba(0, 217, 163, .14) 0%, rgba(0, 217, 163, 0) 68%); }
+.koda-dashboard-grid { position: relative; display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); gap: clamp(28px, 5vw, 64px); align-items: center; }
+.koda-dashboard-lead { margin-top: 20px !important; font-size: clamp(14.5px, 1.3vw, 16.5px); line-height: 1.8; color: #bbccc2; }
+.koda-dashboard-features { list-style: none; padding: 0; margin-top: 22px !important; display: grid; gap: 8px; }
+.koda-dashboard-features li { position: relative; padding-left: 18px; font-size: 13.5px; color: #d7e5dc; }
+.koda-dashboard-features li::before { content: ''; position: absolute; left: 0; top: .65em; width: 7px; height: 7px; border-radius: 50%; background: var(--koda-mint); }
+.koda-dashboard-note { margin-top: 18px !important; font-size: 11px; line-height: 1.65; color: #8fa89b; max-width: 44em; }
+.koda-dashboard-visual { position: relative; }
+.koda-carousel-head-dark .koda-count { color: #9db4a7; }
+.koda-carousel-head-dark .koda-count b { color: #f2f8f4; }
+.koda-carousel-dark .koda-arrows button { background: rgba(255, 255, 255, .06); border-color: rgba(255, 255, 255, .2); color: #f2f8f4; }
+.koda-carousel-dark .koda-arrows button:hover:not(:disabled) { background: rgba(255, 255, 255, .12); border-color: #fff; }
+.koda-dash-slide { flex: 0 0 100%; scroll-snap-align: center; }
+.koda-browser { background: #0c1c15; border: 1px solid rgba(255, 255, 255, .16); border-radius: 12px; padding: 8px; }
+.koda-browser-bar { display: flex; align-items: center; gap: 5px; padding: 3px 4px 9px; }
+.koda-browser-bar span { width: 6px; height: 6px; border-radius: 50%; background: rgba(255, 255, 255, .25); }
+.koda-browser-bar em { margin-left: 8px; font-style: normal; font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 9px; color: #7e9488; }
+.koda-dash-slide img { display: block; width: 100%; height: auto; border-radius: 7px; }
+.koda-dash-slide figcaption { margin-top: 10px; font-size: 11.5px; line-height: 1.6; color: #9db4a7; }
+.koda-dash-slide figcaption b { color: #e9f4ed; margin-right: 6px; }
+.koda-dots-dark button::before { background: rgba(255, 255, 255, .26); }
+.koda-dots-dark button.is-active::before { background: var(--koda-mint); }
+.koda-demo-badge { position: absolute; right: 10px; top: -14px; font-family: 'Source Code Pro', 'Consolas', monospace; font-size: 9px; letter-spacing: .12em; color: #06140e; background: var(--koda-mint); border-radius: 999px; padding: 4px 9px; font-weight: 600; }
+
+/* ── 문의·바닥글 ───────────────────────────────────────────── */
+.koda-contact { padding: clamp(68px, 8vw, 108px) 0; background: var(--koda-soft); border-top: 1px solid var(--koda-line); }
+.koda-contact-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .8fr) auto; gap: clamp(22px, 4vw, 54px); align-items: center; }
+.koda-contact-info { display: grid; gap: 9px; font-size: 13.5px; color: var(--koda-ink-2); }
+.koda-contact-info a, .koda-contact-info p { display: inline-flex; align-items: center; gap: 8px; color: inherit; text-decoration: none; }
+.koda-contact-info a:hover { color: var(--koda-mint-deep); }
+.koda-contact .koda-actions { margin-top: 0; }
+.koda-footer { background: #fff; border-top: 1px solid var(--koda-line); padding: 30px 0 34px; }
+.koda-footer-grid { display: grid; grid-template-columns: 1.1fr 1.4fr auto; gap: 18px 36px; align-items: start; }
+.koda-footer-brand img { height: 20px; width: auto; display: block; }
+.koda-footer-brand p { margin-top: 8px !important; font-size: 11.5px; line-height: 1.6; color: var(--koda-muted); }
+.koda-footer-info p { font-size: 11.5px; line-height: 1.7; color: var(--koda-muted); }
+.koda-footer-links { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; }
+.koda-footer-links a { color: var(--koda-ink-2); text-decoration: none; }
+.koda-footer-links a:hover { color: var(--koda-mint-deep); }
+.koda-footer-copy { grid-column: 1 / -1; margin-top: 10px !important; padding-top: 16px; border-top: 1px solid var(--koda-line); font-size: 10.5px; line-height: 1.7; color: var(--koda-muted); }
+
+/* ── 반응형 ────────────────────────────────────────────────── */
+@media (max-width: 1080px) {
+  .koda-hero-grid { grid-template-columns: 1fr; min-height: 0; gap: 34px; }
+  .koda-hero-art { min-height: 340px; justify-content: flex-start; }
+  .koda-shape-band { right: 0; width: 62%; }
+  .koda-shape-circle { width: 150px; height: 150px; left: auto; right: 12%; bottom: 8%; }
+  .koda-stat-card { width: min(420px, 92%); }
+  .koda-head-row { grid-template-columns: 1fr; align-items: start; }
+  .koda-about-grid { grid-template-columns: 1fr; }
+  .koda-trust-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .koda-dashboard-grid { grid-template-columns: 1fr; }
+  .koda-contact-grid { grid-template-columns: 1fr 1fr; }
+  .koda-contact .koda-actions { grid-column: 1 / -1; }
+  .koda-footer-grid { grid-template-columns: 1fr 1fr; }
+  .koda-footer-links { grid-column: 1 / -1; }
+  .koda-card { flex-basis: 46%; }
+}
+@media (max-width: 760px) {
+  .koda-nav-in { min-height: 62px; }
+  .koda-brand-sub { display: none; }
+  .koda-nav-links { position: fixed; inset: 62px 0 auto 0; display: none; flex-direction: column; align-items: stretch; gap: 0; background: #fff; border-bottom: 1px solid var(--koda-line); padding: 6px clamp(20px, 5vw, 28px) 20px; box-shadow: 0 24px 44px rgba(10, 21, 18, .08); }
+  .koda-nav.is-open .koda-nav-links { display: flex; }
+  .koda-nav-links > a:not(.koda-nav-cta) { padding: 15px 0; border-bottom: 1px solid var(--koda-line); font-size: 16px; }
+  .koda-nav-links > a:not(.koda-nav-cta)::after { display: none; }
+  .koda-nav-cta { margin-top: 16px; justify-content: center; }
+  .koda-nav-toggle { display: inline-flex; }
+  .koda-hero { padding-top: calc(62px + 34px); }
+  .koda-hero-h { font-size: clamp(30px, 9vw, 52px); }
+  .koda-hero-lead { font-size: 15.5px; }
+  .koda-hero-art { min-height: 300px; }
+  .koda-shape-band { width: 60%; top: -4%; right: -8%; }
+  .koda-shape-circle { width: 110px; height: 110px; right: 8%; bottom: 0; }
+  .koda-stat-card { width: 100%; padding: 16px; }
+  .koda-stat-slides { min-height: 232px; }
+  .koda-stat-value { font-size: 46px; }
+  .koda-sec { padding: 64px 0; }
+  .koda-timeline { grid-template-columns: 1fr; }
+  .koda-trust-grid { grid-template-columns: 1fr; }
+  .koda-card { flex-basis: 84%; padding: 20px; }
+  .koda-carousel-head .koda-hint { display: none; }
+  .koda-contact-grid { grid-template-columns: 1fr; }
+  .koda-contact .koda-actions { grid-column: auto; }
+  .koda-footer-grid { grid-template-columns: 1fr; }
+  .koda-footer-copy { grid-column: auto; }
+  .koda-actions .koda-btn { flex: 1 1 auto; }
+  .koda-dashboard-note { font-size: 10.5px; }
+}
+@media (max-width: 480px) {
+  .koda-hero-h { font-size: clamp(27px, 8.8vw, 38px); }
+  .koda-actions { flex-direction: column; align-items: stretch; }
+  .koda-actions .koda-btn { width: 100%; }
+  .koda-card { flex-basis: 100%; }
+  .koda-stat-slides { min-height: 248px; }
+  .koda-hero-meta li { font-size: 10.5px; }
+}
+
+/* ── 접근성: 움직임 줄이기 ─────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .koda [data-rv] { opacity: 1; transform: none; transition: none; }
+  .koda-hero-copy > *, .koda-stat-card { animation: none; }
+  .koda-stat-slide, .koda-stat-progress i, .koda-card { transition: none; }
+  .koda-stat-progress i { animation: none; transform: scaleX(1); }
+  .koda-card:hover, .koda-trust-card:hover, .koda-btn:hover, .koda-nav-cta:hover { transform: none; }
+}

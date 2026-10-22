@@ -1,0 +1,452 @@
+// 배포 확인(스모크) 검사. 모의 데이터 공개 데모가 안전 장치를 그대로 지키는지 실제 HTTP로 확인한다.
+//
+// 사용:
+//   VERCEL_AUTOMATION_BYPASS_SECRET=<자동화 우회 값> node scripts/smoke-deploy.mjs https://<보호된 미리보기 주소>
+//   node scripts/smoke-deploy.mjs https://<보호 없는 주소> --public   # 보호 없는 공개가 decisions.md에 결정으로 기록된 주소만(운영 별칭, DEC-004).
+//                                                                    # 보호 없음은 WARN으로 남고 통과로 세지 않는다. 이 경고 1건뿐이면 공개 주소 기준 통과.
+//   node scripts/smoke-deploy.mjs --local [포트]   # 먼저 `npm run build:vercel`. 빌드된 함수(api/index.mjs)를
+//                                                  # VERCEL=1 DEMO_PUBLIC=1로 127.0.0.1:<포트>(기본 4418)에 띄워 검사한 뒤 닫는다.
+//                                                  # DEMO_SESSION_SECRET이 없으면 이번 실행에만 쓰는 무작위 값을 만든다.
+//                                                  # 화면(dist/)은 CDN 대신 같은 서버가 vercel.json rewrites와 같은 규칙으로 준다.
+//   … --shots <폴더>   # 화면 고지 검사 때 로그인·홈 화면(1440×900·390×844, 전체 길이)을 그 폴더에 PNG로 남긴다.
+//
+// 원격 검사는 먼저 보호(Vercel Authentication)가 켜져 있는지 확인하고, 꺼져 있으면(200) 바로 중단한다(--public이면 WARN을 남기고 계속).
+// 화면 고지 검사는 실제 브라우저(@playwright/test의 Chromium, 먼저 `npx playwright install chromium`)로 화면을 연다.
+// 마지막 검사는 개발용 로그인 한도(1분 30회)를 소진하므로 끝난 뒤 1분 동안 같은 IP에서 로그인이 막힌다.
+// 검사 중 만든 출금 요청은 끝에서 취소한다. 우회 값과 세션 서명 값은 출력하거나 저장하지 않는다.
+import http from 'node:http';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { extname, join, normalize, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const args = process.argv.slice(2);
+const LOCAL = args.includes('--local');
+const BYPASS = process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '';
+const shotsAt = args.indexOf('--shots');
+const SHOTS = shotsAt >= 0 && args[shotsAt + 1] ? resolve(args[shotsAt + 1]) : null;
+let BASE = '';
+let server = null;
+
+/** 로컬 함수 검사에서 CDN 대신 화면(dist/)을 준다. vercel.json rewrites와 같은 규칙: 점 없는 경로 → index.html, 그 밖 → 파일(없으면 404). */
+const DIST = fileURLToPath(new URL('../dist/', import.meta.url));
+const SCREEN_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8' };
+async function serveScreen(req, res) {
+  let path;
+  try { path = decodeURIComponent(new URL(req.url, 'http://local').pathname); } catch { res.writeHead(400).end(); return; }
+  const full = join(DIST, normalize(/\.[^/]*$/.test(path) ? path : '/index.html'));
+  if (!full.startsWith(DIST)) { res.writeHead(404).end(); return; }
+  try {
+    const body = await readFile(full);
+    res.writeHead(200, { 'content-type': SCREEN_TYPES[extname(full)] ?? 'application/octet-stream' }).end(body);
+  } catch {
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('not found');
+  }
+}
+
+if (LOCAL) {
+  const port = Number(args.find((a) => /^\d+$/.test(a)) ?? 4418);
+  process.env.VERCEL = '1';
+  process.env.DEMO_PUBLIC = '1';
+  process.env.NODEJS_HELPERS = '0';
+  process.env.LOG_LEVEL ??= 'warn';
+  // 공개 데모는 세션 서명 값 없이 기동하지 않는다. 로컬 함수 검사에는 이번 실행에만 쓰는 값을 쓴다(배포 값과 무관).
+  process.env.DEMO_SESSION_SECRET ||= randomBytes(32).toString('base64url');
+  let handler;
+  try {
+    ({ default: handler } = await import('../api/index.mjs'));
+  } catch (e) {
+    console.error(`빌드된 함수를 불러오지 못했습니다: ${e.message}\n먼저 npm run build:vercel 을 실행하세요.`);
+    process.exit(2);
+  }
+  server = http.createServer((req, res) => (/^\/api(\/|\?|$)/.test(req.url ?? '') ? handler(req, res) : serveScreen(req, res)));
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
+  BASE = `http://127.0.0.1:${port}`;
+} else {
+  BASE = (args.find((a) => /^https?:\/\//.test(a)) ?? '').replace(/\/+$/, '');
+  if (!BASE) {
+    console.error('사용: node scripts/smoke-deploy.mjs <https://배포-주소> | --local [포트]');
+    process.exit(2);
+  }
+  if (!BYPASS) console.warn('VERCEL_AUTOMATION_BYPASS_SECRET 이 없어 보호된 배포의 API 검사는 실패합니다.');
+}
+
+const results = [];
+let loginAttempts = 0;
+const created = [];
+
+class Fail extends Error {}
+const expect = (cond, msg) => { if (!cond) throw new Fail(msg); };
+
+async function call(method, path, { body, cookie, csrf, headers = {}, bypass = true } = {}) {
+  const h = { accept: 'application/json', ...headers };
+  if (BYPASS && bypass) h['x-vercel-protection-bypass'] = BYPASS;
+  if (cookie) h.cookie = cookie;
+  if (csrf) h['x-csrf-token'] = csrf;
+  if (body !== undefined) h['content-type'] = 'application/json';
+  const res = await fetch(BASE + path, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'manual' });
+  const text = await res.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch { json = null; }
+  return { status: res.status, headers: res.headers, text, json };
+}
+
+async function login(userId) {
+  loginAttempts++;
+  const r = await call('POST', '/api/auth/dev-login', { body: { userId } });
+  expect(r.status === 200, `${userId} 로그인 실패 (${r.status} ${r.json?.error?.code ?? ''})`);
+  const setCookie = r.headers.getSetCookie().find((c) => c.startsWith('koda_sid='));
+  expect(setCookie, '세션 쿠키가 없습니다');
+  const cookie = setCookie.split(';')[0];
+  const me = await call('GET', '/api/me', { cookie });
+  expect(me.status === 200, `${userId} /api/me ${me.status}`);
+  return { userId, cookie, csrf: me.json.csrfToken, setCookie, me: me.json };
+}
+
+const idem = () => `smoke-${randomUUID()}`;
+const instanceOf = (r) => String(r.headers.get('x-demo-instance') ?? '').slice(0, 8);
+// 로그인은 인스턴스와 관계없이 유지되지만 데이터는 인스턴스마다 따로다. 다음 단계가 다른 인스턴스로 가서 404가 나면 그 사실을 함께 적는다.
+const otherInstanceHint = (first, r) => (r.status === 404 && instanceOf(first) && instanceOf(first) !== instanceOf(r)
+  ? ` — 작성(${instanceOf(first)})과 다른 인스턴스(${instanceOf(r)})가 응답함: 데이터는 인스턴스마다 따로라 다시 실행하면 통과할 수 있습니다`
+  : '');
+
+async function toPending(s, amount, purpose) {
+  const c = await call('POST', '/api/requests', { ...s, headers: { 'idempotency-key': idem() }, body: { assetCode: 'USDC', networkCode: 'ETHEREUM', addressId: 'ab-01', amount, purpose } });
+  expect(c.status === 201, `출금 요청 작성 ${c.status} ${c.json?.error?.code ?? ''}`);
+  created.push({ s, id: c.json.id });
+  const rv = await call('POST', `/api/requests/${c.json.id}/review`, { ...s, body: { version: c.json.version } });
+  expect(rv.status === 200, `검토 단계 이동 ${rv.status} ${rv.json?.error?.code ?? ''}${otherInstanceHint(c, rv)}`);
+  const n = s.me.policy?.confirmTailLength ?? 6;
+  // 출금 전 점검에서 사유가 필요한 주의 항목(처음 보내는 주소·과거 금액 대비 큰 수량·사용 가능 수량의 큰 비율)이 생길 수 있어 사유를 함께 보낸다.
+  // 사유가 필요 없는 항목의 사유는 서버가 버린다.
+  const reason = '배포 확인용 모의 요청이라 그대로 진행합니다';
+  const checkReasons = { first_use: reason, amount_history: reason, balance_share: reason };
+  const sub = await call('POST', `/api/requests/${c.json.id}/submit`, { ...s, body: { version: rv.json.version, confirmTail: String(c.json.address.address).slice(-n), ackIrreversible: true, checkReasons } });
+  expect(sub.status === 200, `승인 요청 ${sub.status} ${sub.json?.error?.code ?? ''}${otherInstanceHint(c, sub)}`);
+  return sub.json;
+}
+
+/**
+ * 검사 결과가 통과가 아니지만 실행을 멈추지 않는 경우(예: --public으로 보호 없는 배포를 검사함).
+ * 결과는 WARN으로 남고 통과로 세지 않는다. name을 주면 검사 이름 대신 그 이름으로 기록한다(결과를 이름에 드러내기 위해).
+ */
+class Warn extends Error {
+  constructor(message, name) { super(message); this.label = name; }
+}
+
+async function check(name, fn, skip) {
+  if (skip) {
+    results.push({ name, status: 'SKIP', detail: skip });
+    console.log(`SKIP  ${name} — ${skip}`);
+    return;
+  }
+  try {
+    const detail = (await fn()) ?? '';
+    results.push({ name, status: 'PASS', detail });
+    console.log(`PASS  ${name}${detail ? ` — ${detail}` : ''}`);
+  } catch (e) {
+    if (e instanceof Warn) {
+      const label = e.label ?? name;
+      results.push({ name: label, status: 'WARN', detail: e.message });
+      console.log(`WARN  ${label}${e.message ? ` — ${e.message}` : ''}`);
+      return;
+    }
+    results.push({ name, status: 'FAIL', detail: e.message });
+    console.log(`FAIL  ${name} — ${e.message}`);
+  }
+}
+
+async function finish(code) {
+  if (server) {
+    server.closeAllConnections?.();
+    await new Promise((r) => server.close(r));
+  }
+  const count = (s) => results.filter((r) => r.status === s).length;
+  const fails = count('FAIL');
+  const warns = count('WARN');
+  // 경고(WARN)는 통과로 세지 않는다. 실패가 없어도 경고가 있으면 요약에 따로 남긴다.
+  console.log(`\n${results.length}개 검사: 통과 ${count('PASS')}, 실패 ${fails}, 경고 ${warns}, 건너뜀 ${count('SKIP')} (${BASE})`);
+  if (warns) console.log(`경고 항목: ${results.filter((r) => r.status === 'WARN').map((r) => r.name).join(', ')}`);
+  process.exit(code ?? (fails ? 1 : 0));
+}
+
+const CDN_ONLY = LOCAL ? 'CDN(vercel.json) 동작이라 로컬 함수 검사에서는 확인하지 않습니다' : null;
+console.log(`배포 확인 대상: ${BASE}${LOCAL ? ' (로컬 함수)' : ''}\n`);
+
+// 1. 보호가 켜져 있어야 한다. 꺼져 있으면 더 진행하지 않는다.
+//    --public: 보호 없는 주소를 공개로 둔다는 결정이 docs/decisions.md에 기록된 주소에만 쓴다(운영 별칭, DEC-004). 미리보기에는 쓰지 않는다.
+//    이때 보호 없음은 통과가 아니라 경고(WARN)로 기록하고 나머지 안전 검사를 계속한다. 요약의 '통과'에 세지 않는다.
+const PUBLIC_OK = args.includes('--public');
+await check('배포 보호 켜짐(우회 헤더 없이 401 또는 로그인 이동)', async () => {
+  const r = await call('GET', '/', { bypass: false, headers: { accept: 'text/html' } });
+  if (r.status === 200 && PUBLIC_OK) {
+    throw new Warn('우회 헤더 없이 200 응답. 누구나 열 수 있는 주소입니다. --public으로 나머지 검사를 계속합니다.', '배포 보호 없음(--public)');
+  }
+  if (r.status === 200) {
+    results.push({ name: '중단', status: 'FAIL', detail: '보호 없이 200 응답' });
+    console.log('FAIL  배포 보호 켜짐 — 우회 헤더 없이 200을 받았습니다. 보호(Deployment Protection)를 켠 뒤 다시 실행하세요. 검사를 중단합니다.');
+    await finish(1);
+  }
+  expect(r.status === 401 || (r.status >= 300 && r.status < 400), `예상 401/3xx, 받은 값 ${r.status}`);
+  return `${r.status}`;
+}, LOCAL ? '로컬 함수에는 배포 보호가 없습니다' : null);
+
+await check('/api/healthz 공개 데모 모드', async () => {
+  const r = await call('GET', '/api/healthz');
+  expect(r.status === 200, `상태 ${r.status}`);
+  expect(r.json?.mode === 'public-demo', `mode=${r.json?.mode}`);
+  expect(r.json?.instanceId && r.headers.get('x-demo-instance') === r.json.instanceId, 'X-Demo-Instance 헤더가 instanceId와 다릅니다');
+  expect(/no-store/.test(r.headers.get('cache-control') ?? ''), 'Cache-Control no-store 없음');
+  return `instance ${String(r.json.instanceId).slice(0, 8)}…, 생성 ${r.json.seededAt}`;
+});
+
+// 화면 고지(A5, DEC-004): 공개 데모는 상단 띠와 로그인 화면 안내 상자 없이 모든 화면 맨 아래에 작은 한 줄만 보인다.
+// 실제 브라우저로 로그인 화면과 홈(한지수로 로그인)을 1440×900·390×844에서 연다. 한 줄은 하나뿐이고 문구가 정확하며, 고정되지 않은 문서의 끝이고,
+// 끝까지 스크롤하면 그 자리의 맨 위 요소로 보이며, 12px 이상·알림 영역 아님. 상단 띠(.env-ribbon)와 예전 공개 데모 안내 문구는 없어야 한다.
+const DEMO_LINE = '모의 데이터 · KODA 공식 서비스 아님';
+const OLD_DEMO_NOTICE = /공개 데모입니다|공개 데모 ·|KODA 공식 서비스가 아니며|데이터가 초기화됩니다|데이터 생성 \d/;
+async function expectDemoLine(page, label) {
+  const footer = page.getByRole('contentinfo');
+  await footer.first().waitFor({ timeout: 15_000 }).catch(() => {});
+  if (await footer.count() === 1) await footer.scrollIntoViewIfNeeded();
+  const r = await page.evaluate((old) => {
+    const all = [...document.querySelectorAll('footer')];
+    const el = all[0];
+    const box = el?.getBoundingClientRect();
+    const top = box ? document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) : null;
+    return {
+      footers: all.map((f) => f.textContent),
+      ribbon: document.querySelectorAll('.env-ribbon').length,
+      oldNotice: new RegExp(old).test(document.body.innerText),
+      position: el ? getComputedStyle(el).position : null,
+      fontSize: el ? parseFloat(getComputedStyle(el).fontSize) : 0,
+      live: !!el && (!!el.closest('[aria-live], [role="status"], [role="alert"], [role="log"]') || el.hasAttribute('role')),
+      docGap: box ? document.documentElement.scrollHeight - (box.bottom + window.scrollY) : null,
+      inView: !!box && box.top >= 0 && box.bottom <= window.innerHeight + 0.5 && box.left >= 0 && box.right <= window.innerWidth + 0.5,
+      onTop: !!top && !!el && el.contains(top),
+    };
+  }, OLD_DEMO_NOTICE.source);
+  expect(r.footers.length === 1 && r.footers[0] === DEMO_LINE, `${label}: 맨 아래 한 줄이 '${DEMO_LINE}' 하나가 아님 ${JSON.stringify(r.footers)}`);
+  expect(r.ribbon === 0, `${label}: 상단 띠(.env-ribbon)가 있음`);
+  expect(!r.oldNotice, `${label}: 예전 공개 데모 안내 문구가 있음`);
+  expect(r.position === 'static', `${label}: 맨 아래 한 줄이 고정 요소(${r.position})`);
+  expect(Math.abs(r.docGap) <= 1, `${label}: 맨 아래 한 줄이 문서 끝이 아님(${r.docGap}px)`);
+  expect(r.inView && r.onTop, `${label}: 끝까지 스크롤해도 보이지 않거나 가려짐`);
+  expect(r.fontSize >= 12, `${label}: 글자 ${r.fontSize}px`);
+  expect(!r.live, `${label}: 알림 영역 안에 있음`);
+}
+await check(`화면 고지: 상단 띠 없이 맨 아래 한 줄 '${DEMO_LINE}'(로그인·홈, 1440·390)`, async () => {
+  let chromium;
+  try {
+    ({ chromium } = await import('@playwright/test'));
+  } catch (e) {
+    throw new Fail(`@playwright/test를 불러오지 못했습니다(${e.message})`);
+  }
+  const browser = await chromium.launch().catch((e) => { throw new Fail(`Chromium을 띄우지 못했습니다. npx playwright install chromium 뒤 다시 실행하세요(${String(e.message).split('\n')[0]})`); });
+  if (SHOTS) mkdirSync(SHOTS, { recursive: true });
+  try {
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+      const ctx = await browser.newContext({ viewport, locale: 'ko-KR', timezoneId: 'Asia/Seoul', ...(BYPASS ? { extraHTTPHeaders: { 'x-vercel-protection-bypass': BYPASS } } : {}) });
+      try {
+        const page = await ctx.newPage();
+        await page.goto(`${BASE}/login`);
+        await page.getByRole('heading', { name: '법인 대시보드 로그인' }).waitFor({ timeout: 15_000 });
+        await page.getByRole('button', { name: /^한지수/ }).waitFor({ timeout: 15_000 });
+        await expectDemoLine(page, `로그인 ${viewport.width}`);
+        if (SHOTS) await page.screenshot({ path: join(SHOTS, `login-${viewport.width}.png`), fullPage: true });
+        loginAttempts++;
+        await page.getByRole('button', { name: /^한지수/ }).click();
+        await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 15_000 });
+        await page.locator('#page-title').waitFor({ timeout: 15_000 });
+        await page.waitForLoadState('networkidle');
+        await expectDemoLine(page, `홈 ${viewport.width}`);
+        if (SHOTS) {
+          await page.evaluate(() => window.scrollTo(0, 0));
+          await page.screenshot({ path: join(SHOTS, `home-${viewport.width}.png`), fullPage: true });
+        }
+      } finally {
+        await ctx.close();
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+  return SHOTS ? `화면 4장 저장: ${SHOTS}` : '';
+});
+
+const SECURITY_HEADERS = [
+  ['content-security-policy', (v) => v.includes("default-src 'self'") && v.includes("frame-ancestors 'none'") && v.includes('upgrade-insecure-requests')],
+  ['x-content-type-options', (v) => v === 'nosniff'],
+  ['referrer-policy', (v) => v === 'no-referrer'],
+  ['x-frame-options', (v) => v.toUpperCase() === 'DENY'],
+  ['cross-origin-opener-policy', (v) => v === 'same-origin'],
+  ['permissions-policy', (v) => v.includes('camera=()')],
+  ['strict-transport-security', (v) => /max-age=\d+/.test(v)],
+  ['x-robots-tag', (v) => v.includes('noindex')],
+];
+for (const path of ['/', '/requests/wr-1']) {
+  await check(`보안 헤더·화면 응답 ${path}`, async () => {
+    const r = await call('GET', path, { headers: { accept: 'text/html' } });
+    expect(r.status === 200, `상태 ${r.status}`);
+    expect((r.headers.get('content-type') ?? '').includes('text/html'), `content-type ${r.headers.get('content-type')}`);
+    const missing = SECURITY_HEADERS.filter(([k, ok]) => !ok(r.headers.get(k) ?? '')).map(([k]) => k);
+    expect(missing.length === 0, `누락·불일치: ${missing.join(', ')}`);
+  }, CDN_ONLY);
+}
+
+await check('없는 정적 파일은 404(화면 HTML로 대체하지 않음)', async () => {
+  const r = await call('GET', '/missing.js', { headers: { accept: '*/*' } });
+  expect(r.status === 404, `상태 ${r.status}`);
+  expect(!(r.headers.get('content-type') ?? '').includes('text/html'), 'HTML이 돌아왔습니다');
+}, CDN_ONLY);
+
+await check('/api/me 쿠키 없이 401 + no-store', async () => {
+  const r = await call('GET', '/api/me');
+  expect(r.status === 401, `상태 ${r.status}`);
+  expect(/no-store/.test(r.headers.get('cache-control') ?? ''), 'Cache-Control no-store 없음');
+});
+
+let han = null;
+await check('개발용 로그인 쿠키 Secure·HttpOnly·SameSite=Strict', async () => {
+  han = await login('u-a-han');
+  const c = han.setCookie;
+  expect(/;\s*Secure/i.test(c), 'Secure 없음');
+  expect(/;\s*HttpOnly/i.test(c), 'HttpOnly 없음');
+  expect(/;\s*SameSite=Strict/i.test(c), 'SameSite=Strict 없음');
+  expect(/;\s*Path=\/(;|$)/i.test(c), 'Path=/ 없음');
+});
+
+// 공개 데모 세션은 서명된 쿠키라, 요청을 어느 함수 인스턴스가 받아도 로그인이 유지되어야 한다.
+// 응답한 인스턴스가 1곳이든 여러 곳이든 20회 모두 200이면 통과다(인스턴스 수는 기록만 한다).
+await check('같은 쿠키로 /api/me 20회 반복: 모두 200(응답한 인스턴스 수와 무관)', async () => {
+  han ??= await login('u-a-han');
+  const instances = new Set();
+  const bad = [];
+  for (let i = 1; i <= 20; i++) {
+    const r = await call('GET', '/api/me', { cookie: han.cookie });
+    const inst = r.headers.get('x-demo-instance');
+    if (inst) instances.add(inst);
+    if (r.status !== 200) bad.push(`${i}번째 ${r.status} ${r.json?.error?.code ?? ''}`.trim());
+    else if (r.json?.user?.id !== 'u-a-han') bad.push(`${i}번째 사용자 ${r.json?.user?.id}`);
+    else if (r.json?.csrfToken !== han.csrf) bad.push(`${i}번째 CSRF 값이 처음과 다름`);
+  }
+  const seen = `응답한 인스턴스 ${instances.size}곳${instances.size ? ` (${[...instances].map((x) => String(x).slice(0, 8)).join(', ')})` : ''}`;
+  expect(bad.length === 0, `${bad.length}회 실패: ${bad.slice(0, 5).join('; ')} — ${seen}`);
+  return `20회 모두 200, ${seen}`;
+});
+
+await check('변조한 세션 쿠키 401(내용·서명)', async () => {
+  han ??= await login('u-a-han');
+  const value = han.cookie.slice('koda_sid='.length);
+  const [body, sig] = value.split('.');
+  expect(body && sig, '세션 쿠키가 서명된 형식(내용.서명)이 아닙니다');
+  const p = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+  const changedBody = Buffer.from(JSON.stringify({ ...p, uid: 'u-a-oh' })).toString('base64url');
+  const changedSig = `${sig[0] === 'A' ? 'B' : 'A'}${sig.slice(1)}`;
+  for (const [name, v] of [['내용 변경', `${changedBody}.${sig}`], ['서명 변경', `${body}.${changedSig}`]]) {
+    const r = await call('GET', '/api/me', { cookie: `koda_sid=${v}` });
+    expect(r.status === 401, `${name}: 상태 ${r.status}`);
+  }
+});
+
+await check('CSRF 값 없는 변경 요청 403', async () => {
+  han ??= await login('u-a-han');
+  const r = await call('POST', '/api/requests', { cookie: han.cookie, headers: { 'idempotency-key': idem() }, body: {} });
+  expect(r.status === 403 && r.json?.error?.code === 'CSRF_REJECTED', `${r.status} ${r.json?.error?.code}`);
+});
+
+await check('본인 요청 승인 403', async () => {
+  const kang = await login('u-a-kang');
+  const p = await toPending(kang, '1', '배포 확인용 모의 요청(자동 취소)');
+  const r = await call('POST', `/api/requests/${p.id}/approve`, { ...kang, body: { version: p.version, intentHash: p.intentHash } });
+  expect(r.status === 403 && r.json?.error?.code === 'SELF_APPROVAL_FORBIDDEN', `${r.status} ${r.json?.error?.code}`);
+});
+
+await check('80,000 USDC는 승인 2명 필요', async () => {
+  han ??= await login('u-a-han');
+  const p = await toPending(han, '80000', '배포 확인용 고액 모의 요청(자동 취소)');
+  expect(p.requiredApprovals === 2, `requiredApprovals=${p.requiredApprovals}`);
+});
+
+// 등록 본문은 입력 형식 검사(VALIDATION)를 모두 통과하는 완전한 값으로 보낸다. 그래야 422가 주소 규칙에서 나왔는지 알 수 있다.
+// 가운데 8자리는 서버와 같은 규칙(shared/address-rules.ts middleSegment)으로 고른다.
+const middleOf = (address) => {
+  const body = address.replace(/^MOCK-[A-Z]+-/, '');
+  const from = Math.max(0, Math.floor((body.length - 8) / 2));
+  return body.slice(from, from + 8);
+};
+const registrationBody = (address, overrides = {}) => ({
+  label: '배포 확인', counterparty: '배포 확인', assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '',
+  confirmTail: address.slice(-6), confirmMiddle: middleOf(address),
+  receivedVia: 'email', verifiedVia: 'registered_phone', verifiedWith: '배포 확인용 모의 연락처',
+  ackNotVerified: true, ackOutOfBandConfirmed: true, ...overrides,
+});
+const ADDRESS_RULE_CODES = new Set(['ADDRESS_NETWORK_MISMATCH', 'ADDRESS_REQUIRED', 'ADDRESS_WHITESPACE']);
+
+await check('MOCK- 형식이 아닌 주소 거부(점검·등록 모두 주소 규칙으로)', async () => {
+  han ??= await login('u-a-han');
+  const address = `0x${'ab'.repeat(20)}`;
+  const chk = await call('POST', '/api/addresses/check', { ...han, body: { assetCode: 'USDC', networkCode: 'ETHEREUM', address, memo: '' } });
+  const chkErr = chk.json?.findings?.find((f) => f.level === 'error');
+  expect(chk.status === 200 && chkErr && ADDRESS_RULE_CODES.has(chkErr.code), `점검 결과 ${chk.status} ${chkErr?.code ?? '오류 없음'}`);
+  const cr = await call('POST', '/api/addresses', { ...han, body: registrationBody(address) });
+  const code = cr.json?.error?.code;
+  expect(cr.status === 422 && ADDRESS_RULE_CODES.has(code), `등록 ${cr.status} ${code ?? ''} — 주소 규칙 오류가 아닙니다${code === 'VALIDATION' ? '(본문 형식 오류로 거부됨)' : ''}`);
+  // 대조: 같은 본문에 올바른 MOCK 주소를 넣으면 주소 규칙은 통과하고, 일부러 틀린 끝자리에서 거부되어야 한다(아무것도 만들지 않음).
+  const valid = `MOCK-EVM-${randomBytes(20).toString('hex').toUpperCase()}`;
+  const wrongTail = valid.slice(-6) === '000000' ? '111111' : '000000';
+  const ok = await call('POST', '/api/addresses', { ...han, body: registrationBody(valid, { confirmTail: wrongTail }) });
+  const okCode = ok.json?.error?.code;
+  expect(ok.status === 422 && okCode === 'CONFIRM_TAIL_MISMATCH', `대조(올바른 MOCK 주소) ${ok.status} ${okCode ?? ''} — 끝자리 불일치(CONFIRM_TAIL_MISMATCH)여야 합니다`);
+  return `점검 ${chkErr.code}, 등록 ${code}, 대조 ${okCode}`;
+});
+
+let op = null;
+await check('화이트리스트 외 기관 게시 422', async () => {
+  op = await login('u-k-op');
+  const r = await call('POST', '/api/insights', { ...op, body: { providerId: 'prov-x', title: '배포 확인', summary: '배포 확인', language: 'ko', publishedAt: '2026-10-19', url: 'https://example.com/smoke' } });
+  expect(r.status === 422 && r.json?.error?.code === 'PROVIDER_NOT_WHITELISTED', `${r.status} ${r.json?.error?.code}`);
+});
+
+await check('기관 도메인과 다른 원문 링크 422', async () => {
+  op ??= await login('u-k-op');
+  const r = await call('POST', '/api/insights', { ...op, body: { providerId: 'prov-a', title: '배포 확인', summary: '배포 확인', language: 'ko', publishedAt: '2026-10-19', url: 'https://example.net/smoke' } });
+  expect(r.status === 422 && r.json?.error?.code === 'PROVIDER_DOMAIN_MISMATCH', `${r.status} ${r.json?.error?.code}`);
+});
+
+// 검사용 출금 요청 정리(실패해도 검사 결과에는 넣지 않는다).
+for (const { s, id } of created) {
+  const cur = await call('GET', `/api/requests/${id}`, s);
+  if (cur.status === 200 && cur.json?.status === 'PENDING_APPROVAL') await call('POST', `/api/requests/${id}/cancel`, { ...s, body: { version: cur.json.version } });
+}
+
+// 무상태 세션은 서버에서 폐기할 수 없어 로그아웃은 브라우저 쿠키를 지우는 것이 전부다(docs/deploy-vercel.md 4절).
+await check('로그아웃이 세션 쿠키를 같은 속성으로 지움', async () => {
+  han ??= await login('u-a-han');
+  const r = await call('POST', '/api/auth/logout', { cookie: han.cookie, csrf: han.csrf, body: {} });
+  expect(r.status === 200, `상태 ${r.status} ${r.json?.error?.code ?? ''}`);
+  const c = r.headers.getSetCookie().find((x) => x.startsWith('koda_sid=')) ?? '';
+  expect(/^koda_sid=;/.test(c), '세션 쿠키를 비우지 않았습니다');
+  expect(/Expires=Thu, 01 Jan 1970/i.test(c) || /Max-Age=0/i.test(c), '만료 시각이 과거가 아닙니다');
+  const missing = [['Secure', /;\s*Secure/i], ['HttpOnly', /;\s*HttpOnly/i], ['SameSite=Strict', /;\s*SameSite=Strict/i], ['Path=/', /;\s*Path=\/(;|$)/i]].filter(([, re]) => !re.test(c)).map(([k]) => k);
+  expect(missing.length === 0, `속성 누락: ${missing.join(', ')}`);
+});
+
+await check('같은 IP의 31번째 로그인은 429(1분 30회)', async () => {
+  let prev = null;
+  for (let i = 0; i < 45; i++) {
+    loginAttempts++;
+    const r = await call('POST', '/api/auth/dev-login', { body: { userId: 'u-a-han' } });
+    if (r.status === 429) {
+      expect(r.json?.error?.code === 'RATE_LIMITED', `429 코드 ${r.json?.error?.code}`);
+      expect(prev && prev.headers.get('x-ratelimit-limit') === '30' && prev.headers.get('x-ratelimit-remaining') === '0', `직전 응답 한도 ${prev?.headers.get('x-ratelimit-limit')}/${prev?.headers.get('x-ratelimit-remaining')}`);
+      return `한도 30을 다 쓴 뒤 429 (이번 실행 로그인 ${loginAttempts}회)`;
+    }
+    expect(r.status === 200, `로그인 ${r.status}`);
+    prev = r;
+  }
+  throw new Fail('45번 시도해도 429가 나오지 않았습니다(인스턴스가 바뀌었거나 한도가 다릅니다)');
+});
+
+await finish();

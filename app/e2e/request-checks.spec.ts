@@ -1,0 +1,440 @@
+import { expect, test, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+import { loginAs, logout, onDb } from './helpers.ts';
+
+// WP-11: 출금 전 점검(F8·F13·F14)과 승인 대상 지문(F10).
+// 요청자: 작성 화면 미리 보기 → 검토 단계의 점검·진행 사유(없으면 서버가 거부) → 승인 요청 뒤 지문 안내.
+// 승인자: 결정 카드에서 같은 지문, 점검 결과, 요청자 사유, 되돌릴 수 없음 안내. 화면에 보인 지문이 서버와 다르면 승인되지 않는다.
+// 바꾸는 데이터: 이 파일에서 만든 요청(ab-07·ab-01·ab-02로 가는 요청)과 주소 1건(사용 대기 안내 확인용, 끝에 정지)뿐이다.
+// 승인 요청 때 새 주의가 생기는 검사는 ab-01로 가는 요청 2건을 만들고 끝에서 둘 다 취소해 예약 수량을 되돌린다.
+// ab-07로 가는 요청은 승인되어 처리 완료되고, 저장 계층에서 수량을 바꾼 요청은 반려된다.
+
+const FINGERPRINT = /^[0-9A-F]{4} [0-9A-F]{4} [0-9A-F]{4} [0-9A-F]{4}$/;
+
+const tickApprovalChecks = async (page: Page) => {
+  await page.getByLabel(/받는 곳과 목적이/).check();
+  await page.getByLabel(/근거 문서와 같습니다/).check();
+  await page.getByLabel(/앞·뒤 묶음과 네트워크/).check();
+};
+
+async function apiPost(page: Page, url: string, body: unknown) {
+  const me = await (await page.request.get('/api/me')).json();
+  const res = await page.request.post(url, { data: body, headers: { 'X-CSRF-Token': me.csrfToken, 'Idempotency-Key': `e2e-${Date.now()}-${Math.random().toString(36).slice(2)}` } });
+  const json = await res.json();
+  expect(res.ok(), JSON.stringify(json)).toBeTruthy();
+  return json;
+}
+
+/** 요청자 세션으로 초안 → 검토(→ 승인 요청)까지 API로 만든다. */
+async function makeRequest(page: Page, body: Record<string, unknown>, submit: boolean) {
+  const draft = await apiPost(page, '/api/requests', { assetCode: 'USDC', networkCode: 'ETHEREUM', amount: '1', purpose: 'E2E 출금 전 점검', ...body });
+  const rv = await apiPost(page, `/api/requests/${draft.id}/review`, { version: draft.version });
+  if (!submit) return rv;
+  return apiPost(page, `/api/requests/${draft.id}/submit`, {
+    version: rv.version, confirmTail: String(rv.address.address).slice(-6), ackIrreversible: true,
+    checkReasons: { first_use: 'E2E 거래처와 전화로 주소 전체를 대조했습니다' },
+  });
+}
+
+/** 문서 가로 넘침(레이아웃 폭 기준)과, 화면 밖으로 밀려난 점검 항목·지문·입력. */
+const measure = (page: Page) => page.evaluate(() => {
+  const vw = document.documentElement.clientWidth;
+  const off = [...document.querySelectorAll('.rc-item, .rc-intent, .rc-intent-value, .rc-reason, .card textarea, .card input, h1, .dl dd')]
+    .filter((e) => e.getClientRects().length > 0)
+    .map((e) => ({ cls: e.className, right: Math.round(e.getBoundingClientRect().right), text: (e.textContent ?? '').trim().slice(0, 16) }))
+    .filter((r) => r.right > vw + 1);
+  return { overflow: document.documentElement.scrollWidth - vw, off, items: document.querySelectorAll('.rc-item').length };
+});
+
+test('요청자: 작성 미리 보기와 검토 단계의 점검, 진행 사유가 없으면 거부, 승인 요청 뒤 지문 → 승인자: 같은 지문·점검·사유를 보고 승인', async ({ page }) => {
+  await loginAs(page, '한지수');
+  const ab07 = await (await page.request.get('/api/addresses/ab-07')).json();
+
+  // 1) 작성 화면: 주소와 수량을 고르면 저장하기 전에 점검 미리 보기가 보인다.
+  await page.goto('/requests/new');
+  await page.getByRole('combobox', { name: /^자산/ }).selectOption('USDC');
+  await page.getByRole('combobox', { name: /^네트워크/ }).selectOption('ETHEREUM');
+  await page.locator('#addressId').selectOption('ab-07');
+  await page.getByLabel(/수량/).fill('1500');
+  await page.getByRole('textbox', { name: /^요청 목적/ }).fill('E2E 해외 결제 대행 정산');
+  await expect(page.getByRole('heading', { name: '출금 전 점검 미리 보기' })).toBeVisible();
+  const previewFirst = page.locator('.rc-item', { hasText: '이 대시보드로 처음 보내는 주소입니다' });
+  await expect(previewFirst).toBeVisible();
+  await expect(previewFirst.locator('.rc-outcome')).toHaveText('주의');
+  await expect(previewFirst).toContainText('소액을 시험 전송');
+  // 미리 보기에서도 주의 항목은 무엇을 세었는지(기준·범위)와 사유가 필요한지를 함께 보인다
+  await expect(previewFirst.locator('.rc-basis')).toContainText('이 대시보드');
+  await expect(previewFirst.locator('.rc-need')).toHaveText('사유 필요');
+  await expect(page.locator('.rc-item', { hasText: '과거 출금 부족' }).locator('.rc-outcome')).toHaveText('확인 불가');
+  await expect(page.locator('.rc-item', { hasText: '과거 출금 부족' }).locator('.rc-need')).toHaveCount(0);
+  await page.getByRole('button', { name: '초안 저장 후 검토하기' }).click();
+  await expect(page.getByText('초안을 저장했습니다')).toBeVisible();
+  const url = page.url();
+
+  // 2) 작성 중 상세: 지금 기준 점검(읽기 전용)과 검토 단계 안내
+  await expect(page.getByRole('heading', { name: '출금 전 점검', exact: true })).toBeVisible();
+  await expect(page.getByText('「사유 필요」 표시가 있는 주의 항목은 검토로 이동한 뒤 진행 사유를 적어야 승인 요청을 보낼 수 있습니다.')).toBeVisible();
+  await page.getByRole('button', { name: '검토로 이동' }).click();
+
+  // 3) 검토 단계: 확인 카드 안의 점검과 진행 사유. 사유 없이 보내면 서버가 거부하고 입력으로 포커스를 옮긴다.
+  const card = page.locator('section.card-action');
+  await expect(card.getByRole('heading', { name: '최종 검토 후 승인 요청' })).toBeVisible();
+  await expect(card.getByRole('heading', { name: '출금 전 점검', exact: true })).toBeVisible();
+  // 사유 입력란이 있는 항목만 사유를 적는다고 안내한다(같은 자산 요청 몰림 같은 주의 항목에는 입력란이 없다)
+  await expect(card.getByText(/^진행 사유 입력란이 있는 주의 항목마다/)).toBeVisible();
+  const reasonBox = card.getByRole('textbox', { name: /^진행 사유: 이 대시보드로 처음 보내는 주소입니다/ });
+  await expect(reasonBox).toBeVisible();
+  // 아이콘과 결과 글자를 함께 둔다(색만으로 구분하지 않는다)
+  const firstItem = card.locator('.rc-item', { hasText: '처음 보내는 주소입니다' });
+  await expect(firstItem.locator('svg.rc-icon')).toHaveCount(1);
+  await expect(firstItem.locator('.rc-outcome')).toHaveText('주의');
+  await expect(firstItem.locator('.rc-basis')).toContainText('기준:');
+  await card.getByLabel(/원본 주소의 끝 6자리/).fill(String(ab07.address).slice(-6));
+  await card.getByLabel(/되돌릴 수 없다는 점/).check();
+  await card.getByRole('button', { name: '승인 요청 보내기' }).click();
+  const refused = page.getByRole('alert').filter({ hasText: '진행 사유가 필요합니다' });
+  await expect(refused).toBeVisible();
+  await expect(refused).toContainText('승인자에게 함께 보입니다');
+  await expect(reasonBox).toHaveAttribute('aria-invalid', 'true');
+  await expect(reasonBox).toBeFocused();
+  const reviewId = new URL(url).pathname.split('/').pop()!;
+  expect((await (await page.request.get(`/api/requests/${reviewId}`)).json()).status).toBe('REVIEW'); // 아무것도 예약되지 않았다
+  const reasonText = 'E2E 결제 대행사 재무팀과 등록된 번호로 통화해 주소 전체를 대조했습니다';
+  await reasonBox.fill(reasonText);
+  await card.getByRole('button', { name: '승인 요청 보내기' }).click();
+
+  // 4) 승인 요청 뒤: 요청자에게 지문을 알려 주고, 저장된 점검 결과와 사유를 보인다.
+  // 확인 카드가 사라진 자리에 머물지 않고 지문 안내로 포커스가 옮겨져 화면 안에 보인다.
+  const sent = page.getByRole('status').filter({ hasText: '승인 요청을 보냈습니다' });
+  await expect(sent).toBeVisible();
+  await expect(sent).toBeInViewport();
+  await expect(page.locator('.rc-focus-target').filter({ has: sent })).toBeFocused();
+  const fp = (await sent.locator('.rc-intent-inline').textContent())!.trim();
+  expect(fp).toMatch(FINGERPRINT);
+  // 알림이 가지 않는다는 점과, 지문 대조는 권장 단계라는 점을 분명히 쓴다(A1).
+  await expect(sent).toContainText('승인자에게 알림이 가지 않으니 직접 알려 주세요.');
+  await expect(sent).toContainText(`권장: 알릴 때 쓴 메신저가 아니라 전화 등 다른 연락 수단으로 승인 대상 지문(${fp})을 불러 주면, 승인자가 자기 화면의 지문과 같은지 대조할 수 있습니다.`);
+  await expect(sent).not.toContainText('함께 알려');
+  await expect(page.locator('.dl dd').filter({ hasText: fp })).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: '출금 전 점검 결과' })).toBeVisible();
+  await expect(page.locator('.rc-reason').filter({ hasText: reasonText })).toBeVisible();
+  const dto = await (await page.request.get(`/api/requests/${reviewId}`)).json();
+  expect(dto.intentHashDisplay).toBe(fp);
+  await logout(page);
+
+  // 5) 승인자: 결정 카드에 같은 지문, 점검 결과와 요청자 사유, 되돌릴 수 없음 안내
+  await loginAs(page, '오민재');
+  await page.goto(url);
+  const decide = page.locator('section.card-action');
+  await expect(decide.getByRole('heading', { name: '승인 또는 반려' })).toBeVisible();
+  const intent = decide.getByRole('group', { name: '승인 대상 지문' });
+  await expect(intent.locator('.rc-intent-value')).toHaveText(fp);
+  await expect(intent).toContainText('승인 요청 뒤 이 중 하나라도 바뀌면 지문이 달라져 승인되지 않습니다');
+  // 요청자 쪽 권장 단계와 짝을 이루는 승인자 쪽 할 일(선택 단계, 승인 조건은 그대로)
+  await expect(decide.locator('.rc-intent-todo')).toHaveText('요청자에게서 이 지문을 메신저가 아닌 다른 연락 수단으로 받았다면 같은지 대조하세요. 다르면 승인하지 말고 반려하세요.');
+  await expect(decide.getByRole('heading', { name: '출금 전 점검 결과' })).toBeVisible();
+  await expect(decide.locator('.rc-item', { hasText: '이 대시보드로 처음 보내는 주소입니다' }).locator('.rc-reason')).toContainText(reasonText);
+  await expect(decide).toContainText('은행 착오송금처럼 되돌려 받는 절차도 없습니다');
+  // 무엇을 결정하는지 요약 → 지문 → 점검이 결정 버튼보다 먼저 읽힌다(A1: 요약이 맨 위)
+  const order = await decide.evaluate((el) => {
+    const pos = (s: string) => [...el.querySelectorAll('*')].indexOf(el.querySelector(s)!);
+    return { summary: pos('.rc-decide-summary'), intent: pos('.rc-intent'), checks: pos('.rc-list'), evidence: pos('.pe-block'), effect: pos('#approve-effect'), approve: pos('button.btn-primary') };
+  });
+  expect(order.summary).toBeGreaterThanOrEqual(0);
+  expect(order.summary).toBeLessThan(order.intent);
+  expect(order.intent).toBeLessThan(order.checks);
+  expect(order.checks).toBeLessThan(order.approve);
+  // 지급 근거(A2b)는 점검 결과 다음, 승인 효과 문장 앞에 끼운다(A1 순서는 그대로)
+  expect(order.checks).toBeLessThan(order.evidence);
+  expect(order.evidence).toBeLessThan(order.effect);
+  // 기준 이내 항목은 접힌 묶음 안에 있다(항목은 그대로 5개). 기준 각주(설계 가정·보증 아님)는 펼치지 않아도 보인다.
+  await expect(decide.locator('.rc-item')).toHaveCount(5);
+  const passGroup = decide.locator('details.rc-pass-group');
+  await expect(passGroup).toHaveCount(1);
+  await expect(passGroup.locator('.rc-item').first()).toBeHidden();
+  await expect(decide.locator('.rc-footnote')).toBeVisible();
+  await expect(decide.locator('.rc-footnote')).toContainText('설계 가정');
+  await expect(decide.locator('.rc-footnote')).toContainText('보증하지 않습니다');
+  await passGroup.locator('summary').click();
+  await expect(passGroup.locator('.rc-item').first()).toBeVisible();
+  // 같은 지문이 두 번 보이지 않는다(정의 목록에는 쓰지 않는다)
+  await expect(page.locator('.dl dt', { hasText: '승인 대상 지문' })).toHaveCount(0);
+  const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+  expect(axe.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
+  await page.getByLabel(/받는 곳과 목적이/).check();
+  await page.getByLabel(/근거 문서와 같습니다/).check();
+  await page.getByLabel(/앞·뒤 묶음과 네트워크/).check();
+  await page.getByRole('button', { name: '승인하고 처리 시작', exact: true }).click(); // 필요 승인 1명: 마지막 승인
+  await expect(page.getByText('처리 중').first()).toBeVisible();
+  // 승인 기록 줄 자체에 지문이 남는다(승인 요청 줄에도 같은 지문이 있으므로 승인 줄로 좁혀 본다).
+  await expect(page.locator('.timeline li').filter({ hasText: '승인 (유효' })).toContainText(`지문 ${fp}`);
+});
+
+test('승인자 화면에 보인 지문이 서버의 지문과 다르면 승인되지 않고(409), 원인과 행동을 보인다', async ({ page }) => {
+  await loginAs(page, '한지수');
+  const pending = await makeRequest(page, { addressId: 'ab-01', amount: '2' }, true);
+  expect(pending.status).toBe('PENDING_APPROVAL');
+  await logout(page);
+
+  await loginAs(page, '서예린');
+  // 화면이 받은 응답의 지문만 바꾼다(화면·전송 경로가 바뀐 상황을 흉내 낸다).
+  await page.route(`**/api/requests/${pending.id}`, async (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const res = await route.fetch();
+    const body = await res.json();
+    return route.fulfill({ response: res, json: { ...body, intentHash: 'f'.repeat(64), intentHashDisplay: 'FFFF FFFF FFFF FFFF' } });
+  });
+  await page.goto(`/requests/${pending.id}`);
+  await expect(page.locator('.rc-intent-value')).toHaveText('FFFF FFFF FFFF FFFF');
+  await tickApprovalChecks(page);
+  await page.getByRole('button', { name: '승인하고 처리 시작', exact: true }).click();
+  // 안내는 결정 카드 안(결정 버튼 위)에 보이고, 안내로 포커스가 옮겨져 화면 안에 있다. 승인 전 확인 표시는 지워진다.
+  const decide = page.locator('section.card-action');
+  const alert = decide.getByRole('alert').filter({ hasText: '결정하려던 내용과 지금 요청의 승인 대상 지문이 다릅니다.' });
+  await expect(alert).toBeVisible();
+  await expect(alert).toContainText('승인 대상 지문을 다시 확인한 뒤 결정하세요');
+  await expect(alert).toBeInViewport();
+  await expect(decide.locator('.rc-focus-target')).toBeFocused();
+  await expect(page.getByRole('alert').filter({ hasText: '승인 대상 지문이 다릅니다' })).toHaveCount(1); // 화면 위쪽에 같은 안내를 되풀이하지 않는다
+  await expect(page.getByLabel(/받는 곳과 목적이/)).not.toBeChecked();
+  await expect(page.getByLabel(/근거 문서와 같습니다/)).not.toBeChecked();
+  await expect(page.getByLabel(/앞·뒤 묶음과 네트워크/)).not.toBeChecked();
+  await expect(page.getByRole('button', { name: '승인하고 처리 시작', exact: true })).toBeDisabled();
+  expect((await (await page.request.get(`/api/requests/${pending.id}`)).json()).status).toBe('PENDING_APPROVAL');
+
+  // 화면이 서버의 지문을 그대로 보이면 승인된다.
+  await page.unroute(`**/api/requests/${pending.id}`);
+  await page.reload();
+  await expect(page.locator('.rc-intent-value')).toHaveText(pending.intentHashDisplay);
+  await tickApprovalChecks(page);
+  await page.getByRole('button', { name: '승인하고 처리 시작', exact: true }).click();
+  await expect(page.getByText('처리 중').first()).toBeVisible();
+});
+
+test('검토 때 없던 사유 필요 주의가 승인 요청 때 처음 생기면: 거부 뒤 화면을 다시 불러와 그 항목의 사유 입력을 오류 상태로 보인다', async ({ page }) => {
+  await loginAs(page, '한지수');
+  const USDC_DP = 6;
+  const toUnits = (s: string) => { const [w, f = ''] = s.split('.'); return BigInt(w!) * 10n ** BigInt(USDC_DP) + BigInt((f + '0'.repeat(USDC_DP)).slice(0, USDC_DP) || '0'); };
+  const fromUnits = (u: bigint) => `${u / 10n ** BigInt(USDC_DP)}.${(u % 10n ** BigInt(USDC_DP)).toString().padStart(USDC_DP, '0')}`;
+  const availableUsdcEth = async () => {
+    const b = await (await page.request.get('/api/balances')).json();
+    return toUnits(b.assets.find((a: any) => a.assetCode === 'USDC').byWallet.find((w: any) => w.networkCode === 'ETHEREUM').available as string);
+  };
+  const cleanup: string[] = [];
+  try {
+    // A: 보낸 적 있는 주소(ab-01)로 1 USDC. 검토 단계에서는 사유가 필요한 주의 항목이 없다.
+    const a = await makeRequest(page, { addressId: 'ab-01', amount: '1' }, false);
+    cleanup.push(a.id);
+    expect(a.checks.items.filter((i: any) => i.requiresReason).map((i: any) => i.id), '검토 때 사유가 필요한 항목이 없어야 한다').toEqual([]);
+    await page.goto(`/requests/${a.id}`);
+    const card = page.locator('section.card-action');
+    await expect(card.getByRole('heading', { name: '최종 검토 후 승인 요청' })).toBeVisible();
+    await expect(card.getByRole('textbox', { name: /^진행 사유/ })).toHaveCount(0);
+    await card.getByLabel(/원본 주소의 끝 6자리/).fill(String(a.address.address).slice(-6));
+    await card.getByLabel(/되돌릴 수 없다는 점/).check();
+
+    // 화면을 연 뒤 다른 요청 B가 사용 가능 수량을 거의 다 예약한다. 남는 수량은 1.5 USDC라 A(1 USDC)는 그 50% 이상이 된다.
+    const b = await makeRequest(page, { addressId: 'ab-01', amount: fromUnits((await availableUsdcEth()) - 1_500_000n), purpose: 'E2E 사용 가능 수량 예약' }, false);
+    cleanup.push(b.id);
+    const reason = 'E2E 사용 가능 수량을 예약하는 모의 요청입니다';
+    await apiPost(page, `/api/requests/${b.id}/submit`, {
+      version: b.version, confirmTail: String(b.address.address).slice(-6), ackIrreversible: true,
+      checkReasons: { first_use: reason, amount_history: reason, balance_share: reason },
+    });
+    expect(await availableUsdcEth()).toBe(1_500_000n);
+
+    // 승인 요청: 서버가 새 주의 항목의 사유가 없다고 거부하고, 화면은 다시 불러온 점검에 그 항목의 사유 입력을 보인다.
+    // 다시 불러오기를 늦춰, 빠른 로컬 응답에 기대지 않고 거부 → 다시 불러오기 → 새 입력 순서를 그대로 거치게 한다.
+    await page.route(`**/api/requests/${a.id}`, async (r) => { if (r.request().method() === 'GET') await new Promise((res) => setTimeout(res, 400)); await r.continue(); });
+    const submitted = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith(`/api/requests/${a.id}/submit`));
+    await card.getByRole('button', { name: '승인 요청 보내기' }).click();
+    const res = await submitted;
+    expect(res.status()).toBe(422);
+    expect((await res.json()).error.code).toBe('CHECK_REASON_REQUIRED');
+    await expect(page.getByRole('alert').filter({ hasText: '진행 사유가 필요합니다' })).toBeVisible();
+    const shareBox = card.getByRole('textbox', { name: /^진행 사유: 사용 가능 수량의 큰 부분을 한 번에 보냅니다/ });
+    await expect(shareBox).toBeVisible();
+    await expect(shareBox).toHaveAttribute('aria-invalid', 'true');
+    // 다시 불러온 뒤 새로 생긴 사유 입력으로 포커스가 옮겨 가야 한다(첫 오류 포커스가 입력칸이 생길 때까지 다시 찾는다).
+    await expect(shareBox).toBeFocused();
+    await page.unroute(`**/api/requests/${a.id}`);
+    expect((await (await page.request.get(`/api/requests/${a.id}`)).json()).status).toBe('REVIEW'); // 아무것도 예약되지 않았다
+  } finally {
+    // 정리: 두 요청을 취소해 예약 수량을 푼다(뒤 검사가 쓰는 USDC / Ethereum 수량).
+    for (const id of cleanup.reverse()) {
+      const cur = await (await page.request.get(`/api/requests/${id}`)).json();
+      if (cur.allowedActions?.includes('cancel')) await apiPost(page, `/api/requests/${id}/cancel`, { version: cur.version });
+    }
+  }
+});
+
+test('작성 화면: 사용 대기 중인 주소는 고를 수 없지만 사용 가능 시각(KST)과 할 일을 받는 주소 아래에 보인다', async ({ page }) => {
+  await loginAs(page, '한지수');
+  // 새 주소를 등록하고 다른 담당자가 확인한다(E2E 서버는 대기 0시간이라 바로 사용 가능). 그 뒤 저장 계층에서 사용 대기로 되돌린다.
+  const address = `MOCK-EVM-${Array.from({ length: 40 }, () => '0123456789ABCDEF'[Math.floor(Math.random() * 16)]).join('')}`;
+  const label = `E2E 사용 대기 안내 ${Date.now().toString(36)}`;
+  const { address: created } = await apiPost(page, '/api/addresses', {
+    label, counterparty: 'E2E 모의 거래처', assetCode: 'USDC', networkCode: 'KAIA', address, memo: '',
+    confirmTail: address.slice(-6), confirmMiddle: address.replace('MOCK-EVM-', '').slice(16, 24),
+    ackNotVerified: true, ackOutOfBandConfirmed: true, receivedVia: 'email', verifiedVia: 'registered_phone', verifiedWith: 'E2E 모의 거래처 대표번호',
+  });
+  await logout(page);
+  await loginAs(page, '오민재');
+  const body = address.replace('MOCK-EVM-', '');
+  const toReview = await (await page.request.get(`/api/addresses/${created.id}`)).json();
+  await apiPost(page, `/api/addresses/${created.id}/review`, {
+    decision: 'approve', note: '', version: toReview.version, confirmTail: address.slice(-6),
+    confirmMiddle: body.slice(toReview.middle.start - 1, toReview.middle.end),
+  });
+  const activeFrom = new Date(Date.now() + 5 * 3600_000).toISOString();
+  onDb((db) => db.prepare("UPDATE address_book SET status = 'COOLING_DOWN', active_from = ? WHERE id = ?").run(activeFrom, created.id));
+  await logout(page);
+
+  await loginAs(page, '한지수');
+  await page.goto('/requests/new');
+  await page.getByRole('combobox', { name: /^자산/ }).selectOption('USDC');
+  await page.getByRole('combobox', { name: /^네트워크/ }).selectOption('KAIA');
+  const waiting = page.locator('.notice', { has: page.locator('.rc-waiting') });
+  await expect(waiting).toBeVisible();
+  await expect(waiting).toContainText(label);
+  const kst = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(activeFrom));
+  const p = Object.fromEntries(kst.map((x) => [x.type, x.value]));
+  await expect(waiting).toContainText(`${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute} KST부터 사용 가능`);
+  // 요청자도 주소 상세에서 직접 정지할 수 있으므로 승인자에게 미루지 않고, 정지할 곳(주소 상세)으로 바로 가는 링크를 둔다.
+  await expect(waiting).toContainText('사용 가능해질 때까지 기다린 뒤 다시 요청하세요. 요청한 적 없는 등록이라면 주소 상세에서 「사용 대기 중 정지」로 바로 정지하세요.');
+  await expect(waiting).not.toContainText('승인자에게');
+  const toAddress = waiting.getByRole('link', { name: label });
+  await expect(toAddress).toHaveAttribute('href', `/addresses/${created.id}`);
+  // 고를 수는 없다
+  await expect(page.locator('#addressId option', { hasText: label })).toHaveCount(0);
+  // 링크를 따라가면(작성 중 확인을 거쳐) 주소 상세에 정지 버튼이 있다
+  await toAddress.click();
+  await page.getByRole('alertdialog', { name: '작성 중인 내용이 있습니다' }).getByRole('button', { name: '작성 내용 버리기' }).click();
+  await expect(page).toHaveURL(new RegExp(`/addresses/${created.id}$`));
+  await expect(page.locator('#page-title')).toHaveText(label);
+  await expect(page.getByRole('button', { name: '사용 대기 중 정지' })).toBeVisible();
+  // 정리: 사용 대기 중 정지(다른 화면의 사용 대기 알림에 남지 않게)
+  const cur = await (await page.request.get(`/api/addresses/${created.id}`)).json();
+  await apiPost(page, `/api/addresses/${created.id}/stop`, { version: cur.version, reason: 'E2E 사용 대기 안내 확인 후 정리' });
+});
+
+test.describe('390px', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('작성 미리 보기·검토 카드·결정 카드·감사 기록이 가로로 넘치지 않는다', async ({ page }) => {
+    await loginAs(page, '한지수');
+    // 작성 화면의 미리 보기(ab-02: USDC/Kaia, 처음 보내는 주소)
+    await page.goto('/requests/new');
+    await page.getByRole('combobox', { name: /^자산/ }).selectOption('USDC');
+    await page.getByRole('combobox', { name: /^네트워크/ }).selectOption('KAIA');
+    await page.locator('#addressId').selectOption('ab-02');
+    await page.getByLabel(/수량/).fill('1000');
+    await expect(page.locator('.rc-item').first()).toBeVisible();
+    let m = await measure(page);
+    expect(m.overflow, '/requests/new').toBeLessThanOrEqual(1);
+    expect(m.off, '/requests/new').toEqual([]);
+    expect(m.items).toBe(5);
+    page.once('dialog', (d) => void d.accept());
+    await page.goto('/');
+    await page.locator('#page-title').waitFor();
+
+    // 검토 단계(진행 사유 입력이 있는 확인 카드)
+    const review = await makeRequest(page, { assetCode: 'USDC', networkCode: 'KAIA', addressId: 'ab-02', amount: '1000' }, false);
+    await page.goto(`/requests/${review.id}`);
+    await expect(page.getByRole('textbox', { name: /^진행 사유: 이 대시보드로 처음 보내는 주소입니다/ })).toBeVisible();
+    await page.waitForLoadState('networkidle');
+    m = await measure(page);
+    expect(m.overflow, 'review').toBeLessThanOrEqual(1);
+    expect(m.off, 'review').toEqual([]);
+    const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+    expect(axe.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
+
+    // 승인 요청 뒤 요청자 화면(지문은 정의 목록, 점검 결과는 카드)
+    const pending = await apiPost(page, `/api/requests/${review.id}/submit`, {
+      version: review.version, confirmTail: String(review.address.address).slice(-6), ackIrreversible: true,
+      checkReasons: { first_use: 'E2E 파트너 재무팀과 전화로 주소 전체를 대조했습니다. 좁은 화면에서 긴 사유가 줄을 바꾸는지 함께 봅니다.' },
+    });
+    await page.goto(`/requests/${pending.id}`);
+    await expect(page.locator('.dl dd .rc-intent-inline')).toHaveText(pending.intentHashDisplay);
+    await page.waitForLoadState('networkidle');
+    m = await measure(page);
+    expect(m.overflow, 'pending (requester)').toBeLessThanOrEqual(1);
+    expect(m.off, 'pending (requester)').toEqual([]);
+    await logout(page);
+
+    // 승인자 결정 카드
+    await loginAs(page, '오민재');
+    await page.goto(`/requests/${pending.id}`);
+    await expect(page.locator('section.card-action .rc-intent-value')).toHaveText(pending.intentHashDisplay);
+    await page.waitForLoadState('networkidle');
+    m = await measure(page);
+    expect(m.overflow, 'decide card').toBeLessThanOrEqual(1);
+    expect(m.off, 'decide card').toEqual([]);
+    // 정리: 이 요청을 반려해 예약 수량을 푼다
+    await apiPost(page, `/api/requests/${pending.id}/reject`, { version: pending.version, reason: 'E2E 화면 점검용 요청 정리', intentHash: pending.intentHash });
+    await logout(page);
+
+    // 감사 기록(행동 이름은 화면·CSV 공용 이름)
+    await loginAs(page, '문태호');
+    await page.goto('/audit?pageSize=25');
+    await page.locator('table tbody tr').first().waitFor();
+    await page.waitForLoadState('networkidle');
+    m = await measure(page);
+    expect(m.overflow, '/audit').toBeLessThanOrEqual(1);
+    await expect(page.locator('select option', { hasText: '승인 요청' }).first()).toBeAttached();
+  });
+
+  test('승인 요청 뒤 저장된 수량이 바뀐 요청(INTENT_TAMPERED): 결정 카드 안 안내로 포커스가 가고, 다시 불러오면 승인 없이 지문 불일치와 반려만 남는다', async ({ page }) => {
+    /** USDC / Ethereum 지갑의 예약 수량(표시용 10진 문자열) */
+    const reservedUsdcEth = async () => {
+      const b = await (await page.request.get('/api/balances')).json();
+      return b.assets.find((a: any) => a.assetCode === 'USDC').byWallet.find((w: any) => w.networkCode === 'ETHEREUM').reserved as string;
+    };
+    await loginAs(page, '한지수');
+    const reservedBefore = await reservedUsdcEth();
+    const pending = await makeRequest(page, { addressId: 'ab-01', amount: '1500' }, true);
+    expect(pending.status).toBe('PENDING_APPROVAL');
+    await logout(page);
+
+    await loginAs(page, '오민재');
+    await page.goto(`/requests/${pending.id}`);
+    const decide = page.locator('section.card-action');
+    await expect(decide.getByRole('heading', { name: '승인 또는 반려' })).toBeVisible();
+    await expect(decide.locator('.rc-intent-value')).toHaveText(pending.intentHashDisplay);
+    // 화면을 연 뒤 저장 계층에서 수량을 바꾼다(앱 경로 밖의 변경). 화면은 아직 이전 내용을 보이고 승인 버튼도 있다.
+    onDb((db) => db.prepare('UPDATE withdrawal_requests SET amount_units = ? WHERE id = ?').run('15000000000', pending.id));
+    await tickApprovalChecks(page);
+    await decide.getByRole('button', { name: '승인하고 처리 시작', exact: true }).click();
+
+    // 서버가 거부한 안내는 누른 자리(결정 카드 안)에 보이고 포커스가 옮겨진다. 좁은 화면에서도 화면 안에 있다.
+    const alert = decide.getByRole('alert').filter({ hasText: '승인 대상 지문과 맞지 않아 처리하지 않았습니다' });
+    await expect(alert).toBeVisible();
+    await expect(alert).toBeInViewport();
+    await expect(alert).toContainText('사유와 함께 반려하세요');
+    await expect(decide.locator('.rc-focus-target')).toBeFocused();
+
+    // 다시 불러온 내용: 승인은 사라지고, 지문 옆에 지금 내용과 다르다는 표시, 미리 채운 반려 사유
+    await expect(decide.getByRole('button', { name: /^승인(하고 처리 시작)?$/ })).toHaveCount(0); // 어느 이름으로도 승인 버튼이 없다
+    await expect(decide.getByRole('heading', { name: '반려', exact: true })).toBeVisible();
+    await expect(decide.locator('.rc-intent-mismatch')).toContainText('지금 요청 내용으로 다시 계산한 지문과 다릅니다');
+    await expect(decide.locator('#reason')).toHaveValue(/승인 대상 지문/);
+    await expect(page.locator('.next-action')).toContainText('보안 담당자에게 알리세요');
+    let m = await measure(page);
+    expect(m.overflow, 'tampered decide card').toBeLessThanOrEqual(1);
+    expect(m.off, 'tampered decide card').toEqual([]);
+
+    // 반려하면 승인 요청 때 예약한 수량(1,500 USDC)이 그대로 풀린다(지금 행의 15,000 USDC가 아니라)
+    // 반려 사유 입력란의 이름도 '반려 사유'라, 응답과 반려된 화면을 기다린 뒤에 상태를 읽는다.
+    const rejected = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith(`/api/requests/${pending.id}/reject`));
+    await decide.getByRole('button', { name: '반려', exact: true }).click();
+    expect((await rejected).ok()).toBe(true);
+    await expect(page.locator('.notice-danger').filter({ has: page.locator('.notice-title', { hasText: /^반려 사유$/ }) })).toBeVisible();
+    await expect(decide).toHaveCount(0);
+    await expect.poll(async () => (await (await page.request.get(`/api/requests/${pending.id}`)).json()).status).toBe('REJECTED');
+    const after = await (await page.request.get(`/api/requests/${pending.id}`)).json();
+    expect(after.blockedReason).toBeNull();
+    await expect.poll(reservedUsdcEth).toBe(reservedBefore);
+    m = await measure(page);
+    expect(m.overflow, 'rejected').toBeLessThanOrEqual(1);
+  });
+});

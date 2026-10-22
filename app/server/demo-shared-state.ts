@@ -1,0 +1,131 @@
+import { get, put } from '@vercel/blob';
+import { tx, type DB } from './db.ts';
+
+const B64 = '__b64';
+const BIG = '__big';
+
+/** SQLite 값 → JSON. BLOB(Uint8Array)과 BigInt를 표시해 두었다가 그대로 되돌린다. */
+function encodeValue(v: unknown): unknown {
+  if (v instanceof Uint8Array) return { [B64]: Buffer.from(v).toString('base64') };
+  if (typeof v === 'bigint') return { [BIG]: v.toString() };
+  return v;
+}
+function decodeValue(v: unknown): unknown {
+  if (v && typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    if (typeof o[B64] === 'string') return Buffer.from(o[B64] as string, 'base64');
+    if (typeof o[BIG] === 'string') return BigInt(o[BIG] as string);
+  }
+  return v;
+}
+
+/** 모든 테이블을 JSON으로 내보낸다(스키마 마이그레이션 표 포함). 모의 데이터라 크기가 작다. */
+export function exportSnapshot(db: DB): Record<string, unknown[]> {
+  const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[]).map((r) => r.name);
+  const out: Record<string, unknown[]> = {};
+  for (const t of tables) {
+    const rows = db.prepare(`SELECT * FROM "${t}"`).all() as Record<string, unknown>[];
+    out[t] = rows.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, encodeValue(v)])));
+  }
+  return out;
+}
+
+/**
+ * 스냅샷을 현재 DB에 원자적으로 반영한다(외래키 잠시 끔, 한 트랜잭션).
+ * 감사 기록·승인·의도·첨부 표는 추가 전용 트리거가 DELETE/UPDATE를 막는다. 이 동기화는 서버가 신뢰하는 스냅샷을
+ * 그대로 복제하는 것이므로, 잠시 트리거를 떼고 복제한 뒤 같은 트랜잭션에서 원래 SQL로 되돌린다(롤백되면 자동 복원).
+ */
+export function importSnapshot(db: DB, tables: Record<string, unknown[]>): void {
+  // PRAGMA foreign_keys는 트랜잭션 안에서는 바뀌지 않으므로 트랜잭션 밖에서 끄고 켠다.
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    tx(db, () => {
+      const triggers = db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'").all() as { name: string; sql: string | null }[];
+      for (const t of triggers) db.exec(`DROP TRIGGER IF EXISTS "${t.name}"`);
+      for (const [t, rows] of Object.entries(tables)) {
+        db.exec(`DELETE FROM "${t}"`);
+        if (!rows.length) continue;
+        const cols = Object.keys(rows[0] as Record<string, unknown>);
+        const stmt = db.prepare(`INSERT INTO "${t}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`);
+        for (const row of rows) stmt.run(...(cols.map((c) => decodeValue((row as Record<string, unknown>)[c])) as any[]));
+      }
+      for (const t of triggers) if (t.sql) db.exec(t.sql);
+    });
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+export interface DemoSharedState {
+  readonly enabled: boolean;
+  /** 다른 인스턴스의 최신 스냅샷을 가져온다(짧은 간격은 건너뜀). 실패하면 조용히 넘어간다. */
+  pull(): Promise<void>;
+  /** 이 인스턴스의 변경을 공유 저장소에 올린다. 실패해도 요청 처리는 계속한다. */
+  push(): Promise<void>;
+}
+
+/**
+ * 공개 데모 전용 공유 상태(A8).
+ * Vercel 함수는 인스턴스마다 메모리 DB가 따로라서, 새 인스턴스로 요청이 가면 방금 만든 요청·승인이 사라져 보였다.
+ * Vercel Blob(비공개 저장소)에 DB 스냅샷을 두고, 요청 전에 조건부 GET으로 최신본을 확인해 당겨 오고(변경 없으면 304),
+ * 변경 뒤에는 올려 모든 인스턴스가 같은 데이터를 보게 한다. BLOB_STORE_ID와 토큰이 없으면(로컬 실행) 아무 것도 하지 않는다.
+ */
+export function createDemoSharedState(db: DB): DemoSharedState {
+  const deployment = process.env.VERCEL_URL ?? 'local';
+  const key = `demo-state/${deployment}.json`;
+  const enabled = process.env.DEMO_SHARED_STATE !== 'off' && !!process.env.BLOB_STORE_ID && (!!process.env.VERCEL_OIDC_TOKEN || !!process.env.BLOB_READ_WRITE_TOKEN);
+  let rev = 0;
+  let etag: string | null = null;
+  let lastPullAt = 0;
+  let inflightPull: Promise<void> | null = null;
+
+  const push = async (initial = false) => {
+    if (!enabled) return;
+    try {
+      rev += 1;
+      const body = JSON.stringify({ rev, at: new Date().toISOString(), tables: exportSnapshot(db) });
+      // 첫 기준 스냅샷은 덮어쓰지 않는다(allowOverwrite: false). 여러 인스턴스가 동시에 기준을 올려
+      // 먼저 올라간 쓰기(예: 로그인 감사 기록)를 늦게 뜬 인스턴스의 초기 스냅샷이 덮어쓰는 사고를 막는다.
+      await put(key, body, { access: 'private', allowOverwrite: !initial, addRandomSuffix: false, contentType: 'application/json' });
+      etag = null; // 다음 pull은 자기 스냅샷을 한 번 더 내려받아 etag를 새로 잡는다.
+    } catch (e) {
+      rev = Math.max(0, rev - 1);
+      if (initial) return; // 이미 다른 인스턴스가 기준을 만들었다. 다음 pull에서 가져온다.
+    }
+  };
+
+  const pull = async () => {
+    if (!enabled) return;
+    const now = Date.now();
+    // 매 요청 조건부 GET으로 최신 여부를 확인한다(동시 요청은 아래 inflight로 합친다).
+    if (now - lastPullAt < 0) return;
+    if (inflightPull) return inflightPull;
+    lastPullAt = now;
+    inflightPull = (async () => {
+      try {
+        const got = await get(key, { access: 'private', useCache: false, ...(etag ? { ifNoneMatch: etag } : {}) });
+        if (!got) {
+          await push(true); // 첫 인스턴스가 기준 스냅샷을 만든다(동시에 여러 인스턴스가 시도하면 하나만 성공).
+          return;
+        }
+        if (got.statusCode === 304) return;
+        const text = await new Response(got.stream).text();
+        const data = JSON.parse(text) as { rev?: number; tables?: Record<string, unknown[]> };
+        // 원격이 바뀌었으면(200) rev 비교 없이 그대로 반영한다. 여러 인스턴스가 각자 첫 스냅샷을 올리면 rev가 같을 수 있어
+        // rev 비교로는 서로 다른 초기 스냅샷을 영원히 합치지 못한다. 변경이 없으면 위에서 304로 끝난다.
+        if (data.tables) {
+          importSnapshot(db, data.tables);
+          if (typeof data.rev === 'number') rev = data.rev;
+        }
+        etag = got.blob.etag;
+      } catch {
+        /* 공유 저장소가 잠시 안 되면 이 인스턴스 DB로 계속 동작한다. */
+      } finally {
+        inflightPull = null;
+      }
+    })();
+    return inflightPull;
+  };
+
+  return { enabled, pull, push };
+}

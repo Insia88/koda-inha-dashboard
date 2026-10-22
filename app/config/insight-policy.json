@@ -1,0 +1,10 @@
+{
+  "$comment": "Market Insight 운영 설정. 실제 화이트리스트·선별 기준은 KODA 운영팀이 관리하며 이 값은 개발용 모의 설정이다.",
+  "disclosure": "본 자료는 정보 제공 목적이며 투자 권유가 아닙니다. 제3자 리서치 기관이 작성한 자료로, 내용에 대한 책임은 각 기관에 있습니다.",
+  "listBatchSize": 12,
+  "newBadgeDays": 7,
+  "requireWhitelistedProvider": true,
+  "experiments": {
+    "holdingRelatedFilter": false
+  }
+}

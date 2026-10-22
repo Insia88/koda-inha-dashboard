@@ -1,0 +1,31 @@
+/* 공개 데모: 다른 서버 인스턴스로 연결되었다는 안내(Layout). 토큰은 styles.css :root와 DESIGN.md를 따른다. */
+.demo-switch { margin-bottom: var(--s4); }
+.demo-switch-actions { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s2); }
+
+
+/* A7: 공개 데모 진행자용 사용자 전환(데모에서만 렌더한다). */
+.demo-switcher { position: relative; }
+.demo-switcher-toggle { list-style: none; }
+.demo-switcher-toggle::-webkit-details-marker { display: none; }
+.demo-switcher[open] .demo-switcher-toggle { border-color: var(--line-strong); }
+.demo-switcher-menu { position: absolute; right: 0; top: calc(100% + var(--s2)); z-index: 30; width: min(320px, 84vw); display: flex; flex-direction: column; gap: 4px; padding: var(--s3); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: 0 12px 28px rgba(16, 32, 27, 0.18); }
+.demo-switcher-menu p { margin: 0 0 4px; }
+.demo-switcher-item { justify-content: flex-start; text-align: left; }
+@media (max-width: 900px) { .topbar .demo-switcher { display: none; } .nav-user .demo-switcher { display: block; } }
+
+
+/* A7: 서랍(좁은 화면) 맨 위의 현재 사용자와 데모 전환. 넓은 화면에서는 머리글에 이미 있으므로 서랍 쪽은 숨긴다. */
+.nav-user { display: none; }
+@media (max-width: 900px) {
+  .nav-user { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--s2); padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); }
+  .nav-user-name { font-weight: 700; }
+  .nav-user-roles { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-2); }
+  .nav-demo-switcher { width: 100%; }
+  .nav-demo-switcher-menu { position: static; width: 100%; margin-top: 4px; box-shadow: none; }
+}
+
+/* A9: 좁은 화면 대시보드 서랍에서 공개 사이트로 돌아가는 링크. */
+/* 데스크톱은 탑바의 KODA 소개 링크를 쓰고, 이 링크는 서랍(좁은 화면)에서만 보인다. */
+.nav-user-site { display: none; align-items: center; gap: 4px; min-height: 44px; font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: 600; color: var(--action); text-decoration: none; }
+.nav-user-site:hover { text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 900px) { .nav-user-site { display: inline-flex; } }

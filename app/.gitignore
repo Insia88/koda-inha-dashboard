@@ -1,0 +1,14 @@
+data/
+dist/
+test-results/
+playwright-report/
+*.sqlite
+*.sqlite-*
+artifacts/
+test-results/
+.vercel-server/
+.vercel/
+.env.local
+.env.preview.local
+
+.env*

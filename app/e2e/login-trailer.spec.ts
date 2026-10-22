@@ -1,0 +1,89 @@
+import { expect, test } from '@playwright/test';
+
+// 로그인 무대의 KODA 브랜드 필름(15초, 무음) — DEC-006. 영상은 장식이고, 로그인 카드는 지금처럼 본문이다.
+// 넓은 화면은 16:9 컷, 좁은 화면(무대가 위쪽 띠)은 4:5 컷을 쓴다. 무대 문구는 화면 안에 보여야 한다.
+test.describe('로그인 브랜드 트레일러(DEC-006)', () => {
+  test('데스크톱: 무음·루프·자동재생, 무대 문구가 화면 안에 있고 로그인 카드를 가리지 않는다', async ({ page }) => {
+    const consoleErrors: string[] = [];
+    page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+    page.on('pageerror', (e) => consoleErrors.push(e.message));
+    await page.goto('/login?next=%2F&reason=expired');
+    await expect(page.getByRole('heading', { name: '법인 대시보드 로그인' })).toBeVisible();
+
+    const video = page.locator('.login-stage video');
+    await expect(video).toHaveCount(1);
+    const state = await video.evaluate((node) => {
+      const v = node as HTMLVideoElement;
+      return { muted: v.muted, loop: v.loop, autoplay: v.autoplay, playsInline: v.playsInline, paused: v.paused, readyState: v.readyState, src: v.currentSrc };
+    });
+    // 소리 있는 자동재생은 브라우저가 막을 수 있다. 막히면 음소거로 재생되고 '배경음 켜기' 버튼으로 켠다.
+    expect(state.loop).toBe(true);
+    expect(state.autoplay).toBe(true);
+    expect(state.playsInline).toBe(true);
+    expect(state.src).toContain('/brand/koda-brand-film-16x9.mp4');
+    const soundBtn = page.getByRole('button', { name: /배경음 (켜기|끄기)/ });
+    await expect(soundBtn).toBeVisible();
+
+    // 재생이 시작될 때까지(포스터만 떠 있다가 영상이 준비되면 재생). 전체 필름(42.45초)인지도 확인한다.
+    await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).readyState >= 2), { timeout: 20_000 }).toBe(true);
+    expect(await video.evaluate((node) => (node as HTMLVideoElement).duration)).toBeGreaterThan(40);
+    await expect.poll(() => video.evaluate((node) => !(node as HTMLVideoElement).paused), { timeout: 20_000 }).toBe(true);
+
+    // '배경음 켜기'를 누르면(사용자 클릭) 소리가 켜지고 재생이 이어진다.
+    if (await soundBtn.getAttribute('aria-pressed') !== 'true') await soundBtn.click();
+    await expect.poll(() => video.evaluate((node) => !(node as HTMLVideoElement).muted && !(node as HTMLVideoElement).paused), { timeout: 15_000 }).toBe(true);
+    await expect(page.getByRole('button', { name: '배경음 끄기' })).toBeVisible();
+
+    // 장식: 포커스를 받지 않고 보조기기에서 숨는다.
+    await expect(video).toHaveAttribute('aria-hidden', 'true');
+    await expect(video).toHaveAttribute('tabindex', '-1');
+
+    // 무대 문구가 화면 안에 보인다(로그인 목록이 길어도 중앙의 16:9 창과 함께 화면 안에 남는다).
+    await expect(page.locator('.login-stage-copy')).toBeInViewport();
+
+    // 영상 뒤에서도 본문(세션 만료 안내·로그인 사용자)이 그대로 동작한다.
+    // 로그인한 적 없는 첫 방문에 ?reason=expired가 붙어도 만료 안내는 뜨지 않는다. 표시 쿠키가 있으면 보인다.
+    const expiredText = '세션이 만료되어 로그아웃되었습니다. 다시 로그인하면 보던 화면으로 돌아갑니다.';
+    await expect(page.getByText(expiredText)).toHaveCount(0);
+    await page.context().addCookies([{ name: 'koda_logged_in', value: '1', domain: new URL(page.url()).hostname, path: '/' }]);
+    await page.reload();
+    await expect(page.getByText(expiredText)).toBeVisible();
+    await expect(page.locator('.login-user').first()).toBeVisible();
+    // 화면 고정: 로그인 목록을 스크롤해도 무대 내용(필름 창 + 태그라인)은 화면 위에 붙어 있다.
+    await page.mouse.wheel(0, 420);
+    await page.waitForTimeout(250);
+    expect(Math.abs(await page.locator('.login-stage-inner').evaluate((el) => Math.round(el.getBoundingClientRect().top)))).toBeLessThanOrEqual(1);
+    expect(consoleErrors).toEqual([]);
+  });
+
+  test('줄인 움직임: 영상을 재생하지 않고 포스터만 보여 준다', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/login');
+    await expect(page.locator('.login-stage video')).toBeHidden();
+    await expect(page.locator('.login-stage-sound')).toBeHidden();
+    await expect(page.locator('.login-stage-poster')).toBeVisible();
+    await expect(page.getByRole('heading', { name: '법인 대시보드 로그인' })).toBeVisible();
+  });
+});
+
+test.describe('로그인 브랜드 트레일러 390px', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('좁은 화면: 무대는 위쪽 띠(4:5 컷), 로그인 카드는 그 아래에서 시작한다', async ({ page }) => {
+    await page.goto('/login');
+    const stage = page.locator('.login-stage');
+    const card = page.locator('.login-card');
+    await expect(stage).toBeVisible();
+    await expect(card).toBeVisible();
+    const stageBox = await stage.boundingBox();
+    const cardBox = await card.boundingBox();
+    expect(stageBox!.height).toBeLessThanOrEqual(320);
+    expect(cardBox!.y).toBeGreaterThanOrEqual(stageBox!.height - 1);
+    const src = await page.locator('.login-stage video').evaluate((node) => (node as HTMLVideoElement).currentSrc);
+    expect(src).toContain('/brand/koda-brand-film-4x5.mp4');
+    expect(await page.locator('.login-stage video').evaluate((node) => (node as HTMLVideoElement).duration)).toBeGreaterThan(40);
+    // 좁은 화면 띠에서는 영상 아래 문구를 두지 않는다(영상 하단 띠·로그인 제목과 겹치지 않게).
+    await expect(page.locator('.login-stage-copy')).toBeHidden();
+    await expect(page.getByRole('heading', { name: '법인 대시보드 로그인' })).toBeVisible();
+  });
+});

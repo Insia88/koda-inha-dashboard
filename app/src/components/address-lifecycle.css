@@ -1,0 +1,50 @@
+/* 주소 수명 주기 보호(사용 대기·정지·다른 경로 확인 기록·주소 오염 의심) 화면 요소. 토큰은 styles.css :root(DESIGN.md)와 같다. */
+
+/* 진행 순서: 확인 대기 → 사용 대기 → 사용 가능. 단계 사이 꺾쇠는 테두리로 그려 글자로 읽히지 않는다.
+   꺾쇠를 각 단계(li) 안 앞쪽에 두어, 좁은 화면에서 줄이 바뀌어도 내용 영역 밖으로 나가지 않는다. */
+.lc-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); font-size: var(--fs-md); line-height: var(--lh-md); }
+.lc-steps li { display: inline-flex; align-items: center; gap: var(--s2); min-width: 0; }
+.lc-steps li + li::before { content: ''; flex: none; width: 6px; height: 6px; margin: 0 2px 0 -2px; border-top: 2px solid var(--ink-3); border-right: 2px solid var(--ink-3); transform: rotate(45deg); }
+.lc-step { display: inline-flex; align-items: center; min-height: 28px; padding: 2px 10px; border-radius: 999px; background: var(--neutral-soft); color: var(--ink-2); white-space: nowrap; }
+.lc-steps li[aria-current='step'] .lc-step { background: var(--info-soft); color: var(--info); font-weight: 700; }
+.lc-steps li.lc-done .lc-step { background: var(--surface); border: 1px solid var(--line); }
+.lc-flow { display: flex; flex-direction: column; gap: var(--s2); }
+.lc-flow > p { margin: 0; }
+
+/* 사용 대기 카드: 언제부터 쓸 수 있는지(KST)와 남은 시간을 먼저 읽게 한다. */
+.lc-cooldown { border-color: #c5d4f6; border-width: 2px; display: flex; flex-direction: column; gap: var(--s3); }
+.lc-cooldown > p { margin: 0; }
+.lc-when { font-size: var(--fs-lg); line-height: var(--lh-lg); font-weight: 700; }
+.lc-when time, .lc-left b { white-space: nowrap; }
+.lc-left { color: var(--ink-2); }
+
+/* 목록의 상태 칸: 배지 아래 사용 가능 시각과 남은 시간 */
+.lc-list-when { margin-top: 2px; color: var(--ink-2); }
+.lc-list-when span { white-space: nowrap; }
+/* 좁은 화면의 주소록 카드: 상태 칸(이름 옆 auto 열)이 넓어져 이름 칸을 밀지 않도록 시각과 남은 시간을 두 줄로 나눈다. */
+@media (max-width: 560px) { .lc-list-when span { display: block; } }
+
+/* 사용 대기 중 정지 */
+.lc-stop { border-color: #f3c3bf; display: flex; flex-direction: column; gap: var(--s3); }
+.lc-stop > p { margin: 0; }
+.lc-quote { margin: 0; padding: var(--s2) var(--s3); border-left: 3px solid var(--line-strong); background: var(--paper); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* 다른 경로 확인 기록(확인 카드 안) */
+.lc-oob { border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: var(--s3); background: #fbfcfc; display: flex; flex-direction: column; gap: var(--s2); }
+.lc-oob > p { margin: 0; }
+.lc-oob .dl { grid-template-columns: 150px minmax(0, 1fr); }
+@media (max-width: 860px) { .lc-oob .dl { grid-template-columns: minmax(0, 1fr); } }
+
+/* 주소 등록: 같은 경로 선택 즉시 안내 */
+.lc-same-channel { margin: 0; color: var(--danger); font-size: var(--fs-md); line-height: var(--lh-md); }
+
+/* 주소 오염 의심 입금(활동 내역): 위험 배지 + 짧은 설명 + 보낸 주소(복사 버튼 없음) */
+.lc-poison { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s1); margin-top: var(--s1); max-width: 100%; min-width: 0; }
+.lc-poison-text { margin: 0; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--ink-2); }
+.lc-poison-addr { max-width: 100%; }
+.lc-poison-addr .addr-code { font-size: var(--fs-xs); line-height: var(--lh-xs); }
+.lc-poison-addr .addr-chunk { background: var(--danger-soft); color: var(--ink); font-weight: 500; }
+
+/* 홈 최근 활동: 좁은 화면에서 배지(.badge)가 숨으므로 별도 표시를 쓴다. */
+.lc-poison-flag { display: inline-flex; align-items: center; padding: 0 6px; border-radius: 999px; background: var(--danger-soft); color: var(--danger); font-size: var(--fs-xs); line-height: var(--lh-xs); letter-spacing: var(--ls-caption); font-weight: 700; white-space: nowrap; }
+.recent-list li > .lc-poison-flag { grid-column: 2 / -1; justify-self: start; white-space: normal; max-width: 100%; }
