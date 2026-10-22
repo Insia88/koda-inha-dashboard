@@ -30,7 +30,7 @@ html:has(.site), body:has(.site) { background: #08120e; }
 }
 .site * { box-sizing: border-box; }
 .site h1, .site h2, .site h3, .site p, .site ol, .site ul { margin: 0; }
-.site h1, .site h2, .site h3 { font-weight: 800; letter-spacing: -0.035em; line-height: 1.16; }
+.site h1, .site h2, .site h3 { letter-spacing: -0.035em; line-height: 1.16; }
 .site a { color: inherit; }
 .site img { max-width: 100%; }
 .site button { font: inherit; }
