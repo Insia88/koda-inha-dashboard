@@ -26,7 +26,20 @@ test.describe('KODA 공개 사이트', () => {
     await page.getByRole('button', { name: /한 번 더 확인하고 승인한다/ }).click();
     await expect(page.getByRole('button', { name: /한 번 더 확인하고 승인한다/ })).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByText(/승인자는 요청의 받는 주소·금액·승인 지문/)).toBeVisible();
-    await expect(page.locator('.site-change-visual img')).toHaveAttribute('src', '/site/screens/request-detail.jpg');
+    await expect(page.locator('.site-change-media img.is-active')).toHaveAttribute('src', '/site/screens/request-detail.jpg');
+
+    // 히어로 미리보기 캐러셀과 화면 캐러셀
+    await expect(page.locator('.site-hero-dots button')).toHaveCount(3);
+    await expect(page.locator('.site-hero-preview [aria-roledescription="carousel"]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '자동 넘김 일시정지' })).toBeVisible();
+    await expect(page.locator('.site-hero-slides img.is-active')).toHaveCount(1);
+    await expect(page.getByRole('button', { name: '다음 화면' })).toBeVisible();
+    await expect(page.locator('.site-carousel-count')).toHaveText('01 / 06');
+    await page.getByRole('button', { name: '다음 화면' }).click();
+    await expect(page.locator('.site-carousel-count')).toHaveText('02 / 06');
+    await expect(page.locator('.site-carousel-dots button.is-active')).toHaveCount(1);
+    await page.getByRole('button', { name: '이전 화면' }).click();
+    await expect(page.locator('.site-carousel-count')).toHaveText('01 / 06');
 
     // 필름·장면 6·화면 6·자료 3
     await expect(page.locator('#film video')).toHaveCount(1);

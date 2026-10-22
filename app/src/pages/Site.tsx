@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import { IconArrowRight, IconChevronDown, IconDownload, IconFileText, IconMenu2, IconMovie, IconVolume, IconVolumeOff, IconX } from '@tabler/icons-react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  IconArrowLeft, IconArrowRight, IconChevronDown, IconDownload, IconFileText, IconMenu2,
+  IconMovie, IconPlayerPause, IconPlayerPlay, IconVolume, IconVolumeOff, IconX,
+} from '@tabler/icons-react';
 import './site.css';
 
 const NAV = [
@@ -29,13 +32,19 @@ const CHANGES: ChangeItem[] = [
   },
 ];
 
+const HERO_SLIDES = [
+  { tag: 'HOME', title: '확인 상태 · 보유 자산 · 처리할 일', img: '/site/screens/home.jpg', alt: '홈 화면: 확인 상태와 보유 자산 요약' },
+  { tag: 'DECISION', title: '결정 카드 · 승인 지문 · 안전 확인', img: '/site/screens/request-detail.jpg', alt: '요청 상세 화면: 결정 카드와 승인 지문' },
+  { tag: 'AUDIT', title: '감사 기록 · 업무 기록 필터 · 무결성', img: '/site/screens/audit.jpg', alt: '감사 기록 화면: 추가 전용 기록과 무결성 확인' },
+];
+
 const CHAPTERS = [
-  { img: '/site/plates/start.jpg', k: '장면 01 · 시작', t: '확인은 작은 점 하나에서 시작됩니다.' },
-  { img: '/site/plates/address.jpg', k: '장면 02 · 주소', t: '받는 주소 한 줄도 다시 확인합니다.' },
-  { img: '/site/plates/hero.jpg', k: '장면 03 · 지문', t: '승인 대상이 바뀌지 않았는지 지문으로 확인합니다.' },
-  { img: '/site/plates/flow.jpg', k: '장면 04 · 흐름', t: '확인에서 승인, 보관까지 이어집니다.' },
-  { img: '/site/plates/mark.jpg', k: '장면 05 · 약속', t: '확인이 쌓여 신뢰가 됩니다.' },
-  { img: '/site/plates/final.jpg', k: '장면 06 · KODA', t: '법인·기관 투자자를 위한 디지털 자산 파트너.' },
+  { img: '/site/plates/start.jpg', k: '장면 01 · 시작', t: '확인은 작은 점 하나에서 시작됩니다.', d: 'KODA는 자산을 확인하는 일을 한 화면에서 시작합니다.' },
+  { img: '/site/plates/address.jpg', k: '장면 02 · 주소', t: '받는 주소 한 줄도 다시 확인합니다.', d: '주소를 다시 대조하고, 모르는 주소는 사용 대기로 둡니다.' },
+  { img: '/site/plates/hero.jpg', k: '장면 03 · 지문', t: '승인 대상이 바뀌지 않았는지 지문으로 확인합니다.', d: '승인 지문으로 내용이 바뀌었는지 알아챕니다.' },
+  { img: '/site/plates/flow.jpg', k: '장면 04 · 흐름', t: '확인에서 승인, 보관까지 이어집니다.', d: '요청이 만들어지고 결정되고 처리되는 흐름을 한눈에 봅니다.' },
+  { img: '/site/plates/mark.jpg', k: '장면 05 · 약속', t: '확인이 쌓여 신뢰가 됩니다.', d: '작은 확인이 쌓여 법인 자산 관리의 신뢰가 됩니다.' },
+  { img: '/site/plates/final.jpg', k: '장면 06 · KODA', t: '법인·기관 투자자를 위한 디지털 자산 파트너.', d: 'KODA는 확인과 기록으로 신뢰를 만듭니다.' },
 ];
 
 interface ScreenItem { img: string; tag: string; title: string; caption: string }
@@ -54,7 +63,6 @@ const RESOURCES = [
   { href: '/brand/koda-brand-film-16x9.mp4', type: 'MP4', title: 'KODA 브랜드 필름', desc: '확인·승인·보관의 흐름을 담은 42초 브랜드 필름.', meta: '42초 · 2.1MB', icon: 'movie' },
 ];
 
-/** 사이트 전용 문서 머리말. 대시보드 앱과 분리된 공개 페이지라 앱 셸 없이 그린다. */
 function useSiteMeta() {
   useEffect(() => {
     document.title = 'KODA | 법인 디지털 자산 대시보드';
@@ -75,6 +83,7 @@ function useSiteMeta() {
 export function SitePage() {
   useSiteMeta();
   const [scrolled, setScrolled] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('top');
   const [activeChange, setActiveChange] = useState(0);
@@ -82,10 +91,42 @@ export function SitePage() {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [soundOn, setSoundOn] = useState(false);
+  const [reduced, setReduced] = useState(false);
 
-  // 스크롤에 맞춰 내비게이션 배경과 현재 섹션을 표시한다.
+  // 캐러셀: 히어로 미리보기 3장 + 화면 6장.
+  const [heroIndex, setHeroIndex] = useState(0);
+  const [heroPaused, setHeroPaused] = useState(false);
+  const [screenIndex, setScreenIndex] = useState(0);
+  const screenTrack = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24);
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const sync = () => setReduced(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
+
+  // 히어로 미리보기 자동 넘김. 마우스·포커스가 올라오거나 일시정지 버튼을 누르면 멈춘다.
+  useEffect(() => {
+    if (heroPaused || reduced) return;
+    const t = window.setInterval(() => setHeroIndex((i) => (i + 1) % HERO_SLIDES.length), 5400);
+    return () => window.clearInterval(t);
+  }, [heroPaused, reduced]);
+
+  // 스크롤에 맞춰 내비게이션 배경·진행선·현재 섹션을 표시한다.
+  useEffect(() => {
+    const onScroll = () => {
+      setScrolled(window.scrollY > 24);
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      setProgress(max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0);
+      // 히어로 영상은 스크롤에 따라 조금만 느리게 따라가고, 카피는 반대로 살짝 빠져나간다(자연스러운 장면 전환).
+      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        document.documentElement.style.setProperty('--site-hero-shift', `${Math.min(window.scrollY, 900) * 0.09}px`);
+      } else {
+        document.documentElement.style.removeProperty('--site-hero-shift');
+      }
+    };
     onScroll();
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
@@ -141,6 +182,36 @@ export function SitePage() {
     try { await v.play(); setSoundOn(true); } catch { v.muted = true; setSoundOn(false); }
   };
 
+  // 화면 캐러셀: 버튼·키보드·스와이프 어느 쪽이든 현재 카드를 가운데로 맞춘다.
+  const goScreen = (next: number) => {
+    const track = screenTrack.current;
+    if (!track) return;
+    const i = Math.max(0, Math.min(SCREENS.length - 1, next));
+    const card = track.children[i] as HTMLElement | undefined;
+    if (card) {
+      const left = card.offsetLeft - (track.clientWidth - card.clientWidth) / 2;
+      track.scrollTo({ left: Math.max(0, left), behavior: reduced ? 'auto' : 'smooth' });
+    }
+    setScreenIndex(i);
+  };
+  const onScreenScroll = () => {
+    const track = screenTrack.current;
+    if (!track) return;
+    const center = track.scrollLeft + track.clientWidth / 2;
+    let best = 0;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    [...track.children].forEach((child, i) => {
+      const el = child as HTMLElement;
+      const distance = Math.abs(el.offsetLeft + el.clientWidth / 2 - center);
+      if (distance < bestDistance) { bestDistance = distance; best = i; }
+    });
+    setScreenIndex(best);
+  };
+  const onScreenKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ArrowRight') { e.preventDefault(); goScreen(screenIndex + 1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); goScreen(screenIndex - 1); }
+  };
+
   const closeMenu = () => setMenuOpen(false);
 
   return (
@@ -148,9 +219,10 @@ export function SitePage() {
       <a className="site-skip" href="#main">본문으로 건너뛰기</a>
 
       <header className={`site-nav${scrolled ? ' is-scrolled' : ''}${menuOpen ? ' is-open' : ''}`}>
+        <span className="site-nav-progress" aria-hidden="true" style={{ transform: `scaleX(${progress})` }} />
         <div className="site-nav-in">
-          <a className="site-brand" href="#top" onClick={closeMenu} >
-            <img src="/koda-logo.svg" alt="" width={117} height={26} />
+          <a className="site-brand" href="#top" onClick={closeMenu}>
+            <img src="/koda-logo.svg" alt="KODA" width={117} height={26} />
             <span className="site-brand-div" aria-hidden="true" />
             <em>법인 대시보드</em>
           </a>
@@ -180,6 +252,7 @@ export function SitePage() {
             <h1 className="site-hero-h" id="site-hero-h">
               확인이 쌓여,<br /><em>신뢰가 됩니다.</em>
             </h1>
+            <p className="site-hero-serif">Trust, one confirmation at a time.</p>
             <p className="site-hero-lead">
               법인·기관 투자자를 위한 디지털 자산 대시보드. 자산 확인부터 승인, 감사 기록까지 한 화면에서 이어집니다.
               이 사이트는 산학 데모용 모의 환경입니다.
@@ -194,17 +267,45 @@ export function SitePage() {
               <li>3분 데모</li>
             </ul>
           </div>
-          <div className="site-hero-preview" aria-hidden="true">
-            <p className="site-hero-preview-note"><i />대시보드 미리보기</p>
+
+          <div
+            className="site-hero-preview"
+            role="region"
+            aria-roledescription="carousel"
+            aria-label="대시보드 화면 미리보기"
+            onMouseEnter={() => setHeroPaused(true)}
+            onMouseLeave={() => setHeroPaused(false)}
+            onFocusCapture={() => setHeroPaused(true)}
+            onBlurCapture={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setHeroPaused(false); }}
+          >
+            <div className="site-hero-preview-head">
+              <p className="site-hero-preview-note"><i />대시보드 미리보기</p>
+              <button className="site-hero-pause" type="button" aria-pressed={heroPaused} aria-label={heroPaused ? '자동 넘김 다시 시작' : '자동 넘김 일시정지'} onClick={() => setHeroPaused((p) => !p)}>
+                {heroPaused ? <IconPlayerPlay size={14} aria-hidden="true" /> : <IconPlayerPause size={14} aria-hidden="true" />}
+              </button>
+            </div>
             <div className="site-browser">
               <div className="site-browser-bar">
                 <span className="site-browser-dots"><i /><i /><i /></span>
                 <span className="site-browser-url">koda-inha-dashboard.vercel.app</span>
               </div>
-              <img src="/site/screens/home.jpg" alt="" width={1440} height={900} fetchPriority="high" />
+              <div className="site-hero-slides">
+                {HERO_SLIDES.map((s, i) => (
+                  <img key={s.img} src={s.img} alt={i === heroIndex ? s.alt : ''} aria-hidden={i !== heroIndex} className={i === heroIndex ? 'is-active' : ''} width={1440} height={900} loading={i === 0 ? 'eager' : 'lazy'} />
+                ))}
+              </div>
             </div>
-            <p className="site-caption"><b>HOME</b> 확인 상태 · 보유 자산 · 처리할 일</p>
+            <div className="site-hero-preview-foot">
+              <p className="site-caption"><b>{HERO_SLIDES[heroIndex]!.tag}</b> {HERO_SLIDES[heroIndex]!.title}</p>
+              <div className="site-hero-dots" aria-label="미리보기 화면 선택">
+                {HERO_SLIDES.map((s, i) => (
+                  <button key={s.tag} type="button" className={i === heroIndex ? 'is-active' : ''} aria-label={`${i + 1}번 화면 보기`} aria-current={i === heroIndex ? 'true' : undefined} onClick={() => setHeroIndex(i)} />
+                ))}
+              </div>
+            </div>
+            <span className="site-hero-progress" aria-hidden="true"><i key={heroIndex} className={heroPaused || reduced ? 'is-paused' : ''} /></span>
           </div>
+
           <button className="site-hero-sound" type="button" aria-pressed={soundOn} aria-label={soundOn ? '배경음 끄기' : '배경음 켜기'} onClick={() => void toggleSound()}>
             {soundOn ? <IconVolumeOff size={17} aria-hidden="true" /> : <IconVolume size={17} aria-hidden="true" />}
             {soundOn ? '배경음 끄기' : '배경음 켜기'}
@@ -246,7 +347,11 @@ export function SitePage() {
                     <span className="site-browser-url">koda-inha-dashboard.vercel.app</span>
                     <span className="site-browser-live">DEMO</span>
                   </div>
-                  <img src={CHANGES[activeChange]!.image} alt={`${CHANGES[activeChange]!.caption} 화면`} width={1440} height={900} loading="lazy" />
+                  <div className="site-change-media">
+                    {CHANGES.map((c, i) => (
+                      <img key={c.n} src={c.image} alt={i === activeChange ? `${c.caption} 화면` : ''} aria-hidden={i !== activeChange} className={i === activeChange ? 'is-active' : ''} width={1440} height={900} loading={i === 0 ? 'eager' : 'lazy'} />
+                    ))}
+                  </div>
                 </div>
                 <p className="site-caption"><b>{CHANGES[activeChange]!.n}</b> {CHANGES[activeChange]!.caption}</p>
               </div>
@@ -281,6 +386,7 @@ export function SitePage() {
                   <div className="site-chapter-copy">
                     <p className="site-chapter-k">{c.k}</p>
                     <h3>{c.t}</h3>
+                    <p className="site-chapter-desc">{c.d}</p>
                   </div>
                 </li>
               ))}
@@ -293,17 +399,39 @@ export function SitePage() {
             <p className="site-eyebrow" data-rv><i aria-hidden="true" />화면 6장</p>
             <div className="site-sec-head">
               <h2 className="site-h2" id="screens-h" data-rv>대시보드에서 실제로 보게 되는 화면.</h2>
-              <p className="site-lead" data-rv>로그인 화면부터 승인 결정 카드, 감사 기록까지. 데모 사용자로 직접 열어 볼 수 있습니다. 이미지를 누르면 크게 볼 수 있습니다.</p>
+              <p className="site-lead" data-rv>로그인 화면부터 승인 결정 카드, 감사 기록까지. 데모 사용자로 직접 열어 볼 수 있습니다. 옆으로 넘기거나 화면을 누르면 크게 볼 수 있습니다.</p>
             </div>
-            <div className="site-screen-grid" data-rv>
-              {SCREENS.map((s) => (
-                <button key={s.tag} type="button" className="site-screen" onClick={() => setLightbox(s)} aria-label={`${s.title} 화면 크게 보기`}>
-                  <img src={s.img} alt={`${s.title} 화면`} width={1440} height={900} loading="lazy" />
-                  <span className="site-screen-copy">
-                    <span className="site-screen-tag">{s.tag} · {s.title}</span>
-                    <span className="site-screen-caption">{s.caption}</span>
-                  </span>
-                </button>
+            <div className="site-carousel-head" data-rv>
+              <p className="site-carousel-count"><b>{String(screenIndex + 1).padStart(2, '0')}</b> / {String(SCREENS.length).padStart(2, '0')}</p>
+              <div className="site-carousel-controls">
+                <button type="button" onClick={() => goScreen(screenIndex - 1)} disabled={screenIndex === 0} aria-label="이전 화면"><IconArrowLeft size={18} aria-hidden="true" /></button>
+                <button type="button" onClick={() => goScreen(screenIndex + 1)} disabled={screenIndex === SCREENS.length - 1} aria-label="다음 화면"><IconArrowRight size={18} aria-hidden="true" /></button>
+              </div>
+            </div>
+            <div
+              className="site-carousel"
+              tabIndex={0}
+              role="region"
+              aria-roledescription="carousel"
+              aria-label="대시보드 화면 6장"
+              onKeyDown={onScreenKey}
+              data-rv
+            >
+              <div className="site-screen-track" ref={screenTrack} onScroll={onScreenScroll}>
+                {SCREENS.map((s, i) => (
+                  <button key={s.tag} type="button" className={`site-screen${i === screenIndex ? ' is-current' : ''}`} onClick={() => setLightbox(s)} aria-label={`${s.title} 화면 크게 보기`}>
+                    <img src={s.img} alt={`${s.title} 화면`} width={1440} height={900} loading={i === 0 ? 'eager' : 'lazy'} />
+                    <span className="site-screen-copy">
+                      <span className="site-screen-tag">{s.tag} · {s.title}</span>
+                      <span className="site-screen-caption">{s.caption}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="site-carousel-dots" aria-label="화면 선택">
+              {SCREENS.map((s, i) => (
+                <button key={s.tag} type="button" className={i === screenIndex ? 'is-active' : ''} aria-label={`${s.title} 화면으로 이동`} aria-current={i === screenIndex ? 'true' : undefined} onClick={() => goScreen(i)} />
               ))}
             </div>
             <div className="site-screens-cta" data-rv>
